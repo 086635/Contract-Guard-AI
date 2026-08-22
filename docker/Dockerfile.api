@@ -1,0 +1,16 @@
+# api-gateway 镜像：uv workspace 单体构建
+FROM python:3.11-slim AS base
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+RUN pip install --no-cache-dir uv
+
+WORKDIR /app
+# 复制工作区元数据与源码（uv workspace 需根 pyproject + 各成员包）
+COPY pyproject.toml ./
+COPY packages ./packages
+COPY apps ./apps
+
+# 安装 api-gateway 及其工作区依赖（含 ai-engine / doc-processor）
+RUN uv sync --no-dev --package api-gateway
+
+EXPOSE 8000
+CMD ["uv", "run", "--package", "api-gateway", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

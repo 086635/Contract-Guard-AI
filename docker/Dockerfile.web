@@ -1,0 +1,14 @@
+# web-ui 镜像：前端构建 + nginx 托管（SPA history 回退由 nginx.conf 处理）
+FROM node:20-slim AS build
+WORKDIR /app
+RUN npm install -g pnpm
+COPY apps/web-ui/package.json ./
+RUN pnpm install
+COPY apps/web-ui ./
+RUN pnpm build
+
+FROM nginx:alpine
+COPY --from=build /app/dist /usr/share/nginx/html
+# 注意：生产若经顶层 nginx 反代，可省略此处 default.conf；本地直跑 web 服务时用。
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]

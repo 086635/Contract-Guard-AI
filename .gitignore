@@ -1,0 +1,44 @@
+# ============================================================================
+# 通用忽略规则
+# ============================================================================
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+out/
+*.tsbuildinfo
+.venv/
+venv/
+*.log
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# ============================================================================
+# 生成产物（⚠️ 由 Schema CLI 自动生成，禁止手工编辑 / 提交）
+# 如需更新请运行：pnpm --filter @contract-guard/schema gen
+# ============================================================================
+apps/api-gateway/app/generated/schemas.py
+apps/web-ui/src/api/generated/types.ts
+apps/web-ui/src/api/generated/zod.ts
+
+# ============================================================================
+# 运行时 / 凭据 / 数据
+# ============================================================================
+.env
+.env.local
+.env.*.local
+*.env
+node_modules/
+.pnpm-store/
+.pnpm-cache/
+.npm-cache/
+coverage/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+data/uploads/
+data/reports/

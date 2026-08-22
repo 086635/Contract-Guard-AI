@@ -1,0 +1,1221 @@
+openapi: 3.1.0
+info:
+  title: 企业合同智能审核与风险预警系统 API
+  description: |
+    基于大模型的企业合同智能审核与风险预警系统（赛题【A24】· 网新恒天）。
+
+    ## 单一真理源（SSOT）
+    本文件为权威接口契约。前端 `types.ts` / `zod.ts` 与后端 `schemas.py`(Pydantic)
+    均由本文件经 CLI 同源生成，禁止手写漂移。
+
+    ## 关键约定（详见 文件集合/report/data_scheme.md）
+    - 响应统一包络：`code`(字符串枚举) + `data` + `traceId` + `serverTime`
+    - 集合空返回 `[]` 而非 `null`；所有 ID 为 `string`
+    - 金额 `Money`(string 定点 + 整数分)；百分比 `[0,1]`；时间 ISO 8601 UTC
+    - 写操作支持 `X-Request-ID` 幂等；可编辑实体携带 `version` 乐观锁
+    - 文件上传走 presign 三步法；长耗时任务返回 `taskId` + 进度订阅
+  version: 1.1.0
+
+servers:
+  - url: /api/v1
+    description: 网关 v1 基址
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Contracts
+    description: 合同上传 / 解析 / 要素 / 风险 / 矛盾 / 印章
+  - name: Agent
+    description: AI 重写（Diff）与分层 Memory 交互
+  - name: Config
+    description: 系统级可配置规则与 Prompt 角色
+  - name: Report
+    description: 审核报告生成与导出
+  - name: Tasks
+    description: 长耗时异步任务进度订阅
+  - name: Feedback
+    description: 标注反馈（数据飞轮）
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  # =========================================================================
+  # 枚举（§1.2 / §8 禁止魔法值）
+  # =========================================================================
+  schemas:
+    ContractType:
+      type: string
+      description: 合同类型（赛题要求 ≥5 类）
+      enum:
+        - PURCHASE      # 采购合同
+        - SALES         # 销售合同
+        - NDA           # 保密协议
+        - OUTSOURCING   # 服务外包合同
+        - LABOR         # 劳动合同
+        - OTHER         # 其他（需人工归类）
+
+    RiskLevel:
+      type: string
+      enum: [HIGH, MEDIUM, LOW]
+
+    FileType:
+      type: string
+      enum: [DOCX, PDF_NATIVE, PDF_SCANNED, IMAGE]
+
+    ContractStatus:
+      type: string
+      description: 合同整体状态（乐观锁版本链驱动）
+      enum:
+        - UPLOADING       # 上传中
+        - PARSING         # 解析中
+        - PENDING_REVIEW  # 待复核
+        - IN_REVIEW       # 复核中
+        - FINALIZED       # 已定稿
+
+    FeedbackVerdict:
+      type: string
+      enum: [CORRECT, FALSE_POSITIVE, MISSING]   # 正确 / 误报 / 漏报
+
+    SealType:
+      type: string
+      enum:
+        - OFFICIAL_SEAL                # 公章
+        - FINANCIAL_SEAL               # 财务章
+        - CONTRACT_SEAL                # 合同专用章
+        - LEGAL_REPRESENTATIVE_SEAL    # 法定代表人章
+        - HANDWRITTEN_SIGNATURE        # 手写签名
+
+    SealStatus:
+      type: string
+      enum:
+        - VALID                  # 合规
+        - MISSING                # 缺失（应有未盖）
+        - SUSPICIOUS_OVERLAP     # 重叠/骑缝异常
+        - BLURRY_UNRECOGNIZABLE  # 模糊不可辨
+        - UNAUTHORIZED           # 未授权/名称不匹配
+
+    ConflictType:
+      type: string
+      enum:
+        - PAYMENT_CONTRADICTION    # 付款矛盾
+        - LIABILITY_CONTRADICTION  # 责任矛盾
+        - TERM_CONTRADICTION       # 期限矛盾
+        - OTHER
+
+    RiskCategory:
+      type: string
+      description: 风险类别（≥10 类，赛题要求）
+      enum:
+        - UNLIMITED_LIABILITY        # 无限责任
+        - PENALTY_TOO_HIGH           # 违约金过高
+        - UNFAVORABLE_JURISDICTION   # 管辖不利
+        - UNILATERAL_TERMINATION     # 单方解约权
+        - VAGUE_CONFIDENTIALITY      # 保密义务过宽
+        - MISSING_DISPUTE_CLAUSE     # 争议解决缺失
+        - PAYMENT_TERM_RISK          # 付款条件不合理
+        - LIABILITY_IMBALANCE        # 违约责任不对等
+        - FORCE_MAJEURE_ABSENT       # 不可抗力缺失
+        - IP_OWNERSHIP_RISK          # 知识产权归属风险
+        - OTHER
+
+    RiskTolerance:
+      type: string
+      enum: [STRICT, BALANCED, LOOSE]
+
+    CitationSourceType:
+      type: string
+      enum: [STANDARD_CLAUSE, LAW_ARTICLE, PRECEDENT]
+
+    ErrorCode:
+      type: string
+      description: 业务错误码（字符串枚举，禁止纯数字编码）
+      enum:
+        - SUCCESS
+        - ERR_VALIDATION              # 参数校验失败
+        - ERR_UNAUTHORIZED            # 未登录
+        - ERR_FORBIDDEN               # 无权限
+        - ERR_CONTRACT_NOT_FOUND
+        - ERR_OCR_FAILED
+        - ERR_LLM_TIMEOUT
+        - ERR_DATA_CONFLICT           # 乐观锁冲突
+        - ERR_DUPLICATE_REQUEST       # 幂等拦截
+        - ERR_FILE_TOO_LARGE
+        - ERR_UNSUPPORTED_FILE_TYPE
+        - ERR_FEEDBACK_ALREADY_EXISTS
+        - ERR_INTERNAL
+
+    # =========================================================================
+    # 基础复合类型（§1.3）
+    # =========================================================================
+    Money:
+      type: object
+      description: 金额：统一 string 定点小数（主单位），配套整数分精确计算
+      required: [amount, currency, amountMinorUnit]
+      properties:
+        amount: { type: string, example: "500000.00" }       # 定点小数字符串
+        currency:
+          type: string
+          enum: [CNY, USD, EUR, OTHER]
+        amountMinorUnit: { type: integer, description: 整数分（= amount*100 取整） }
+
+    BBox:
+      type: object
+      description: 坐标绑定框（PDF 用户空间，72dpi，左上原点）
+      required: [page, x, y, width, height, coordinateSystem]
+      properties:
+        page: { type: integer, minimum: 1 }
+        x: { type: number }
+        y: { type: number }
+        width: { type: number }
+        height: { type: number }
+        coordinateSystem:
+          type: string
+          enum: [PDF_POINTS]
+
+    HealthScore:
+      type: object
+      description: 健康分（报告雷达图）
+      required: [overall, dimensions]
+      properties:
+        overall: { type: integer, minimum: 0, maximum: 100 }
+        dimensions:
+          type: object
+          required: [compliance, performanceRisk, clauseCompleteness]
+          properties:
+            compliance: { type: number, minimum: 0, maximum: 100 }
+            performanceRisk: { type: number, minimum: 0, maximum: 100 }
+            clauseCompleteness: { type: number, minimum: 0, maximum: 100 }
+
+    # =========================================================================
+    # 统一响应包络（§1.3 / §4）
+    # =========================================================================
+    ApiEnvelopeBase:
+      type: object
+      description: 成功响应包络基类（code 固定 SUCCESS）
+      required: [code, traceId, serverTime]
+      properties:
+        code:
+          type: string
+          enum: [SUCCESS]
+        traceId: { type: string }
+        serverTime: { type: string, format: date-time }   # ISO 8601 UTC
+
+    ApiError:
+      type: object
+      description: 统一错误响应
+      required: [code, message, detail, traceId]
+      properties:
+        code: { $ref: "#/components/schemas/ErrorCode" }
+        message: { type: string, description: 面向用户提示 }
+        detail: { type: string, description: 开发排查信息 }
+        traceId: { type: string }
+
+    # =========================================================================
+    # §8.4 思维路径与 RAG 溯源
+    # =========================================================================
+    ReasoningStep:
+      type: object
+      required: [stepNumber, thought, evidenceText]
+      properties:
+        stepNumber: { type: integer, minimum: 1 }
+        thought: { type: string }
+        evidenceText: { type: string }
+
+    PreciseCitation:
+      type: object
+      required: [sourceType, sourceTitle, contentChunk, relevanceScore]
+      properties:
+        sourceType: { $ref: "#/components/schemas/CitationSourceType" }
+        sourceTitle: { type: string, example: "《民法典》第五百八十五条" }
+        contentChunk: { type: string }
+        relevanceScore: { type: number, minimum: 0, maximum: 1 }
+
+    # =========================================================================
+    # §9 核心领域模型
+    # =========================================================================
+    ContractElement:
+      type: object
+      required: [key, label, value, confidence, bbox, isCustom]
+      properties:
+        key: { type: string, example: "partyA" }
+        label: { type: string }
+        value:
+          type: ["string", "null"]
+          description: 未抽取为 null
+        confidence: { type: number, minimum: 0, maximum: 1 }
+        bbox:
+          anyOf:
+            - $ref: "#/components/schemas/BBox"
+            - type: "null"
+        isCustom: { type: boolean }
+
+    RiskItem:
+      type: object
+      required: [id, clauseId, category, level, title, originalText, bbox, suggestion, legalBasis]
+      properties:
+        id: { type: string }
+        clauseId: { type: string }
+        category: { $ref: "#/components/schemas/RiskCategory" }
+        level: { $ref: "#/components/schemas/RiskLevel" }
+        title: { type: string }
+        originalText: { type: string }
+        bbox: { $ref: "#/components/schemas/BBox" }
+        suggestion: { type: string }
+        legalBasis:
+          type: ["string", "null"]
+
+    EnhancedRiskItem:
+      description: 扩展风险项（继承 RiskItem 并强化 CoT + RAG 溯源）
+      allOf:
+        - $ref: "#/components/schemas/RiskItem"
+        - type: object
+          required: [reasoningSteps, citations]
+          properties:
+            reasoningSteps:
+              type: array
+              items: { $ref: "#/components/schemas/ReasoningStep" }   # 空则 []
+            citations:
+              type: array
+              items: { $ref: "#/components/schemas/PreciseCitation" } # 空则 []
+
+    MissingClause:
+      type: object
+      required: [id, standardClauseId, title, reason, suggestion, canAutoFill]
+      properties:
+        id: { type: string }
+        standardClauseId: { type: string }
+        title: { type: string }
+        reason: { type: string }
+        suggestion: { type: string }
+        canAutoFill: { type: boolean }
+
+    # §8.1 印章与签名合规
+    SealSignatureDetection:
+      type: object
+      required: [id, type, status, bbox, page, extractedText, isMatchedWithParties, complianceNote, confidence]
+      properties:
+        id: { type: string }
+        type: { $ref: "#/components/schemas/SealType" }
+        status: { $ref: "#/components/schemas/SealStatus" }
+        bbox: { $ref: "#/components/schemas/BBox" }
+        page: { type: integer, minimum: 1 }
+        extractedText:
+          type: ["string", "null"]
+          description: 印章 OCR 出的公司名/税号；未识别为 null
+        isMatchedWithParties: { type: boolean }
+        complianceNote: { type: string }
+        confidence: { type: number, minimum: 0, maximum: 1 }
+
+    # §8.2 跨条款矛盾
+    CrossClauseConflict:
+      type: object
+      required: [id, sourceClauseId, targetClauseId, conflictType, description, level, suggestion, citations]
+      properties:
+        id: { type: string }
+        sourceClauseId: { type: string }
+        targetClauseId: { type: string }
+        conflictType: { $ref: "#/components/schemas/ConflictType" }
+        description: { type: string }
+        level: { $ref: "#/components/schemas/RiskLevel" }
+        suggestion: { type: string }
+        citations:
+          type: array
+          items: { $ref: "#/components/schemas/PreciseCitation" }   # 空则 []
+
+    ClauseNode:
+      type: object
+      description: 全局 AST 拓扑节点（分层 Memory 用）
+      required: [id, parentId, childrenIds, label, text]
+      properties:
+        id: { type: string }
+        parentId:
+          type: ["string", "null"]
+        childrenIds:
+          type: array
+          items: { type: string }   # 空则 []
+        label: { type: string }
+        text: { type: string }
+        bbox:
+          anyOf:
+            - $ref: "#/components/schemas/BBox"
+            - type: "null"
+        level: { type: integer, minimum: 0 }
+
+    Contract:
+      type: object
+      required:
+        [id, fileName, fileKey, fileType, contractType, typeConfidence, status,
+         version, currentVersionId, elements, risks, conflicts, seals,
+         missingClauses, healthScore, reportId, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        fileName: { type: string }
+        fileKey: { type: string }                  # MinIO/OSS key
+        fileType: { $ref: "#/components/schemas/FileType" }
+        contractType: { $ref: "#/components/schemas/ContractType" }
+        typeConfidence: { type: number, minimum: 0, maximum: 1 }
+        status: { $ref: "#/components/schemas/ContractStatus" }
+        version: { type: integer, description: 当前版本（乐观锁） }
+        currentVersionId: { type: string }
+        elements:
+          type: array
+          items: { $ref: "#/components/schemas/ContractElement" }   # 空则 []
+        risks:
+          type: array
+          items: { $ref: "#/components/schemas/EnhancedRiskItem" }  # 空则 []
+        conflicts:
+          type: array
+          items: { $ref: "#/components/schemas/CrossClauseConflict" } # 空则 []
+        seals:
+          type: array
+          items: { $ref: "#/components/schemas/SealSignatureDetection" } # 空则 []
+        missingClauses:
+          type: array
+          items: { $ref: "#/components/schemas/MissingClause" }     # 空则 []
+        healthScore: { $ref: "#/components/schemas/HealthScore" }
+        reportId:
+          type: ["string", "null"]
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    ContractSummary:
+      type: object
+      description: 工作台历史列表用的精简合同摘要
+      required: [id, fileName, contractType, status, healthScore, createdAt]
+      properties:
+        id: { type: string }
+        fileName: { type: string }
+        contractType: { $ref: "#/components/schemas/ContractType" }
+        status: { $ref: "#/components/schemas/ContractStatus" }
+        healthScore: { $ref: "#/components/schemas/HealthScore" }
+        riskCount: { type: integer }
+        createdAt: { type: string, format: date-time }
+
+    # §8.3 系统级可配置性
+    PromptRoleConfig:
+      type: object
+      required: [roleName, systemPrompt, temperature, riskToleranceLevel]
+      properties:
+        roleName: { type: string, example: "严苛法务审计员" }
+        systemPrompt: { type: string, description: "LLM System Prompt 模版（支持 {{placeholder}}）" }
+        temperature: { type: number, minimum: 0, maximum: 1 }
+        riskToleranceLevel: { $ref: "#/components/schemas/RiskTolerance" }
+
+    DynamicExtractionEntityConfig:
+      type: object
+      required: [entityKey, entityName, description, isRequired]
+      properties:
+        entityKey: { type: string, example: "guaranteePeriod" }
+        entityName: { type: string, example: "质保期" }
+        description: { type: string }
+        isRequired: { type: boolean }
+
+    SystemAuditConfiguration:
+      type: object
+      required: [id, contractType, promptConfig, enabledRules, customEntities, updatedAt, version]
+      properties:
+        id: { type: string }
+        contractType: { $ref: "#/components/schemas/ContractType" }
+        promptConfig: { $ref: "#/components/schemas/PromptRoleConfig" }
+        enabledRules:
+          type: array
+          items: { type: string }   # 激活规则 ID 列表，空则 []
+        customEntities:
+          type: array
+          items: { $ref: "#/components/schemas/DynamicExtractionEntityConfig" } # 空则 []
+        updatedAt: { type: string, format: date-time }   # 乐观锁
+        version: { type: integer }                       # 乐观锁
+
+    # §10 分层 Memory 架构数据契约
+    GlobalContractState:
+      type: object
+      required: [contractId, meta, astTopology, activeVersionId]
+      properties:
+        contractId: { type: string }
+        meta:
+          type: object
+          required: [partyA, partyB, amount, contractType]
+          properties:
+            partyA: { type: string }
+            partyB: { type: string }
+            amount: { $ref: "#/components/schemas/Money" }
+            contractType: { $ref: "#/components/schemas/ContractType" }
+        astTopology:
+          type: array
+          items: { $ref: "#/components/schemas/ClauseNode" }   # 空则 []
+        activeVersionId: { type: string }
+
+    ScopedClauseMemory:
+      type: object
+      description: 条款级记忆（仅保留当前条款近 3-5 轮）
+      required: [targetClauseId, recentDialog, draftAfter]
+      properties:
+        targetClauseId: { type: string }
+        recentDialog:
+          type: array
+          items:
+            type: object
+            required: [role, content, createdAt]
+            properties:
+              role: { type: string, enum: [USER, ASSISTANT] }
+              content: { type: string }
+              createdAt: { type: string, format: date-time }
+        draftAfter:
+          type: ["string", "null"]
+
+    RagRuleContext:
+      type: object
+      required: [relatedStandardClauses, relatedLaws]
+      properties:
+        relatedStandardClauses:
+          type: array
+          items:
+            type: object
+            required: [id, title, text]
+            properties:
+              id: { type: string }
+              title: { type: string }
+              text: { type: string }
+        relatedLaws:
+          type: array
+          items: { $ref: "#/components/schemas/PreciseCitation" }   # 空则 []
+
+    # §2.4 审核消息卡片联合类型（含 type 鉴别器）
+    AuditMessage:
+      type: object
+      description: 审核流推送的消息卡片（判别联合类型，discriminator=type）
+      required: [type]
+      discriminator:
+        propertyName: type
+      oneOf:
+        - $ref: "#/components/schemas/TextMessage"
+        - $ref: "#/components/schemas/ImageMessage"
+        - $ref: "#/components/schemas/DiffMessage"
+        - $ref: "#/components/schemas/ProgressMessage"
+
+    TextMessage:
+      type: object
+      required: [type, text]
+      properties:
+        type: { type: string, const: TEXT }
+        text: { type: string }
+
+    ImageMessage:
+      type: object
+      required: [type, url, bbox]
+      properties:
+        type: { type: string, const: IMAGE }
+        url: { type: string }
+        bbox: { $ref: "#/components/schemas/BBox" }
+
+    DiffMessage:
+      type: object
+      required: [type, before, after, clauseId]
+      properties:
+        type: { type: string, const: DIFF }
+        before: { type: string }
+        after: { type: string }
+        clauseId: { type: string }
+
+    ProgressMessage:
+      type: object
+      required: [type, percent, stage]
+      properties:
+        type: { type: string, const: PROGRESS }
+        percent: { type: number, minimum: 0, maximum: 1 }
+        stage: { type: string }
+
+    # =========================================================================
+    # 请求 / 任务 / 上传 等契约
+    # =========================================================================
+    PresignResponse:
+      type: object
+      required: [presignedUrl, fileKey, expiresIn]
+      properties:
+        presignedUrl: { type: string }
+        fileKey: { type: string }
+        expiresIn: { type: integer, description: 有效期（秒） }
+
+    UploadBody:
+      type: object
+      required: [fileKey, fileName, fileType]
+      properties:
+        fileKey: { type: string }
+        fileName: { type: string }
+        fileType: { $ref: "#/components/schemas/FileType" }
+
+    AgentRewriteRequest:
+      type: object
+      required: [contractId, clauseId, instruction, scopedMemory, xRequestId]
+      properties:
+        contractId: { type: string }
+        clauseId: { type: string }
+        instruction: { type: string, description: 自然语言指令，如"改成对等解约" }
+        scopedMemory: { $ref: "#/components/schemas/ScopedClauseMemory" }
+        ragContext:
+          anyOf:
+            - $ref: "#/components/schemas/RagRuleContext"
+            - type: "null"
+        xRequestId: { type: string, description: 幂等 }
+
+    RewriteResponse:
+      type: object
+      required: [taskId, clauseId, before, after, diff, reasoningSteps, citations, updatedAt]
+      properties:
+        taskId: { type: string }
+        clauseId: { type: string }
+        before: { type: string }
+        after: { type: string }
+        diff: { $ref: "#/components/schemas/DiffMessage" }
+        reasoningSteps:
+          type: array
+          items: { $ref: "#/components/schemas/ReasoningStep" }   # 空则 []
+        citations:
+          type: array
+          items: { $ref: "#/components/schemas/PreciseCitation" } # 空则 []
+        updatedAt: { type: string, format: date-time }
+
+    CommitBody:
+      type: object
+      description: 采纳修改 / 新版本（批量）
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required: [id, accept]
+            properties:
+              id: { type: string }
+              accept: { type: boolean }
+        version: { type: integer, description: 乐观锁版本 }
+
+    FeedbackCreateBody:
+      type: object
+      required: [contractId, targetType, targetId, verdict]
+      properties:
+        contractId: { type: string }
+        targetType: { type: string, enum: [RISK, CONFLICT, SEAL, ELEMENT] }
+        targetId: { type: string }
+        verdict: { $ref: "#/components/schemas/FeedbackVerdict" }
+        userCorrection:
+          type: ["string", "null"]
+        reviewer:
+          type: ["string", "null"]
+
+    FeedbackItem:
+      type: object
+      required: [id, contractId, targetType, targetId, verdict, isIncorporated, createdAt]
+      properties:
+        id: { type: string }
+        contractId: { type: string }
+        targetType: { type: string, enum: [RISK, CONFLICT, SEAL, ELEMENT] }
+        targetId: { type: string }
+        verdict: { $ref: "#/components/schemas/FeedbackVerdict" }
+        userCorrection: { type: ["string", "null"] }
+        reviewer: { type: ["string", "null"] }
+        isIncorporated: { type: boolean }
+        createdAt: { type: string, format: date-time }
+
+    TaskProgress:
+      type: object
+      description: 长耗时任务进度（§5.4）
+      required: [taskId, stage, percent, status]
+      properties:
+        taskId: { type: string }
+        stage: { type: string }
+        percent: { type: number, minimum: 0, maximum: 1 }
+        status: { type: string, enum: [RUNNING, DONE, FAILED] }
+        result:
+          type: ["object", "null"]
+
+    BatchResult:
+      type: object
+      description: 批量操作局部失败范式（§5.5）
+      required: [successIds, failedItems]
+      properties:
+        successIds:
+          type: array
+          items: { type: string }   # 空则 []
+        failedItems:
+          type: array
+          items:
+            type: object
+            required: [id, reason]
+            properties:
+              id: { type: string }
+              reason: { type: string }
+
+    # 分页包裹（所有列表接口统一，§1.3）
+    ContractListResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiEnvelopeBase"
+        - type: object
+          required: [data]
+          properties:
+            data:
+              type: object
+              required: [items, total, page, pageSize, hasMore]
+              properties:
+                items:
+                  type: array
+                  items: { $ref: "#/components/schemas/ContractSummary" }
+                total: { type: integer }
+                page: { type: integer, minimum: 1 }
+                pageSize: { type: integer, minimum: 1 }
+                hasMore: { type: boolean }
+
+# =========================================================================
+# 路径（§7.3 + §5.2/§5.3/§5.4 + §8）
+# =========================================================================
+  # 复用错误响应定义
+  responses:
+    BadRequest:
+      description: 参数校验失败 (ERR_VALIDATION)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ApiError" }
+    Unauthorized:
+      description: 未登录 (ERR_UNAUTHORIZED)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ApiError" }
+    Forbidden:
+      description: 无权限 (ERR_FORBIDDEN)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ApiError" }
+    NotFound:
+      description: 合同/资源不存在 (ERR_CONTRACT_NOT_FOUND)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ApiError" }
+    Conflict:
+      description: 乐观锁冲突 (ERR_DATA_CONFLICT)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ApiError" }
+    Duplicate:
+      description: 幂等拦截 (ERR_DUPLICATE_REQUEST)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ApiError" }
+    FileTooLarge:
+      description: 文件过大 (ERR_FILE_TOO_LARGE)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ApiError" }
+    UnsupportedType:
+      description: 不支持的文件类型 (ERR_UNSUPPORTED_FILE_TYPE)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ApiError" }
+    FeedbackExists:
+      description: 反馈已存在 (ERR_FEEDBACK_ALREADY_EXISTS)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ApiError" }
+    OcrFailed:
+      description: OCR 识别失败 (ERR_OCR_FAILED)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ApiError" }
+    LlmTimeout:
+      description: 大模型超时 (ERR_LLM_TIMEOUT)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ApiError" }
+    Internal:
+      description: 内部错误 (ERR_INTERNAL)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ApiError" }
+
+paths:
+  /contracts:
+    get:
+      tags: [Contracts]
+      summary: 合同列表（工作台历史）
+      operationId: listContracts
+      parameters:
+        - { name: page, in: query, required: false, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: pageSize, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+        - { name: contractType, in: query, required: false, schema: { $ref: "#/components/schemas/ContractType" } }
+        - { name: status, in: query, required: false, schema: { $ref: "#/components/schemas/ContractStatus" } }
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ContractListResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+  /contracts/presign:
+    post:
+      tags: [Contracts]
+      summary: 获取直传凭证（上传三步法 步骤1）
+      operationId: presignUpload
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [fileName, fileType]
+              properties:
+                fileName: { type: string }
+                fileType: { $ref: "#/components/schemas/FileType" }
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiEnvelopeBase"
+                  - type: object
+                    required: [data]
+                    properties:
+                      data: { $ref: "#/components/schemas/PresignResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "413": { $ref: "#/components/responses/FileTooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedType" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+  /contracts/upload:
+    post:
+      tags: [Contracts]
+      summary: 触发解析任务（上传三步法 步骤3）
+      operationId: uploadContract
+      parameters:
+        - { name: X-Request-ID, in: header, required: true, schema: { type: string }, description: 幂等 UUID }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UploadBody" }
+      responses:
+        "200":
+          description: 已创建解析任务
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiEnvelopeBase"
+                  - type: object
+                    required: [data]
+                    properties:
+                      data: { $ref: "#/components/schemas/TaskProgress" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "409": { $ref: "#/components/responses/Duplicate" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+  /contracts/{contractId}:
+    get:
+      tags: [Contracts]
+      summary: 合同详情
+      operationId: getContract
+      parameters:
+        - { name: contractId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiEnvelopeBase"
+                  - type: object
+                    required: [data]
+                    properties:
+                      data: { $ref: "#/components/schemas/Contract" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+  /contracts/{contractId}/parse-status:
+    get:
+      tags: [Contracts]
+      summary: 解析状态轮询（§5.2-B）
+      operationId: getParseStatus
+      parameters:
+        - { name: contractId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiEnvelopeBase"
+                  - type: object
+                    required: [data]
+                    properties:
+                      data: { $ref: "#/components/schemas/TaskProgress" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+  /contracts/{contractId}/elements:
+    get:
+      tags: [Contracts]
+      summary: 要素抽取（§5.2-C）
+      operationId: getElements
+      parameters:
+        - { name: contractId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiEnvelopeBase"
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        type: object
+                        required: [items]
+                        properties:
+                          items: { type: array, items: { $ref: "#/components/schemas/ContractElement" } }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+  /contracts/{contractId}/risks:
+    get:
+      tags: [Contracts]
+      summary: 风险列表（§5.2-D / §8.4 EnhancedRiskItem）
+      operationId: getRisks
+      parameters:
+        - { name: contractId, in: path, required: true, schema: { type: string } }
+        - { name: level, in: query, required: false, schema: { $ref: "#/components/schemas/RiskLevel" } }
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiEnvelopeBase"
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        type: object
+                        required: [items]
+                        properties:
+                          items: { type: array, items: { $ref: "#/components/schemas/EnhancedRiskItem" } }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+  /contracts/{contractId}/conflicts:
+    get:
+      tags: [Contracts]
+      summary: 跨条款矛盾（§5.2-E / §8.2）
+      operationId: getConflicts
+      parameters:
+        - { name: contractId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiEnvelopeBase"
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        type: object
+                        required: [items]
+                        properties:
+                          items: { type: array, items: { $ref: "#/components/schemas/CrossClauseConflict" } }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+  /contracts/{contractId}/seals:
+    get:
+      tags: [Contracts]
+      summary: 印章签名合规（§5.2-F / §8.1）
+      operationId: getSeals
+      parameters:
+        - { name: contractId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiEnvelopeBase"
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        type: object
+                        required: [items, hasMissingRequired]
+                        properties:
+                          items: { type: array, items: { $ref: "#/components/schemas/SealSignatureDetection" } }
+                          hasMissingRequired: { type: boolean }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "502": { $ref: "#/components/responses/OcrFailed" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+  /contracts/{contractId}/commit:
+    post:
+      tags: [Contracts]
+      summary: 采纳修改 / 新版本（§5.2 收尾）
+      operationId: commitContract
+      parameters:
+        - { name: contractId, in: path, required: true, schema: { type: string } }
+        - { name: X-Request-ID, in: header, required: true, schema: { type: string }, description: 幂等 UUID }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CommitBody" }
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiEnvelopeBase"
+                  - type: object
+                    required: [data]
+                    properties:
+                      data: { $ref: "#/components/schemas/BatchResult" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+  /agent/rewrite:
+    post:
+      tags: [Agent]
+      summary: AI 重写（Diff，含 CoT + 溯源，§8.4）
+      operationId: rewriteClause
+      parameters:
+        - { name: X-Request-ID, in: header, required: true, schema: { type: string }, description: 幂等 UUID }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AgentRewriteRequest" }
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiEnvelopeBase"
+                  - type: object
+                    required: [data]
+                    properties:
+                      data: { $ref: "#/components/schemas/RewriteResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "409": { $ref: "#/components/responses/Duplicate" }
+        "504": { $ref: "#/components/responses/LlmTimeout" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+  /settings/rules:
+    get:
+      tags: [Config]
+      summary: 读取系统规则配置（§8.3）
+      operationId: listRules
+      parameters:
+        - { name: contractType, in: query, required: false, schema: { $ref: "#/components/schemas/ContractType" } }
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiEnvelopeBase"
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        type: object
+                        required: [items]
+                        properties:
+                          items: { type: array, items: { $ref: "#/components/schemas/SystemAuditConfiguration" } }
+        "500": { $ref: "#/components/responses/Internal" }
+
+  /settings/rules/{configId}:
+    get:
+      tags: [Config]
+      summary: 读取单条规则配置
+      operationId: getRule
+      parameters:
+        - { name: configId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiEnvelopeBase"
+                  - type: object
+                    required: [data]
+                    properties:
+                      data: { $ref: "#/components/schemas/SystemAuditConfiguration" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/Internal" }
+    put:
+      tags: [Config]
+      summary: 更新规则配置（需带 version 乐观锁）
+      operationId: updateRule
+      parameters:
+        - { name: configId, in: path, required: true, schema: { type: string } }
+        - { name: X-Request-ID, in: header, required: true, schema: { type: string }, description: 幂等 UUID }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SystemAuditConfiguration" }
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiEnvelopeBase"
+                  - type: object
+                    required: [data]
+                    properties:
+                      data: { $ref: "#/components/schemas/SystemAuditConfiguration" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+  /feedback:
+    post:
+      tags: [Feedback]
+      summary: 标注反馈（数据飞轮）
+      operationId: createFeedback
+      parameters:
+        - { name: X-Request-ID, in: header, required: true, schema: { type: string }, description: 幂等 UUID }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/FeedbackCreateBody" }
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiEnvelopeBase"
+                  - type: object
+                    required: [data]
+                    properties:
+                      data: { $ref: "#/components/schemas/FeedbackItem" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "409": { $ref: "#/components/responses/FeedbackExists" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+  /tasks/{taskId}:
+    get:
+      tags: [Tasks]
+      summary: 长耗时任务进度轮询（§5.4）
+      operationId: getTask
+      parameters:
+        - { name: taskId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiEnvelopeBase"
+                  - type: object
+                    required: [data]
+                    properties:
+                      data: { $ref: "#/components/schemas/TaskProgress" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+  /tasks/{taskId}/stream:
+    get:
+      tags: [Tasks]
+      summary: 长耗时任务进度 SSE 订阅（§5.4）
+      operationId: streamTask
+      parameters:
+        - { name: taskId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: text/event-stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: "SSE：周期性推送 TaskProgress（event: progress / done / error）"
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+  /report/{contractId}/generate:
+    post:
+      tags: [Report]
+      summary: 触发报告渲染任务
+      operationId: generateReport
+      parameters:
+        - { name: contractId, in: path, required: true, schema: { type: string } }
+        - { name: X-Request-ID, in: header, required: true, schema: { type: string }, description: 幂等 UUID }
+      responses:
+        "200":
+          description: 已创建报告渲染任务
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiEnvelopeBase"
+                  - type: object
+                    required: [data]
+                    properties:
+                      data: { $ref: "#/components/schemas/TaskProgress" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Duplicate" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+  /report/{contractId}:
+    get:
+      tags: [Report]
+      summary: 获取报告元信息（含下载 URL）
+      operationId: getReport
+      parameters:
+        - { name: contractId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiEnvelopeBase"
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        type: object
+                        required: [reportId, downloadUrl, generatedAt]
+                        properties:
+                          reportId: { type: string }
+                          downloadUrl: { type: string }
+                          generatedAt: { type: string, format: date-time }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/Internal" }

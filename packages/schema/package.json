@@ -1,0 +1,22 @@
+{
+  "name": "@contract-guard/schema",
+  "version": "1.0.0",
+  "private": true,
+  "description": "【SSOT 核心】合同审核系统接口契约与代码生成源 (OpenAPI 3.1.0)",
+  "type": "module",
+  "scripts": {
+    "gen": "pnpm run gen:ts && pnpm run gen:zod && pnpm run gen:py",
+    "gen:ts": "tsx scripts/gen-ts.ts",
+    "gen:zod": "tsx scripts/gen-zod.ts",
+    "gen:py": "bash scripts/gen-py.sh",
+    "lint": "spectral lint openapi.yaml --ruleset spectral.yaml"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "openapi-typescript": "^7.4.0",
+    "openapi-zod-client": "^1.18.3",
+    "@stoplight/spectral-cli": "^6.11.0",
+    "tsx": "^4.16.0",
+    "typescript": "^5.5.0"
+  }
+}

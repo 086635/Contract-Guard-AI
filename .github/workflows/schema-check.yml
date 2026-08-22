@@ -1,0 +1,73 @@
+name: schema-check
+
+# OpenAPI CI 门禁：Spectral 校验 + CodeGen 产物对比
+# 任何改动 packages/schema/openapi.yaml 的 PR 必须过此门禁，保证 SSOT 不漂移。
+on:
+  pull_request:
+    paths:
+      - 'packages/schema/**'
+      - '.github/workflows/schema-check.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'packages/schema/**'
+
+jobs:
+  spectral-lint:
+    name: Spectral Lint (OpenAPI 规范校验)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Spectral CLI
+        run: npm install -g @stoplight/spectral-cli
+
+      - name: Run Spectral
+        working-directory: packages/schema
+        run: spectral lint openapi.yaml --ruleset spectral.yaml --fail-severity error
+
+  codegen-diff:
+    name: CodeGen 产物对比 (TS/Zod/Pydantic)
+    runs-on: ubuntu-latest
+    needs: spectral-lint
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        run: pipx install uv
+
+      - name: Install pnpm
+        run: npm install -g pnpm
+
+      - name: Install deps
+        run: pnpm install --filter @contract-guard/schema...
+
+      - name: Generate types / schemas
+        run: pnpm --filter @contract-guard/schema gen
+
+      - name: Diff generated artifacts (no manual edits allowed)
+        run: |
+          if git diff --exit-code \
+            apps/web-ui/src/api/generated/types.ts \
+            apps/web-ui/src/api/generated/zod.ts \
+            apps/api-gateway/app/generated/schemas.py ; then
+            echo "✅ CodeGen 产物与 openapi.yaml 一致"
+          else
+            echo "❌ 检测到生成产物与 openapi.yaml 不一致，或存在手工编辑。请运行 'pnpm --filter @contract-guard/schema gen' 后提交。"
+            exit 1
+          fi

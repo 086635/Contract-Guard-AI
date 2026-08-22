@@ -1,0 +1,39 @@
+# ============================================================================
+# Python 工作区定义（uv workspace）
+# 管理所有后端 Python 包（packages/* + apps/*）与共享依赖解析。
+# 单一真理源（SSOT）：接口契约来自 packages/schema/openapi.yaml，
+# 后端 DTO 由 gen-py.sh 生成，禁止手写类型漂移。
+# ============================================================================
+[project]
+name = "contract-guard-ai"
+version = "1.0.0"
+description = "基于大模型的企业合同智能审核与风险预警系统（Polyglot Monorepo 根）"
+requires-python = ">=3.11"
+
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.5",
+    "mypy>=1.10",
+    "datamodel-code-generator>=0.25.0",
+]
+
+# ---------------------------------------------------------------------------
+# 关键配置：标记根项目为非 Package 容器，防止 uv sync 尝试构建根包
+# ---------------------------------------------------------------------------
+[tool.uv]
+package = false
+
+# ---------------------------------------------------------------------------
+# uv workspace：聚合 packages/* 与 apps/* 为单一可解析依赖图
+# ---------------------------------------------------------------------------
+[tool.uv.workspace]
+members = ["packages/*", "apps/*"]
+exclude = ["packages/schema", "apps/web-ui"] # 显式排除纯 Node/TS 模块
+
+# 工作区内包互相引用（editable）
+[tool.uv.sources]
+ai-engine = { workspace = true }
+doc-processor = { workspace = true }

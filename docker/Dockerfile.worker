@@ -1,0 +1,14 @@
+# async-worker 镜像：uv workspace 单体构建
+FROM python:3.11-slim AS base
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+RUN pip install --no-cache-dir uv
+
+WORKDIR /app
+COPY pyproject.toml ./
+COPY packages ./packages
+COPY apps ./apps
+
+RUN uv sync --no-dev --package async-worker
+
+# 默认命令由 compose 覆盖为 celery worker；此处给一个合理缺省
+CMD ["uv", "run", "--package", "async-worker", "celery", "-A", "worker.main", "worker", "--loglevel=info"]

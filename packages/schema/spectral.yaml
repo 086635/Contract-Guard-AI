@@ -1,0 +1,87 @@
+# ============================================================================
+# Spectral OpenAPI Lint 规则（约束命名、字段前缀、SSOT 一致性）
+# 对应 data_scheme.md §3 命名规范 / §6 AI-Coding 防御约束
+# ============================================================================
+extends: [[spectral:oas, all]]
+
+rules:
+  # ---- §3.1 全链路命名镜像收敛：字段 / query / path 参数必须 camelCase ----
+  camelcase-properties:
+    description: "请求/响应属性名必须为 camelCase（禁止 snake_case 透前端）"
+    message: "{{property}} 必须为 camelCase"
+    severity: error
+    given: "$..properties[*]~^@key"
+    then:
+      function: casing
+      functionOptions:
+        type: camel
+
+  kebabcase-paths:
+    description: "URL Path 段必须为 kebab-case"
+    message: "{{path}} 中的路径段应为 kebab-case"
+    severity: warn
+    given: "$.paths[*]~@key"
+    then:
+      function: pattern
+      functionOptions:
+        match: "^(\/|[a-z0-9]+(?:-[a-z0-9]+)*\/?)*$"
+
+  # ---- §1.2 布尔字段必须带 is/has/can/should 前缀 ----
+  boolean-prefix:
+    description: "boolean 类型字段名必须带 is/has/can/should 前缀"
+    message: "boolean 字段 {{property}} 必须带 is/has/can/should 前缀"
+    severity: error
+    given: "$..properties[?(@property && @ && @.type == 'boolean')]~^@key"
+    then:
+      function: pattern
+      functionOptions:
+        match: "^(is|has|can|should)[A-Z]"
+
+  # ---- §1.1 实体 ID 必须声明为 string（禁止 number）----
+  id-must-be-string:
+    description: "含 Id 后缀的字段必须为 string 类型"
+    message: "{{property}} 必须为 string（Snowflake/UUID 防精度丢失）"
+    severity: error
+    given: "$..properties[?(@property && @property.match(/Id$/))]~^@key"
+    then:
+      field: type
+      function: pattern
+      functionOptions:
+        match: "string"
+
+  # ---- §2.1 集合字段禁止 null（缺省为 []) ----
+  no-null-arrays:
+    description: "array 字段禁止 nullable（空数据返回 []）"
+    message: "{{property}} 为数组时禁止 nullable，空返回 []"
+    severity: error
+    given: "$..properties[?(@property && @ && @.type == 'array')]~^@key"
+    then:
+      function: schema
+      functionOptions:
+        schema:
+          not:
+            type: ["array", "null"]
+
+  # ---- §6.3 状态码/动作/路由在 Schema 中定义为 Enum，禁止魔法值 ----
+  enum-defined-codes:
+    description: "ApiError.code 必须为已声明的 ErrorCode 枚举"
+    message: "错误码必须使用 ErrorCode 枚举"
+    severity: error
+    given: "$..responses[*].content.application/json.schema.properties.code"
+    then:
+      function: schema
+      functionOptions:
+        schema:
+          $ref: "#/components/schemas/ErrorCode"
+
+  # ---- §4.1 业务错误用 code 字符串枚举，HTTP 仅表系统层 ----
+  success-envelope:
+    description: "成功响应必须含 code/traceId/serverTime 统一包络"
+    message: "200 响应需包含 ApiSuccess 包络（code + traceId + serverTime）"
+    severity: error
+    given: "$.paths[*][*].responses[200].content.application/json.schema"
+    then:
+      function: schema
+      functionOptions:
+        schema:
+          required: [code, traceId, serverTime]
