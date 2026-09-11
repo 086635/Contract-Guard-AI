@@ -41,7 +41,7 @@ class Test404NotFound:
         assert resp.status_code == 404
 
     def test_unknown_rule(self, client: TestClient):
-        resp = client.get("/api/v1/settings/rules/does-not-exist")
+        resp = client.get(f"/api/v1/settings/rules/{UNKNOWN}")
         assert resp.status_code == 404
 
     def test_unknown_report_contract(self, client: TestClient):

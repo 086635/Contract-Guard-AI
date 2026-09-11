@@ -4,18 +4,29 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, status
+
+from app.generated.schemas import ReportGenerateResponse, ReportResponse
+from app.services.mock_factory import MockDataFactory
 
 router = APIRouter(prefix="/report", tags=["Report"])
 
 
-@router.post("/{contract_id}/generate")
-async def generate_report(contract_id: UUID, body: dict) -> dict:
+@router.post(
+    "/{contract_id}/generate",
+    response_model=ReportGenerateResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def generate_report(contract_id: UUID, body: dict) -> ReportGenerateResponse:
     """触发报告渲染任务（异步 Worker 执行，返回 taskId）。"""
-    raise HTTPException(status_code=501, detail="generate_report 待实现")
+    return MockDataFactory.generate_report(contract_id, body)
 
 
-@router.get("/{contract_id}")
-async def get_report(contract_id: UUID) -> dict:
+@router.get(
+    "/{contract_id}",
+    response_model=ReportResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def get_report(contract_id: UUID) -> ReportResponse:
     """获取报告元信息（含下载 URL）。"""
-    raise HTTPException(status_code=501, detail="get_report 待实现")
+    return MockDataFactory.get_report(contract_id)

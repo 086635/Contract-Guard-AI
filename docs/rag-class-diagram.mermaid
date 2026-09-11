@@ -1,0 +1,128 @@
+%% 合同智能审核 RAG 模块 —— 契约与核心实现类图
+%% 来源：文件集合/report/RAG_MODULE_DESIGN.md 附录 A
+classDiagram
+    class ContractChunk {
+        +str chunk_id
+        +str doc_id
+        +SourceType source_type
+        +ChunkType chunk_type
+        +str section_id
+        +str law_code
+        +str text
+        +str text_hash
+        +int token_count
+        +int page_no
+        +BBox bbox
+        +make_chunk_id(doc_id, section_id, slice_idx) str
+        +compute_text_hash(text) str
+        +citation_title() str
+        +to_payload() dict
+    }
+    class BBox {
+        +int page
+        +float x
+        +float y
+        +float width
+        +float height
+        +str coordinate_system
+    }
+    class RAGQueryRequest {
+        +str trace_id
+        +str query
+        +int top_k
+        +float score_threshold
+        +RetrieveStrategy strategy
+        +RetrievalFilters filters
+        +int max_context_tokens
+        +int timeout_ms
+    }
+    class RAGQueryResponse {
+        +str trace_id
+        +list retrieved_docs
+        +str context_block
+        +int context_tokens
+        +bool degraded
+        +FallbackReason fallback_reason
+        +TokenUsage token_usage
+        +dict stage_latency_ms
+    }
+    class RetrievedDoc {
+        +str chunk_id
+        +str text
+        +ChunkScores scores
+        +CitationOut citation
+    }
+    class ChunkScores {
+        +float dense
+        +float sparse
+        +float fused
+        +float rerank
+        +float final
+        +int rank
+    }
+    class CitationOut {
+        +str sourceType
+        +str sourceTitle
+        +str contentChunk
+        +float relevanceScore
+    }
+    class AgentRAGToolInput {
+        +str query
+        +ContractType contract_type
+        +list source_types
+        +int top_k
+        +str reason
+    }
+    class AgentRAGToolResult {
+        +str status
+        +str context_block
+        +list citations
+        +to_tool_message() str
+    }
+    class RAGService {
+        -EmbedderPort _embedder
+        -VectorStorePort _vector_store
+        -SparseStorePort _sparse_store
+        -RerankerPort _reranker
+        -TokenCounterPort _counter
+        +retrieve(RAGQueryRequest) RAGQueryResponse
+        -_dense_search() list
+        -_sparse_search() list
+        -_rerank() list
+        -_degrade() RAGQueryResponse
+    }
+    class VectorStorePort {
+        <<Protocol>>
+        +ensure_collection(dim)
+        +upsert(records) int
+        +search(vector, top_k, filters) list
+        +delete_by_doc(doc_id) int
+        +health() bool
+    }
+    class QdrantVectorStore {
+        +QdrantClient _client
+    }
+    class InMemoryVectorStore {
+        +dict _vectors
+    }
+    class BM25Store {
+        +dict _tf
+        +dict _df
+        +search(query, top_k) list
+    }
+    class ContextBuilder {
+        +build(docs, budget) tuple
+    }
+
+    ContractChunk *-- BBox
+    RAGQueryResponse o-- RetrievedDoc
+    RetrievedDoc *-- ChunkScores
+    RetrievedDoc *-- CitationOut
+    AgentRAGToolResult o-- CitationOut
+    RAGService ..> VectorStorePort
+    RAGService ..> RAGQueryRequest
+    RAGService ..> RAGQueryResponse
+    RAGService ..> ContextBuilder
+    VectorStorePort <|.. QdrantVectorStore
+    VectorStorePort <|.. InMemoryVectorStore
+    CitationOut <.. ContractChunk : 映射

@@ -18,6 +18,7 @@ dev = [
     "ruff>=0.5",
     "mypy>=1.10",
     "datamodel-code-generator>=0.25.0",
+    "jsonschema>=4.22", # 校验 rag-contracts 导出的 JSON Schema
 ]
 
 # ---------------------------------------------------------------------------
@@ -37,3 +38,7 @@ exclude = ["packages/schema", "apps/web-ui"] # 显式排除纯 Node/TS 模块
 [tool.uv.sources]
 ai-engine = { workspace = true }
 doc-processor = { workspace = true }
+# RAG 三件套（T01/T02 新增）：契约层 → 可观测 → 核心实现
+rag-contracts = { workspace = true }
+cg-observability = { workspace = true }
+rag-core = { workspace = true }

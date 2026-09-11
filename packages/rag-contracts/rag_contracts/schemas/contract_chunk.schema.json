@@ -1,0 +1,410 @@
+{
+  "$defs": {
+    "BBox": {
+      "additionalProperties": false,
+      "description": "PDF 坐标（72dpi 用户空间，左上原点）。与 doc_processor.aligner 同构。",
+      "properties": {
+        "page": {
+          "description": "物理页码（1-based）",
+          "minimum": 1,
+          "title": "Page",
+          "type": "integer"
+        },
+        "x": {
+          "description": "左上角 X（PDF_POINTS）",
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "description": "左上角 Y（PDF_POINTS）",
+          "title": "Y",
+          "type": "number"
+        },
+        "width": {
+          "description": "宽度（PDF_POINTS）",
+          "title": "Width",
+          "type": "number"
+        },
+        "height": {
+          "description": "高度（PDF_POINTS）",
+          "title": "Height",
+          "type": "number"
+        },
+        "coordinate_system": {
+          "const": "PDF_POINTS",
+          "default": "PDF_POINTS",
+          "description": "坐标系，项目统一 PDF_POINTS",
+          "title": "Coordinate System",
+          "type": "string"
+        }
+      },
+      "required": [
+        "page",
+        "x",
+        "y",
+        "width",
+        "height"
+      ],
+      "title": "BBox",
+      "type": "object"
+    },
+    "ChunkType": {
+      "description": "切片粒度（层级切片的层级标识）。\n\n- SECTION：章/节合并块\n- CLAUSE：合同条款（第 X 条）\n- ARTICLE：法条\n- PARAGRAPH：款\n- ITEM：项\n- TABLE：表格\n- WINDOW_SLICE：超长条款的滑动窗口子块（必须带 parent_section_id）\n- RECITAL：鉴于 / 前言",
+      "enum": [
+        "SECTION",
+        "CLAUSE",
+        "ARTICLE",
+        "PARAGRAPH",
+        "ITEM",
+        "TABLE",
+        "WINDOW_SLICE",
+        "RECITAL"
+      ],
+      "title": "ChunkType",
+      "type": "string"
+    },
+    "ContractType": {
+      "description": "合同类型。与 openapi.yaml ContractType 保持一致。",
+      "enum": [
+        "PURCHASE",
+        "SALES",
+        "NDA",
+        "OUTSOURCING",
+        "LABOR",
+        "OTHER"
+      ],
+      "title": "ContractType",
+      "type": "string"
+    },
+    "SourceType": {
+      "description": "检索源类型。与 PreciseCitation.sourceType 一一对应，禁止扩展。\n\n- STANDARD_CLAUSE：企业标准条款范本（我方基线库）\n- LAW_ARTICLE：法律法规条文（民法典等）\n- PRECEDENT：裁判文书",
+      "enum": [
+        "STANDARD_CLAUSE",
+        "LAW_ARTICLE",
+        "PRECEDENT"
+      ],
+      "title": "SourceType",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "合同与法条切片后的结构化存储单元。同一结构同时写入 Qdrant payload、BM25 文档表与 PostgreSQL，保证三处 chunk_id 完全一致。",
+  "properties": {
+    "schema_version": {
+      "const": "1.0.0",
+      "default": "1.0.0",
+      "description": "契约版本，破坏性变更必须递增",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "chunk_id": {
+      "description": "确定性 uuid5，同时作为 Qdrant point_id",
+      "maxLength": 64,
+      "minLength": 8,
+      "pattern": "^[A-Za-z0-9_\\-\\.]+$",
+      "title": "Chunk Id",
+      "type": "string"
+    },
+    "doc_id": {
+      "description": "源文档标识：合同取 contract_id，法规取 law_code，标准范本取 MinIO file_key",
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Doc Id",
+      "type": "string"
+    },
+    "source_type": {
+      "$ref": "#/$defs/SourceType",
+      "description": "检索源类型，与 PreciseCitation.sourceType 一一对应"
+    },
+    "chunk_type": {
+      "$ref": "#/$defs/ChunkType",
+      "description": "切片粒度（层级标识）"
+    },
+    "section_id": {
+      "description": "章节/条款稳定编号，如 '6.2.1' / '第五百八十五条'。层级切片的锚点",
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "Section Id",
+      "type": "string"
+    },
+    "law_code": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "法规代码，如 '民法典'。LAW_ARTICLE 时必填",
+      "title": "Law Code"
+    },
+    "law_title": {
+      "anyOf": [
+        {
+          "maxLength": 200,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "法规全称，用于拼接 sourceTitle",
+      "title": "Law Title"
+    },
+    "article_no": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "法条号，如 '第五百八十五条'。合同条款为 null",
+      "title": "Article No"
+    },
+    "parent_section_id": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "父级 section_id，构建层级树。顶层为 null",
+      "title": "Parent Section Id"
+    },
+    "section_path": {
+      "default": "",
+      "description": "人类可读层级路径，如 '第三章/第六条/6.1'",
+      "maxLength": 512,
+      "title": "Section Path",
+      "type": "string"
+    },
+    "level": {
+      "default": 0,
+      "description": "层级深度：0=文档，1=章，2=节，3=条，4=款，5=项",
+      "maximum": 8,
+      "minimum": 0,
+      "title": "Level",
+      "type": "integer"
+    },
+    "seq_in_doc": {
+      "description": "文档内顺序号，用于检索后按原文顺序重排与上下文窗口扩展",
+      "minimum": 0,
+      "title": "Seq In Doc",
+      "type": "integer"
+    },
+    "title": {
+      "anyOf": [
+        {
+          "maxLength": 200,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "条款/法条标题",
+      "title": "Title"
+    },
+    "text": {
+      "description": "检索语料正文。红线：绝不跨条款/法条边界切",
+      "maxLength": 8000,
+      "minLength": 1,
+      "title": "Text",
+      "type": "string"
+    },
+    "text_hash": {
+      "description": "sha256(text)[:16]，用于增量更新去重：hash 未变则跳过 embedding",
+      "pattern": "^[0-9a-f]{16}$",
+      "title": "Text Hash",
+      "type": "string"
+    },
+    "char_count": {
+      "description": "字符数。埋点必打：监控切片长度分布",
+      "minimum": 0,
+      "title": "Char Count",
+      "type": "integer"
+    },
+    "token_count": {
+      "description": "Token 数。埋点必打：Prompt 预算与成本核算",
+      "minimum": 0,
+      "title": "Token Count",
+      "type": "integer"
+    },
+    "page_no": {
+      "anyOf": [
+        {
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "物理页码（1-based），供 PDF.js 跳转",
+      "title": "Page No"
+    },
+    "bbox": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/BBox"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "物理坐标，供前端高亮"
+    },
+    "contract_type": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ContractType"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "合同类型，Qdrant keyword payload 索引字段"
+    },
+    "category": {
+      "default": "UNSPECIFIED",
+      "description": "业务/风险类别标签，用于分层过滤",
+      "maxLength": 64,
+      "title": "Category",
+      "type": "string"
+    },
+    "effective_date": {
+      "anyOf": [
+        {
+          "format": "date",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "法规生效日（YYYY-MM-DD），法条时效性过滤用",
+      "title": "Effective Date"
+    },
+    "tags": {
+      "description": "自由标签，如 ['违约金','付款']",
+      "items": {
+        "type": "string"
+      },
+      "title": "Tags",
+      "type": "array"
+    },
+    "embedding_model": {
+      "anyOf": [
+        {
+          "maxLength": 100,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "生成该向量的模型名，换模型时可据此筛出失效向量",
+      "title": "Embedding Model"
+    },
+    "embedding_dim": {
+      "anyOf": [
+        {
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": 1024,
+      "description": "向量维度，项目锁定 1024；null 表示尚未向量化",
+      "title": "Embedding Dim"
+    },
+    "created_at": {
+      "description": "ISO 8601 UTC 创建时间",
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "extra": {
+      "additionalProperties": true,
+      "description": "扩展字段逃生舱。禁止把需检索/过滤的字段塞进这里（Qdrant 无法建索引）",
+      "title": "Extra",
+      "type": "object"
+    }
+  },
+  "required": [
+    "char_count",
+    "chunk_id",
+    "chunk_type",
+    "created_at",
+    "doc_id",
+    "schema_version",
+    "section_id",
+    "seq_in_doc",
+    "source_type",
+    "text",
+    "text_hash",
+    "token_count"
+  ],
+  "title": "ContractChunk",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contract-guard.ai/schemas/contractchunk.schema.json",
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "source_type": {
+            "const": "LAW_ARTICLE"
+          }
+        },
+        "required": [
+          "source_type"
+        ]
+      },
+      "then": {
+        "required": [
+          "law_code"
+        ],
+        "description": "source_type=LAW_ARTICLE 时 law_code 必填（契约硬约束）。"
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "chunk_type": {
+            "const": "WINDOW_SLICE"
+          }
+        },
+        "required": [
+          "chunk_type"
+        ]
+      },
+      "then": {
+        "required": [
+          "parent_section_id"
+        ],
+        "description": "滑动窗口子块必须指明父 section，保证溯源可回溯到完整条款。"
+      }
+    }
+  ]
+}

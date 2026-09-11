@@ -1,0 +1,35 @@
+[project]
+name = "rag-core"
+version = "1.0.0"
+description = "RAG 检索核心实现：切片 / 向量化 / 向量库适配器 / 上下文拼装 / RAGService 编排"
+requires-python = ">=3.11"
+dependencies = [
+    "rag-contracts",       # workspace 内契约包
+    "cg-observability",    # workspace 内可观测包
+    "pydantic>=2.7,<3.0",
+    "pydantic-settings>=2.3,<3.0", # CG_RAG_* 配置
+    "qdrant-client>=1.9,<2.0",     # 向量库（含 :memory: / path 本地模式）
+    "httpx>=0.27,<1.0",            # HttpEmbedder / HttpReranker
+    "numpy>=1.26,<3.0",            # 向量运算（可选加速，缺失时回落纯 Python）
+]
+
+[project.optional-dependencies]
+# 重型依赖**仅限额外安装**，默认路径（inmemory + HashEmbedder）零外部依赖即可跑通
+heavy = [
+    "jieba>=0.42.1",               # BM25 中文分词（Phase 2）
+    "tenacity>=9.0,<10.0",         # 重试（Phase 2/3）
+    "python-docx>=1.1",            # 标准条款 DOCX 解析
+    "pdfplumber>=0.11",            # PDF 文本与坐标
+]
+# ⚠️ 禁止在默认依赖中引入 sentence-transformers / torch（设计文档 §3.5.2 硬约束 2）
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["rag_core"]
+
+[tool.uv.sources]
+rag-contracts = { workspace = true }
+cg-observability = { workspace = true }

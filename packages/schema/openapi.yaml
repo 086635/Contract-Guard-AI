@@ -533,7 +533,7 @@ components:
     # =========================================================================
     # 请求 / 任务 / 上传 等契约
     # =========================================================================
-    PresignResponse:
+    PresignData:
       type: object
       required: [presignedUrl, fileKey, expiresIn]
       properties:
@@ -563,7 +563,7 @@ components:
             - type: "null"
         xRequestId: { type: string, description: 幂等 }
 
-    RewriteResponse:
+    RewriteData:
       type: object
       required: [taskId, clauseId, before, after, diff, reasoningSteps, citations, updatedAt]
       properties:
@@ -669,6 +669,158 @@ components:
                 page: { type: integer, minimum: 1 }
                 pageSize: { type: integer, minimum: 1 }
                 hasMore: { type: boolean }
+
+    ReportData:
+      type: object
+      description: 审核报告元信息
+      required: [reportId, contractId, status, downloadUrl, generatedAt]
+      properties:
+        reportId: { type: string }
+        contractId: { type: string }
+        status: { type: string, enum: [RUNNING, DONE, FAILED] }
+        downloadUrl: { type: string, description: 报告下载地址（MinIO 预签名 URL） }
+        generatedAt: { type: string, format: date-time }
+
+    # =========================================================================
+    # 统一响应包络 wrapper（成功响应命名化）
+    # =========================================================================
+    PresignResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiEnvelopeBase"
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: "#/components/schemas/PresignData" }
+
+    ContractUploadResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiEnvelopeBase"
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: "#/components/schemas/TaskProgress" }
+
+    ContractDetailResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiEnvelopeBase"
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: "#/components/schemas/Contract" }
+
+    ParseStatusResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiEnvelopeBase"
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: "#/components/schemas/TaskProgress" }
+
+    ElementListResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiEnvelopeBase"
+        - type: object
+          required: [data]
+          properties:
+            data:
+              type: array
+              items: { $ref: "#/components/schemas/ContractElement" }
+
+    RiskListResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiEnvelopeBase"
+        - type: object
+          required: [data]
+          properties:
+            data:
+              type: array
+              items: { $ref: "#/components/schemas/EnhancedRiskItem" }
+
+    ConflictListResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiEnvelopeBase"
+        - type: object
+          required: [data]
+          properties:
+            data:
+              type: array
+              items: { $ref: "#/components/schemas/CrossClauseConflict" }
+
+    SealListResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiEnvelopeBase"
+        - type: object
+          required: [data]
+          properties:
+            data:
+              type: array
+              items: { $ref: "#/components/schemas/SealSignatureDetection" }
+
+    CommitResultResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiEnvelopeBase"
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: "#/components/schemas/BatchResult" }
+
+    TaskProgressResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiEnvelopeBase"
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: "#/components/schemas/TaskProgress" }
+
+    SettingsRulesResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiEnvelopeBase"
+        - type: object
+          required: [data]
+          properties:
+            data:
+              type: array
+              items: { $ref: "#/components/schemas/SystemAuditConfiguration" }
+
+    SettingsRuleResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiEnvelopeBase"
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: "#/components/schemas/SystemAuditConfiguration" }
+
+    ReportGenerateResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiEnvelopeBase"
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: "#/components/schemas/TaskProgress" }
+
+    ReportResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiEnvelopeBase"
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: "#/components/schemas/ReportData" }
+
+    FeedbackResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiEnvelopeBase"
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: "#/components/schemas/FeedbackItem" }
+
+    RewriteResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiEnvelopeBase"
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: "#/components/schemas/RewriteData" }
 
 # =========================================================================
 # 路径（§7.3 + §5.2/§5.3/§5.4 + §8）
@@ -776,13 +928,7 @@ paths:
           description: 成功
           content:
             application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/ApiEnvelopeBase"
-                  - type: object
-                    required: [data]
-                    properties:
-                      data: { $ref: "#/components/schemas/PresignResponse" }
+              schema: { $ref: "#/components/schemas/PresignResponse" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "413": { $ref: "#/components/responses/FileTooLarge" }
         "415": { $ref: "#/components/responses/UnsupportedType" }
@@ -805,13 +951,7 @@ paths:
           description: 已创建解析任务
           content:
             application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/ApiEnvelopeBase"
-                  - type: object
-                    required: [data]
-                    properties:
-                      data: { $ref: "#/components/schemas/TaskProgress" }
+              schema: { $ref: "#/components/schemas/ContractUploadResponse" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "409": { $ref: "#/components/responses/Duplicate" }
         "500": { $ref: "#/components/responses/Internal" }
@@ -828,13 +968,7 @@ paths:
           description: 成功
           content:
             application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/ApiEnvelopeBase"
-                  - type: object
-                    required: [data]
-                    properties:
-                      data: { $ref: "#/components/schemas/Contract" }
+              schema: { $ref: "#/components/schemas/ContractDetailResponse" }
         "404": { $ref: "#/components/responses/NotFound" }
         "500": { $ref: "#/components/responses/Internal" }
 
@@ -850,13 +984,7 @@ paths:
           description: 成功
           content:
             application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/ApiEnvelopeBase"
-                  - type: object
-                    required: [data]
-                    properties:
-                      data: { $ref: "#/components/schemas/TaskProgress" }
+              schema: { $ref: "#/components/schemas/ParseStatusResponse" }
         "404": { $ref: "#/components/responses/NotFound" }
         "500": { $ref: "#/components/responses/Internal" }
 
@@ -872,17 +1000,7 @@ paths:
           description: 成功
           content:
             application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/ApiEnvelopeBase"
-                  - type: object
-                    required: [data]
-                    properties:
-                      data:
-                        type: object
-                        required: [items]
-                        properties:
-                          items: { type: array, items: { $ref: "#/components/schemas/ContractElement" } }
+              schema: { $ref: "#/components/schemas/ElementListResponse" }
         "404": { $ref: "#/components/responses/NotFound" }
         "500": { $ref: "#/components/responses/Internal" }
 
@@ -899,17 +1017,7 @@ paths:
           description: 成功
           content:
             application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/ApiEnvelopeBase"
-                  - type: object
-                    required: [data]
-                    properties:
-                      data:
-                        type: object
-                        required: [items]
-                        properties:
-                          items: { type: array, items: { $ref: "#/components/schemas/EnhancedRiskItem" } }
+              schema: { $ref: "#/components/schemas/RiskListResponse" }
         "404": { $ref: "#/components/responses/NotFound" }
         "500": { $ref: "#/components/responses/Internal" }
 
@@ -925,17 +1033,7 @@ paths:
           description: 成功
           content:
             application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/ApiEnvelopeBase"
-                  - type: object
-                    required: [data]
-                    properties:
-                      data:
-                        type: object
-                        required: [items]
-                        properties:
-                          items: { type: array, items: { $ref: "#/components/schemas/CrossClauseConflict" } }
+              schema: { $ref: "#/components/schemas/ConflictListResponse" }
         "404": { $ref: "#/components/responses/NotFound" }
         "500": { $ref: "#/components/responses/Internal" }
 
@@ -951,18 +1049,7 @@ paths:
           description: 成功
           content:
             application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/ApiEnvelopeBase"
-                  - type: object
-                    required: [data]
-                    properties:
-                      data:
-                        type: object
-                        required: [items, hasMissingRequired]
-                        properties:
-                          items: { type: array, items: { $ref: "#/components/schemas/SealSignatureDetection" } }
-                          hasMissingRequired: { type: boolean }
+              schema: { $ref: "#/components/schemas/SealListResponse" }
         "404": { $ref: "#/components/responses/NotFound" }
         "502": { $ref: "#/components/responses/OcrFailed" }
         "500": { $ref: "#/components/responses/Internal" }
@@ -985,13 +1072,7 @@ paths:
           description: 成功
           content:
             application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/ApiEnvelopeBase"
-                  - type: object
-                    required: [data]
-                    properties:
-                      data: { $ref: "#/components/schemas/BatchResult" }
+              schema: { $ref: "#/components/schemas/CommitResultResponse" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
         "500": { $ref: "#/components/responses/Internal" }
@@ -1013,13 +1094,7 @@ paths:
           description: 成功
           content:
             application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/ApiEnvelopeBase"
-                  - type: object
-                    required: [data]
-                    properties:
-                      data: { $ref: "#/components/schemas/RewriteResponse" }
+              schema: { $ref: "#/components/schemas/RewriteResponse" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "409": { $ref: "#/components/responses/Duplicate" }
         "504": { $ref: "#/components/responses/LlmTimeout" }
@@ -1037,17 +1112,7 @@ paths:
           description: 成功
           content:
             application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/ApiEnvelopeBase"
-                  - type: object
-                    required: [data]
-                    properties:
-                      data:
-                        type: object
-                        required: [items]
-                        properties:
-                          items: { type: array, items: { $ref: "#/components/schemas/SystemAuditConfiguration" } }
+              schema: { $ref: "#/components/schemas/SettingsRulesResponse" }
         "500": { $ref: "#/components/responses/Internal" }
 
   /settings/rules/{configId}:
@@ -1062,13 +1127,7 @@ paths:
           description: 成功
           content:
             application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/ApiEnvelopeBase"
-                  - type: object
-                    required: [data]
-                    properties:
-                      data: { $ref: "#/components/schemas/SystemAuditConfiguration" }
+              schema: { $ref: "#/components/schemas/SettingsRuleResponse" }
         "404": { $ref: "#/components/responses/NotFound" }
         "500": { $ref: "#/components/responses/Internal" }
     put:
@@ -1088,13 +1147,7 @@ paths:
           description: 成功
           content:
             application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/ApiEnvelopeBase"
-                  - type: object
-                    required: [data]
-                    properties:
-                      data: { $ref: "#/components/schemas/SystemAuditConfiguration" }
+              schema: { $ref: "#/components/schemas/SettingsRuleResponse" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
@@ -1117,13 +1170,7 @@ paths:
           description: 成功
           content:
             application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/ApiEnvelopeBase"
-                  - type: object
-                    required: [data]
-                    properties:
-                      data: { $ref: "#/components/schemas/FeedbackItem" }
+              schema: { $ref: "#/components/schemas/FeedbackResponse" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "409": { $ref: "#/components/responses/FeedbackExists" }
         "500": { $ref: "#/components/responses/Internal" }
@@ -1140,13 +1187,7 @@ paths:
           description: 成功
           content:
             application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/ApiEnvelopeBase"
-                  - type: object
-                    required: [data]
-                    properties:
-                      data: { $ref: "#/components/schemas/TaskProgress" }
+              schema: { $ref: "#/components/schemas/TaskProgressResponse" }
         "404": { $ref: "#/components/responses/NotFound" }
         "500": { $ref: "#/components/responses/Internal" }
 
@@ -1181,13 +1222,7 @@ paths:
           description: 已创建报告渲染任务
           content:
             application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/ApiEnvelopeBase"
-                  - type: object
-                    required: [data]
-                    properties:
-                      data: { $ref: "#/components/schemas/TaskProgress" }
+              schema: { $ref: "#/components/schemas/ReportGenerateResponse" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Duplicate" }
         "500": { $ref: "#/components/responses/Internal" }
@@ -1204,18 +1239,6 @@ paths:
           description: 成功
           content:
             application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/ApiEnvelopeBase"
-                  - type: object
-                    required: [data]
-                    properties:
-                      data:
-                        type: object
-                        required: [reportId, downloadUrl, generatedAt]
-                        properties:
-                          reportId: { type: string }
-                          downloadUrl: { type: string }
-                          generatedAt: { type: string, format: date-time }
+              schema: { $ref: "#/components/schemas/ReportResponse" }
         "404": { $ref: "#/components/responses/NotFound" }
         "500": { $ref: "#/components/responses/Internal" }

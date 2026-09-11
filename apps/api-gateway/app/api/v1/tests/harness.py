@@ -1,11 +1,23 @@
 """API v1 测试专属 Mock Harness。
 
-当前各核心端点（contracts/tasks/config/report/feedback）均为 501 存根。
-本 harness 从「真实模块 router 的路由表」读取 methods + path（只读对齐契约路径），
-为这些端点注册「测试专用 Mock Handler」，从而可在不改生产逻辑的前提下
-真实复现边界行为：422 Schema 校验、404 资源不存在、空数组/分页溢出、任务状态机。
+生产路由已落地 Walking Skeleton：各核心端点（contracts/tasks/config/report/
+feedback/agent）通过 ``response_model`` 返回 ``MockDataFactory`` 的 Pydantic 实例，
+JSON 输出为 camelCase（alias）。
 
-- agent 模块当前亦为 501 存根，一并纳入 Mock（以支撑超长文本/Prompt 注入等边界用例）。
+本 harness 从「真实模块 router 的路由表」读取 methods + path（只读对齐契约路径），
+为这些端点注册「测试专用 Mock Handler」，从而可在不改生产逻辑的前提下真实复现
+边界行为：422 Schema 校验、404 资源不存在、空数组/分页溢出、任务状态机。
+
+对齐策略：
+- 成功响应体委托 ``MockDataFactory`` 并以 ``model_dump(by_alias=True, mode="json")``
+  序列化，确保与生产 ``response_model`` 输出逐字段一致：统一包络
+  ``{code:'SUCCESS', traceId, serverTime, data}``（camelCase，无 message 字段）。
+- 边界行为（404、空数组、分页溢出、四态任务、.exe 拒收）由 harness 自行模拟，
+  并手工包上同样的统一包络（空数组语义位于 data 内；四态任务的进度对象嵌在
+  data 内），覆盖生产默认数据。
+- 请求体使用 ``app.generated.schemas`` 中的 Pydantic 模型（如 UploadBody、
+  AgentRewriteRequest），以真实触发 422 Schema 校验。
+
 - 该文件是测试基础设施，禁止在生产 import。
 """
 from __future__ import annotations
@@ -16,10 +28,20 @@ from fastapi import APIRouter, FastAPI, HTTPException, Query, Request
 from fastapi.routing import APIRoute
 
 from app.api.v1 import agent, config as config_router, contracts, feedback, report, tasks
+from app.generated.schemas import (
+    AgentRewriteRequest,
+    CommitBody,
+    FeedbackCreateBody,
+    UploadBody,
+)
+from app.services.mock_factory import MockDataFactory
 
-# ---- 知识库常量：已知/未知资源 ----
+# ---- 知识库常量：已知/未知资源（标准 UUID 格式）----
 KNOWN_CONTRACT = "00000000-0000-0000-0000-000000000001"
 KNOWN_TASK = "00000000-0000-0000-0000-000000000002"
+KNOWN_RULE = "00000000-0000-0000-0000-000000000003"
+KNOWN_FEEDBACK = "00000000-0000-0000-0000-000000000004"
+KNOWN_CLAUSE = "00000000-0000-0000-0000-000000000020"
 
 # ---- 任务状态机 Store（PENDING -> PROCESSING -> COMPLETED / FAILED）----
 TASK_STORE: dict[str, str] = {}
@@ -57,83 +79,96 @@ def build_progress(task_id: str, status: str) -> dict:
     return progress
 
 
+def _dump(model) -> dict:
+    """Pydantic 实例 -> camelCase JSON dict（对齐生产 response_model 序列化）。"""
+    return model.model_dump(by_alias=True, mode="json")
+
+
+def _envelope_dict(data) -> dict:
+    """手工构造统一包络 dict：``{code:'SUCCESS', traceId, serverTime, data}``。
+
+    用于无法走生成 wrapper 模型的边界语义——任务四态使用 PENDING/PROCESSING/
+    COMPLETED，超出 schemas.Status 枚举（RUNNING/DONE/FAILED），不能实例化
+    TaskProgressResponse，故进度对象以手工构造的包络嵌在 data 内。
+    """
+    return {
+        "code": "SUCCESS",
+        "traceId": "test-trace",
+        "serverTime": "2026-08-18T00:00:00Z",
+        "data": data,
+    }
+
+
 # ============================== Mock Handlers ==============================
-# 签名与原端点一致（含 Query/UUID 约束），确保 422 能真实触发。
+# 签名与原端点一致（含 Query/UUID 约束 + Pydantic body），确保 422 能真实触发。
 async def mock_list_contracts(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     contract_type: str | None = None,
     status: str | None = None,
 ) -> dict:
-    # 分页边界：请求超出现有页数 -> 返回空数组而非 null
+    # 分页边界：请求超出现有页数 -> data.items 为空数组而非 null
     if page > 1:
-        return {"items": [], "total": 0, "page": page, "pageSize": page_size, "hasMore": False}
-    item = {
-        "id": KNOWN_CONTRACT,
-        "title": "采购合同样本",
-        "status": "FINALIZED",
-        "contractType": contract_type or "PURCHASE",
-        "version": 3,
-        "updatedAt": "2026-08-18T00:00:00Z",
-    }
-    return {"items": [item], "total": 1, "page": page, "pageSize": page_size, "hasMore": True}
+        return _envelope_dict(
+            {"items": [], "total": 0, "page": page, "pageSize": page_size, "hasMore": False}
+        )
+    return _dump(MockDataFactory.list_contracts(page, page_size))
 
 
 async def mock_presign_upload(body: dict) -> dict:
-    return {"uploadId": "up-1", "url": "http://minio.test/bucket/x", "method": "PUT", "expiresIn": 600}
+    return _dump(MockDataFactory.presign_upload())
 
 
-async def mock_upload_contract(body: dict) -> dict:
-    name = (body or {}).get("fileName") or (body or {}).get("filename") or ""
-    suffix = name.lower()
+async def mock_upload_contract(body: UploadBody) -> dict:
+    # 边界：拒收 .exe / .zip 文件类型
+    suffix = body.file_name.lower()
     if suffix.endswith(".exe") or suffix.endswith(".zip"):
         raise HTTPException(status_code=422, detail=f"Unsupported file type: {suffix}")
-    if not name:
-        raise HTTPException(status_code=422, detail="fileName is required")
-    return {"contractId": KNOWN_CONTRACT, "taskId": KNOWN_TASK, "status": "PENDING"}
+    return _dump(MockDataFactory.upload_contract(body))
 
 
 async def mock_get_contract(contract_id: UUID) -> dict:
     if str(contract_id) != KNOWN_CONTRACT:
         raise HTTPException(status_code=404, detail="contract not found")
-    return {"id": str(contract_id), "title": "采购合同样本", "status": "FINALIZED", "version": 3}
+    return _dump(MockDataFactory.get_contract(contract_id))
 
 
 async def mock_get_parse_status(contract_id: UUID) -> dict:
     if str(contract_id) != KNOWN_CONTRACT:
         raise HTTPException(status_code=404, detail="contract not found")
-    return {"contractId": str(contract_id), "status": "DONE", "percent": 1.0}
+    return _dump(MockDataFactory.get_parse_status(contract_id))
 
 
 async def mock_get_elements(contract_id: UUID) -> dict:
     if str(contract_id) != KNOWN_CONTRACT:
         raise HTTPException(status_code=404, detail="contract not found")
-    return {"contractId": str(contract_id), "parties": ["甲方", "乙方"], "amount": "壹佰万元"}
+    return _dump(MockDataFactory.get_elements(contract_id))
 
 
 async def mock_get_risks(contract_id: UUID, level: str | None = None) -> dict:
     if str(contract_id) != KNOWN_CONTRACT:
         raise HTTPException(status_code=404, detail="contract not found")
-    # 无风险条款：必须返回空数组 [] 而非 null
-    return {"contractId": str(contract_id), "risk_items": [], "total": 0, "hasMore": False}
+    # 无风险条款：data 必须是空数组 [] 而非 null（包络内）
+    return _envelope_dict([])
 
 
 async def mock_get_conflicts(contract_id: UUID) -> dict:
     if str(contract_id) != KNOWN_CONTRACT:
         raise HTTPException(status_code=404, detail="contract not found")
-    return {"contractId": str(contract_id), "conflicts": [], "total": 0}
+    # 无矛盾条款：data 必须是空数组 [] 而非 null（包络内）
+    return _envelope_dict([])
 
 
 async def mock_get_seals(contract_id: UUID) -> dict:
     if str(contract_id) != KNOWN_CONTRACT:
         raise HTTPException(status_code=404, detail="contract not found")
-    return {"contractId": str(contract_id), "seals": []}
+    return _dump(MockDataFactory.get_seals(contract_id))
 
 
-async def mock_commit_contract(contract_id: UUID, body: dict) -> dict:
+async def mock_commit_contract(contract_id: UUID, body: CommitBody) -> dict:
     if str(contract_id) != KNOWN_CONTRACT:
         raise HTTPException(status_code=404, detail="contract not found")
-    return {"contractId": str(contract_id), "version": (body or {}).get("version", 3) + 1}
+    return _dump(MockDataFactory.commit_contract(contract_id, body))
 
 
 # ---- Tasks ----
@@ -142,68 +177,60 @@ async def mock_get_task(task_id: UUID) -> dict:
     if tid != KNOWN_TASK:
         raise HTTPException(status_code=404, detail="task not found")
     status = TASK_STORE.get(tid, "PENDING")
-    return build_progress(tid, status)
+    # 四态进度对象嵌在包络 data 内（PENDING/PROCESSING/COMPLETED 超出 Status
+    # 枚举，无法走 TaskProgressResponse，故手工构造包络）
+    return _envelope_dict(build_progress(tid, status))
 
 
 async def mock_stream_task(task_id: UUID) -> dict:
     if str(task_id) != KNOWN_TASK:
         raise HTTPException(status_code=404, detail="task not found")
+    # SSE stream 结构（harness 以 JSON 近似）：事件为裸 TaskProgress 形状
     return {"taskId": str(task_id), "events": [build_progress(str(task_id), TASK_STORE.get(str(task_id), "PENDING"))]}
 
 
 # ---- Config ----
 async def mock_list_rules(contract_type: str | None = None) -> dict:
-    return {"items": [{"configId": "rule-01", "key": "risk-tolerance", "enabled": True, "contractType": contract_type or "ALL"}]}
+    return _dump(MockDataFactory.list_rules(contract_type))
 
 
 async def mock_get_rule(config_id: str) -> dict:
-    if config_id != "rule-01":
+    if config_id != KNOWN_RULE:
         raise HTTPException(status_code=404, detail="config not found")
-    return {"configId": config_id, "key": "risk-tolerance", "enabled": True}
+    return _dump(MockDataFactory.get_rule(config_id))
 
 
 async def mock_update_rule(config_id: str, body: dict) -> dict:
-    if config_id != "rule-01":
+    if config_id != KNOWN_RULE:
         raise HTTPException(status_code=404, detail="config not found")
     if str(body.get("version")) != "1":
         raise HTTPException(status_code=409, detail="version conflict")
-    return {"configId": config_id, "key": "risk-tolerance", "enabled": bool(body.get("enabled")), "version": 2}
+    return _dump(MockDataFactory.update_rule(config_id, body))
 
 
 # ---- Report ----
 async def mock_generate_report(contract_id: UUID, body: dict) -> dict:
     if str(contract_id) != KNOWN_CONTRACT:
         raise HTTPException(status_code=404, detail="contract not found")
-    return {"taskId": KNOWN_TASK, "status": "PENDING"}
+    return _dump(MockDataFactory.generate_report(contract_id, body))
 
 
 async def mock_get_report(contract_id: UUID) -> dict:
     if str(contract_id) != KNOWN_CONTRACT:
         raise HTTPException(status_code=404, detail="contract not found")
-    return {"contractId": str(contract_id), "status": "DONE", "downloadUrl": "http://minio.test/report.pdf"}
+    return _dump(MockDataFactory.get_report(contract_id))
 
 
 # ---- Feedback ----
 async def mock_create_feedback(body: dict) -> dict:
     if (body or {}).get("dup"):
         raise HTTPException(status_code=409, detail="duplicate feedback")
-    return {"feedbackId": "fb-1", "status": "APPROVED"}
+    return _dump(MockDataFactory.create_feedback(FeedbackCreateBody.model_validate(body)))
 
 
-# ---- Agent（当前 agent.py 为 501 存根，特作 Mock 以支撑超长文本/Prompt 注入边界测试）----
-async def mock_agent_rewrite(body: dict) -> dict:
-    clause_id = (body or {}).get("clauseId") or "c-1"
-    return {
-        "taskId": KNOWN_TASK,
-        "clauseId": clause_id,
-        "before": "乙方应在收到货物后 3 日内付款。",
-        "after": "乙方应在收到货物后 15 个工作日内支付首期款项。",
-        "reasoningSteps": [
-            {"stepNumber": 1, "thought": "定位付款条款", "evidenceText": "第 3.2 条"},
-        ],
-        "citations": [],
-        "confidence": 0.92,
-    }
+# ---- Agent（超长文本 / Prompt 注入 / XSS 等边界输入不得导致异常）----
+async def mock_agent_rewrite(body: AgentRewriteRequest) -> dict:
+    return _dump(MockDataFactory.rewrite_clause(body))
 
 
 # ---- 路由表：methods+path -> Mock Handler ----
@@ -229,7 +256,7 @@ MOCK_ROUTES: dict[tuple[str, str], object] = {
     ("POST", "/agent/rewrite"): mock_agent_rewrite,
 }
 
-# 参与 Mock 的模块 router（agent 除外，agent 复用真实 DI 逻辑）
+# 参与 Mock 的模块 router（路径表只读对齐，处理逻辑由 harness 接管）
 _MOCK_MODULES = [
     ("Contracts", contracts.router),
     ("Tasks", tasks.router),

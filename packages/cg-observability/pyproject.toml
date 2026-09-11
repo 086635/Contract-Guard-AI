@@ -1,0 +1,20 @@
+[project]
+name = "cg-observability"
+version = "1.0.0"
+description = "全链路可观测性：trace_id 透传 + 单行 JSON 日志 + Token 与耗时统计"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+# 均为**可选**增强：缺失时自动回落 stdlib 实现，保证离线零依赖可跑
+enhanced = [
+    "structlog>=24.1,<25.0", # 结构化日志增强（可选）
+    "tiktoken>=0.7,<1.0",    # 精确 Token 计数（可选，缺失时按字符估算）
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["cg_observability"]

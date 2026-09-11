@@ -1,0 +1,242 @@
+{
+  "$defs": {
+    "ChunkType": {
+      "description": "切片粒度（层级切片的层级标识）。\n\n- SECTION：章/节合并块\n- CLAUSE：合同条款（第 X 条）\n- ARTICLE：法条\n- PARAGRAPH：款\n- ITEM：项\n- TABLE：表格\n- WINDOW_SLICE：超长条款的滑动窗口子块（必须带 parent_section_id）\n- RECITAL：鉴于 / 前言",
+      "enum": [
+        "SECTION",
+        "CLAUSE",
+        "ARTICLE",
+        "PARAGRAPH",
+        "ITEM",
+        "TABLE",
+        "WINDOW_SLICE",
+        "RECITAL"
+      ],
+      "title": "ChunkType",
+      "type": "string"
+    },
+    "ContractType": {
+      "description": "合同类型。与 openapi.yaml ContractType 保持一致。",
+      "enum": [
+        "PURCHASE",
+        "SALES",
+        "NDA",
+        "OUTSOURCING",
+        "LABOR",
+        "OTHER"
+      ],
+      "title": "ContractType",
+      "type": "string"
+    },
+    "RetrievalFilters": {
+      "additionalProperties": false,
+      "description": "检索过滤条件。`None` 表示该维度不限。",
+      "properties": {
+        "source_types": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/SourceType"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "限定检索源。null=不限",
+          "title": "Source Types"
+        },
+        "chunk_types": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/ChunkType"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "限定切片粒度",
+          "title": "Chunk Types"
+        },
+        "contract_type": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ContractType"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "同类型优先过滤（软过滤，命中不足时自动放宽）"
+        },
+        "law_codes": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "限定法规代码",
+          "title": "Law Codes"
+        },
+        "doc_ids": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "限定源文档",
+          "title": "Doc Ids"
+        },
+        "categories": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "限定业务/风险类别",
+          "title": "Categories"
+        }
+      },
+      "title": "RetrievalFilters",
+      "type": "object"
+    },
+    "RetrieveStrategy": {
+      "description": "检索策略。\n\n- DENSE_ONLY：仅向量路（Phase 1）\n- SPARSE_ONLY：仅 BM25 路（调试用）\n- HYBRID_RRF：双路 + RRF 融合（Phase 2+）",
+      "enum": [
+        "DENSE_ONLY",
+        "SPARSE_ONLY",
+        "HYBRID_RRF"
+      ],
+      "title": "RetrieveStrategy",
+      "type": "string"
+    },
+    "SourceType": {
+      "description": "检索源类型。与 PreciseCitation.sourceType 一一对应，禁止扩展。\n\n- STANDARD_CLAUSE：企业标准条款范本（我方基线库）\n- LAW_ARTICLE：法律法规条文（民法典等）\n- PRECEDENT：裁判文书",
+      "enum": [
+        "STANDARD_CLAUSE",
+        "LAW_ARTICLE",
+        "PRECEDENT"
+      ],
+      "title": "SourceType",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "RAG 检索请求契约。请求即配置：阈值、策略、预算全在请求里。",
+  "properties": {
+    "trace_id": {
+      "description": "全链路追踪 ID",
+      "title": "Trace Id",
+      "type": "string"
+    },
+    "query": {
+      "description": "检索文本",
+      "maxLength": 4000,
+      "minLength": 1,
+      "title": "Query",
+      "type": "string"
+    },
+    "top_k": {
+      "default": 8,
+      "description": "最终返回条数上限",
+      "maximum": 50,
+      "minimum": 1,
+      "title": "Top K",
+      "type": "integer"
+    },
+    "score_threshold": {
+      "default": 0.35,
+      "description": "相关性下限",
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Score Threshold",
+      "type": "number"
+    },
+    "strategy": {
+      "$ref": "#/$defs/RetrieveStrategy",
+      "default": "HYBRID_RRF",
+      "description": "检索策略"
+    },
+    "enable_rerank": {
+      "default": true,
+      "description": "是否启用精排",
+      "title": "Enable Rerank",
+      "type": "boolean"
+    },
+    "rerank_top_n": {
+      "default": 5,
+      "description": "重排后保留条数（3~5 为宜）",
+      "maximum": 20,
+      "minimum": 1,
+      "title": "Rerank Top N",
+      "type": "integer"
+    },
+    "enable_sparse": {
+      "default": true,
+      "description": "是否启用 BM25 路（Phase 2+）",
+      "title": "Enable Sparse",
+      "type": "boolean"
+    },
+    "filters": {
+      "$ref": "#/$defs/RetrievalFilters",
+      "description": "检索过滤条件"
+    },
+    "max_context_tokens": {
+      "default": 3000,
+      "description": "上下文 Token 预算",
+      "maximum": 32000,
+      "minimum": 256,
+      "title": "Max Context Tokens",
+      "type": "integer"
+    },
+    "timeout_ms": {
+      "default": 3000,
+      "description": "整体超时（毫秒）",
+      "maximum": 30000,
+      "minimum": 100,
+      "title": "Timeout Ms",
+      "type": "integer"
+    },
+    "with_highlight": {
+      "default": false,
+      "description": "是否返回命中词高亮片段",
+      "title": "With Highlight",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "query"
+  ],
+  "title": "RAGQueryRequest",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contract-guard.ai/schemas/ragqueryrequest.schema.json"
+}

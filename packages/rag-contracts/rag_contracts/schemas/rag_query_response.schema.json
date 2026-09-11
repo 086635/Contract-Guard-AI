@@ -1,0 +1,549 @@
+{
+  "$defs": {
+    "BBox": {
+      "additionalProperties": false,
+      "description": "PDF 坐标（72dpi 用户空间，左上原点）。与 doc_processor.aligner 同构。",
+      "properties": {
+        "page": {
+          "description": "物理页码（1-based）",
+          "minimum": 1,
+          "title": "Page",
+          "type": "integer"
+        },
+        "x": {
+          "description": "左上角 X（PDF_POINTS）",
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "description": "左上角 Y（PDF_POINTS）",
+          "title": "Y",
+          "type": "number"
+        },
+        "width": {
+          "description": "宽度（PDF_POINTS）",
+          "title": "Width",
+          "type": "number"
+        },
+        "height": {
+          "description": "高度（PDF_POINTS）",
+          "title": "Height",
+          "type": "number"
+        },
+        "coordinate_system": {
+          "const": "PDF_POINTS",
+          "default": "PDF_POINTS",
+          "description": "坐标系，项目统一 PDF_POINTS",
+          "title": "Coordinate System",
+          "type": "string"
+        }
+      },
+      "required": [
+        "page",
+        "x",
+        "y",
+        "width",
+        "height"
+      ],
+      "title": "BBox",
+      "type": "object"
+    },
+    "ChunkScores": {
+      "additionalProperties": false,
+      "description": "多阶段得分。保留全链路分数用于调试与阈值调参。",
+      "properties": {
+        "dense": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "向量余弦相似度 [-1,1]",
+          "title": "Dense"
+        },
+        "sparse": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "BM25 原始分（未归一）",
+          "title": "Sparse"
+        },
+        "fused": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "RRF 融合分 Σ1/(k+rank)，k=60",
+          "title": "Fused"
+        },
+        "rerank": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Cross-Encoder 精排分 [0,1]",
+          "title": "Rerank"
+        },
+        "final": {
+          "description": "最终用于阈值比较的分数",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Final",
+          "type": "number"
+        },
+        "rank": {
+          "description": "最终排名（1-based）",
+          "minimum": 1,
+          "title": "Rank",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "final",
+        "rank"
+      ],
+      "title": "ChunkScores",
+      "type": "object"
+    },
+    "ChunkType": {
+      "description": "切片粒度（层级切片的层级标识）。\n\n- SECTION：章/节合并块\n- CLAUSE：合同条款（第 X 条）\n- ARTICLE：法条\n- PARAGRAPH：款\n- ITEM：项\n- TABLE：表格\n- WINDOW_SLICE：超长条款的滑动窗口子块（必须带 parent_section_id）\n- RECITAL：鉴于 / 前言",
+      "enum": [
+        "SECTION",
+        "CLAUSE",
+        "ARTICLE",
+        "PARAGRAPH",
+        "ITEM",
+        "TABLE",
+        "WINDOW_SLICE",
+        "RECITAL"
+      ],
+      "title": "ChunkType",
+      "type": "string"
+    },
+    "CitationOut": {
+      "additionalProperties": false,
+      "description": "与 `auditor.PreciseCitation` 字段 1:1（camelCase，供前端直接消费）。\n\n⚠️ 冻结字段：sourceType / sourceTitle / contentChunk / relevanceScore。\n任何变更必须先改设计文档 §2.0.1 并同步 auditor.py。",
+      "properties": {
+        "sourceType": {
+          "$ref": "#/$defs/SourceType",
+          "description": "检索源类型"
+        },
+        "sourceTitle": {
+          "description": "来源标题（逐级兜底，保证非空）",
+          "title": "Sourcetitle",
+          "type": "string"
+        },
+        "contentChunk": {
+          "description": "原文片段（超 800 字截断）",
+          "title": "Contentchunk",
+          "type": "string"
+        },
+        "relevanceScore": {
+          "description": "相关性得分 [0,1]",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Relevancescore",
+          "type": "number"
+        }
+      },
+      "required": [
+        "sourceType",
+        "sourceTitle",
+        "contentChunk",
+        "relevanceScore"
+      ],
+      "title": "CitationOut",
+      "type": "object"
+    },
+    "ContractType": {
+      "description": "合同类型。与 openapi.yaml ContractType 保持一致。",
+      "enum": [
+        "PURCHASE",
+        "SALES",
+        "NDA",
+        "OUTSOURCING",
+        "LABOR",
+        "OTHER"
+      ],
+      "title": "ContractType",
+      "type": "string"
+    },
+    "FallbackReason": {
+      "description": "降级原因。注意：降级不是错误，是设计（缺失检测信号）。",
+      "enum": [
+        "NONE",
+        "OVERLONG_QUERY",
+        "EMPTY_RECALL",
+        "TIMEOUT",
+        "STORE_UNAVAILABLE",
+        "RERANK_FAILED",
+        "EMBED_FAILED"
+      ],
+      "title": "FallbackReason",
+      "type": "string"
+    },
+    "RetrieveStrategy": {
+      "description": "检索策略。\n\n- DENSE_ONLY：仅向量路（Phase 1）\n- SPARSE_ONLY：仅 BM25 路（调试用）\n- HYBRID_RRF：双路 + RRF 融合（Phase 2+）",
+      "enum": [
+        "DENSE_ONLY",
+        "SPARSE_ONLY",
+        "HYBRID_RRF"
+      ],
+      "title": "RetrieveStrategy",
+      "type": "string"
+    },
+    "RetrievedDoc": {
+      "additionalProperties": false,
+      "description": "单条召回结果。已排序、已过滤、已截断。",
+      "properties": {
+        "chunk_id": {
+          "description": "切片 ID（与 Qdrant point_id 一致）",
+          "title": "Chunk Id",
+          "type": "string"
+        },
+        "doc_id": {
+          "description": "源文档 ID",
+          "title": "Doc Id",
+          "type": "string"
+        },
+        "source_type": {
+          "$ref": "#/$defs/SourceType",
+          "description": "检索源类型"
+        },
+        "chunk_type": {
+          "$ref": "#/$defs/ChunkType",
+          "description": "切片粒度"
+        },
+        "section_id": {
+          "description": "章节/条款编号",
+          "title": "Section Id",
+          "type": "string"
+        },
+        "law_code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "法规代码",
+          "title": "Law Code"
+        },
+        "article_no": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "法条号",
+          "title": "Article No"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "条款/法条标题",
+          "title": "Title"
+        },
+        "text": {
+          "description": "切片正文",
+          "title": "Text",
+          "type": "string"
+        },
+        "highlight": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "命中词高亮片段",
+          "title": "Highlight"
+        },
+        "page_no": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "物理页码",
+          "title": "Page No"
+        },
+        "bbox": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BBox"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "物理坐标"
+        },
+        "contract_type": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ContractType"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "合同类型"
+        },
+        "category": {
+          "default": "UNSPECIFIED",
+          "description": "业务/风险类别",
+          "title": "Category",
+          "type": "string"
+        },
+        "section_path": {
+          "default": "",
+          "description": "人类可读层级路径",
+          "title": "Section Path",
+          "type": "string"
+        },
+        "token_count": {
+          "default": 0,
+          "description": "该切片的 Token 数",
+          "minimum": 0,
+          "title": "Token Count",
+          "type": "integer"
+        },
+        "scores": {
+          "$ref": "#/$defs/ChunkScores",
+          "description": "多阶段得分"
+        },
+        "citation": {
+          "$ref": "#/$defs/CitationOut",
+          "description": "可直接赋值给 EnhancedRiskItem.citations"
+        }
+      },
+      "required": [
+        "chunk_id",
+        "doc_id",
+        "source_type",
+        "chunk_type",
+        "section_id",
+        "text",
+        "scores",
+        "citation"
+      ],
+      "title": "RetrievedDoc",
+      "type": "object"
+    },
+    "SourceType": {
+      "description": "检索源类型。与 PreciseCitation.sourceType 一一对应，禁止扩展。\n\n- STANDARD_CLAUSE：企业标准条款范本（我方基线库）\n- LAW_ARTICLE：法律法规条文（民法典等）\n- PRECEDENT：裁判文书",
+      "enum": [
+        "STANDARD_CLAUSE",
+        "LAW_ARTICLE",
+        "PRECEDENT"
+      ],
+      "title": "SourceType",
+      "type": "string"
+    },
+    "TokenUsage": {
+      "additionalProperties": false,
+      "description": "Token 耗用统计。可观测性必打。\n\n`total_tokens` 由 `add()` 自动重算，禁止手工赋值。",
+      "properties": {
+        "embedding_tokens": {
+          "default": 0,
+          "description": "向量化耗用",
+          "minimum": 0,
+          "title": "Embedding Tokens",
+          "type": "integer"
+        },
+        "rerank_tokens": {
+          "default": 0,
+          "description": "精排耗用",
+          "minimum": 0,
+          "title": "Rerank Tokens",
+          "type": "integer"
+        },
+        "prompt_tokens": {
+          "default": 0,
+          "description": "Prompt 耗用",
+          "minimum": 0,
+          "title": "Prompt Tokens",
+          "type": "integer"
+        },
+        "completion_tokens": {
+          "default": 0,
+          "description": "生成耗用",
+          "minimum": 0,
+          "title": "Completion Tokens",
+          "type": "integer"
+        },
+        "total_tokens": {
+          "default": 0,
+          "description": "合计（自动累加）",
+          "minimum": 0,
+          "title": "Total Tokens",
+          "type": "integer"
+        },
+        "estimated": {
+          "default": true,
+          "description": "true=估算值（无真实 tokenizer 时）",
+          "title": "Estimated",
+          "type": "boolean"
+        }
+      },
+      "title": "TokenUsage",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "RAG 检索响应契约。自带 citation / token_usage / stage_latency_ms。",
+  "properties": {
+    "trace_id": {
+      "description": "全链路追踪 ID（与请求一致或服务端生成）",
+      "title": "Trace Id",
+      "type": "string"
+    },
+    "query": {
+      "description": "回显请求 query（可能为截断版本）",
+      "title": "Query",
+      "type": "string"
+    },
+    "strategy": {
+      "$ref": "#/$defs/RetrieveStrategy",
+      "default": "HYBRID_RRF",
+      "description": "实际生效的检索策略"
+    },
+    "retrieved_docs": {
+      "description": "最终召回文档",
+      "items": {
+        "$ref": "#/$defs/RetrievedDoc"
+      },
+      "title": "Retrieved Docs",
+      "type": "array"
+    },
+    "total_candidates": {
+      "default": 0,
+      "description": "融合前的候选总数",
+      "minimum": 0,
+      "title": "Total Candidates",
+      "type": "integer"
+    },
+    "context_block": {
+      "default": "",
+      "description": "可直接注入 Prompt 的上下文文本",
+      "title": "Context Block",
+      "type": "string"
+    },
+    "context_tokens": {
+      "default": 0,
+      "description": "上下文实际 Token 数",
+      "minimum": 0,
+      "title": "Context Tokens",
+      "type": "integer"
+    },
+    "truncated": {
+      "default": false,
+      "description": "是否因 Token 预算被截断",
+      "title": "Truncated",
+      "type": "boolean"
+    },
+    "degraded": {
+      "default": false,
+      "description": "是否走了降级路径",
+      "title": "Degraded",
+      "type": "boolean"
+    },
+    "fallback_reason": {
+      "$ref": "#/$defs/FallbackReason",
+      "default": "NONE",
+      "description": "降级原因"
+    },
+    "warnings": {
+      "description": "非致命告警列表",
+      "items": {
+        "type": "string"
+      },
+      "title": "Warnings",
+      "type": "array"
+    },
+    "token_usage": {
+      "$ref": "#/$defs/TokenUsage",
+      "description": "Token 耗用统计"
+    },
+    "stage_latency_ms": {
+      "additionalProperties": {
+        "type": "integer"
+      },
+      "description": "分段耗时：embed/dense/sparse/fuse/rerank/build",
+      "title": "Stage Latency Ms",
+      "type": "object"
+    },
+    "took_ms": {
+      "default": 0,
+      "description": "整体耗时（毫秒）",
+      "minimum": 0,
+      "title": "Took Ms",
+      "type": "integer"
+    },
+    "schema_version": {
+      "const": "1.0.0",
+      "default": "1.0.0",
+      "description": "契约版本",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "degraded",
+    "fallback_reason",
+    "query",
+    "retrieved_docs",
+    "token_usage",
+    "took_ms",
+    "trace_id"
+  ],
+  "title": "RAGQueryResponse",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contract-guard.ai/schemas/ragqueryresponse.schema.json"
+}

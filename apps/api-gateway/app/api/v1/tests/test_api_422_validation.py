@@ -10,13 +10,19 @@ from fastapi.testclient import TestClient
 
 class Test422Validation:
     def test_upload_unsupported_exe(self, client: TestClient):
-        """上传不支持的 .exe 文件格式 -> 422。"""
-        resp = client.post("/api/v1/contracts/upload", json={"fileName": "malware.exe"})
+        """上传不支持的 .exe 文件格式 -> 422。请求体匹配 UploadBody。"""
+        resp = client.post(
+            "/api/v1/contracts/upload",
+            json={"fileKey": "contracts/test.docx", "fileName": "malware.exe", "fileType": "DOCX"},
+        )
         assert resp.status_code == 422, resp.text
 
     def test_upload_missing_filename(self, client: TestClient):
-        """缺失必填 fileName -> 422。"""
-        resp = client.post("/api/v1/contracts/upload", json={})
+        """缺失必填 fileName -> 422。其余字段匹配 UploadBody。"""
+        resp = client.post(
+            "/api/v1/contracts/upload",
+            json={"fileKey": "contracts/test.docx", "fileType": "DOCX"},
+        )
         assert resp.status_code == 422, resp.text
 
     def test_invalid_contract_uuid(self, client: TestClient):

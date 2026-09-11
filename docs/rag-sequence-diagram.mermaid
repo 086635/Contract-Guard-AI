@@ -1,0 +1,44 @@
+%% 合同智能审核 RAG 模块 —— 在线检索调用时序
+%% 来源：文件集合/report/RAG_MODULE_DESIGN.md 附录 B
+sequenceDiagram
+    autonumber
+    participant AG as LangGraph Agent
+    participant TL as retrieve_contract_knowledge @tool
+    participant SV as RAGService
+    participant EM as EmbedderPort
+    participant VS as QdrantVectorStore
+    participant BM as BM25Store
+    participant RR as RerankerPort
+    participant CB as ContextBuilder
+    participant OB as cg_observability
+
+    AG->>TL: invoke(AgentRAGToolInput)
+    TL->>TL: 防线1 _guard_query 超长拦截
+    TL->>SV: retrieve(RAGQueryRequest)
+    SV->>OB: log retrieve.start trace_id
+    par Dense 路
+        SV->>EM: embed_one(query)
+        EM-->>SV: vector 1024d
+        SV->>VS: search(vector, top_k=20, filters)
+        VS-->>SV: VectorHit[]
+        SV->>OB: log retrieve.dense candidates/top_score
+    and Sparse 路
+        SV->>BM: search(query, top_k=20)
+        BM-->>SV: SparseHit[]
+        SV->>OB: log retrieve.sparse candidates/top_score
+    end
+    SV->>SV: RRF 融合 k=60
+    SV->>RR: rerank(query, texts)
+    RR-->>SV: scores 0..1
+    SV->>OB: log retrieve.rerank score_max/mean/dropped
+    SV->>SV: 阈值 0.35 过滤 + topN 截断
+    alt 命中为空 或 最高分 小于 阈值
+        SV->>SV: 防线2 降级 fallback_reason=EMPTY_RECALL
+        SV->>OB: log retrieve.degrade WARNING
+    end
+    SV->>CB: build(docs, max_context_tokens)
+    CB-->>SV: context_block / context_tokens / truncated
+    SV->>OB: log context.build prompt_preview 前500字
+    SV-->>TL: RAGQueryResponse
+    TL->>OB: log tool.result status/citations/token_total
+    TL-->>AG: AgentRAGToolResult.to_tool_message()

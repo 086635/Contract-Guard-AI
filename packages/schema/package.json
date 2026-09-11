@@ -8,7 +8,7 @@
     "gen": "pnpm run gen:ts && pnpm run gen:zod && pnpm run gen:py",
     "gen:ts": "tsx scripts/gen-ts.ts",
     "gen:zod": "tsx scripts/gen-zod.ts",
-    "gen:py": "bash scripts/gen-py.sh",
+    "gen:py": "tsx scripts/gen-py.ts",
     "lint": "spectral lint openapi.yaml --ruleset spectral.yaml"
   },
   "devDependencies": {

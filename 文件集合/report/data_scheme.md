@@ -3,7 +3,7 @@
 # 数据类型契约规范（Data Schema & API Contract）
 
 > **文档版本**：v1.0　**状态**：基线冻结　**单一真理源（SSOT）**：本文档 + `openapi.yaml` + `types.ts` 三者由 CLI 同源生成，禁止手写漂移
-> **适用范围**：前端（Vue3 + Element Plus）、后端（FastAPI）、AI Agent 引擎（LangGraph + LLM）、数据库（PostgreSQL / MinIO）全部跨端数据交换
+> **适用范围**：前端（React 18 + Vite + TypeScript + Tailwind CSS + Zustand）、后端（FastAPI）、AI Agent 引擎（LangGraph + LLM）、数据库（PostgreSQL / MinIO）全部跨端数据交换
 > **配套赛题**：【A24】基于大模型的企业合同智能审核与风险预警系统（网新恒天）
 
 ---
@@ -24,6 +24,16 @@ openapi.yaml (权威)
    └─> pydantic (后端 DTO)  ── CLI ──┐
    └─> types.ts  (前端类型) ── CLI ──┤─> zod schemas (运行时校验) ── CLI ──┘
 ```
+
+---
+
+## 0.5 架构决策记录（ADR）
+
+| 编号 | 决策 | 结论 | 理由 | 日期 |
+|---|---|---|---|---|
+| D1 | feedback.py / tasks.py 路由模块划界 | **保持独立路由模块** | 与 openapi.yaml 中 /tasks/{taskId}、/feedback 根路径对齐；任务轮询（SSE）与标注反馈属通用横切关注点，非单份合同子域 | 2026-08-25 |
+| D2 | AI Agent 引擎编排选型 | **采用 LangGraph** | 合同审查/条款改写/冲突检测需多步推理（CoT）、人机协同确认（HITL）与状态回滚，纯 asyncio 手写状态机维护成本过高 | 2026-08-25 |
+| D3 | 交付流程控制 | **契约驱动轻量 SOP** | 以 openapi.yaml + 生成物（types.ts/zod.ts/schemas.py）为唯一质量闸口，Phase 2/3 并行加速期省去繁重审批节点 | 2026-08-25 |
 
 ---
 

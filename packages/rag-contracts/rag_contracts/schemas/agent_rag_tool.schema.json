@@ -1,0 +1,181 @@
+{
+  "$defs": {
+    "CitationOut": {
+      "additionalProperties": false,
+      "description": "与 `auditor.PreciseCitation` 字段 1:1（camelCase，供前端直接消费）。\n\n⚠️ 冻结字段：sourceType / sourceTitle / contentChunk / relevanceScore。\n任何变更必须先改设计文档 §2.0.1 并同步 auditor.py。",
+      "properties": {
+        "sourceType": {
+          "$ref": "#/$defs/SourceType",
+          "description": "检索源类型"
+        },
+        "sourceTitle": {
+          "description": "来源标题（逐级兜底，保证非空）",
+          "title": "Sourcetitle",
+          "type": "string"
+        },
+        "contentChunk": {
+          "description": "原文片段（超 800 字截断）",
+          "title": "Contentchunk",
+          "type": "string"
+        },
+        "relevanceScore": {
+          "description": "相关性得分 [0,1]",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Relevancescore",
+          "type": "number"
+        }
+      },
+      "required": [
+        "sourceType",
+        "sourceTitle",
+        "contentChunk",
+        "relevanceScore"
+      ],
+      "title": "CitationOut",
+      "type": "object"
+    },
+    "FallbackReason": {
+      "description": "降级原因。注意：降级不是错误，是设计（缺失检测信号）。",
+      "enum": [
+        "NONE",
+        "OVERLONG_QUERY",
+        "EMPTY_RECALL",
+        "TIMEOUT",
+        "STORE_UNAVAILABLE",
+        "RERANK_FAILED",
+        "EMBED_FAILED"
+      ],
+      "title": "FallbackReason",
+      "type": "string"
+    },
+    "SourceType": {
+      "description": "检索源类型。与 PreciseCitation.sourceType 一一对应，禁止扩展。\n\n- STANDARD_CLAUSE：企业标准条款范本（我方基线库）\n- LAW_ARTICLE：法律法规条文（民法典等）\n- PRECEDENT：裁判文书",
+      "enum": [
+        "STANDARD_CLAUSE",
+        "LAW_ARTICLE",
+        "PRECEDENT"
+      ],
+      "title": "SourceType",
+      "type": "string"
+    },
+    "TokenUsage": {
+      "additionalProperties": false,
+      "description": "Token 耗用统计。可观测性必打。\n\n`total_tokens` 由 `add()` 自动重算，禁止手工赋值。",
+      "properties": {
+        "embedding_tokens": {
+          "default": 0,
+          "description": "向量化耗用",
+          "minimum": 0,
+          "title": "Embedding Tokens",
+          "type": "integer"
+        },
+        "rerank_tokens": {
+          "default": 0,
+          "description": "精排耗用",
+          "minimum": 0,
+          "title": "Rerank Tokens",
+          "type": "integer"
+        },
+        "prompt_tokens": {
+          "default": 0,
+          "description": "Prompt 耗用",
+          "minimum": 0,
+          "title": "Prompt Tokens",
+          "type": "integer"
+        },
+        "completion_tokens": {
+          "default": 0,
+          "description": "生成耗用",
+          "minimum": 0,
+          "title": "Completion Tokens",
+          "type": "integer"
+        },
+        "total_tokens": {
+          "default": 0,
+          "description": "合计（自动累加）",
+          "minimum": 0,
+          "title": "Total Tokens",
+          "type": "integer"
+        },
+        "estimated": {
+          "default": true,
+          "description": "true=估算值（无真实 tokenizer 时）",
+          "title": "Estimated",
+          "type": "boolean"
+        }
+      },
+      "title": "TokenUsage",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "retrieve_contract_knowledge 工具的返回契约（Function Calling 出参）。",
+  "properties": {
+    "status": {
+      "description": "OK=正常召回；DEGRADED=部分降级；EMPTY=空召回/低于阈值",
+      "enum": [
+        "OK",
+        "DEGRADED",
+        "EMPTY"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "context_block": {
+      "description": "可直接注入 Prompt 的上下文",
+      "title": "Context Block",
+      "type": "string"
+    },
+    "citations": {
+      "description": "可直接赋给 EnhancedRiskItem.citations",
+      "items": {
+        "$ref": "#/$defs/CitationOut"
+      },
+      "title": "Citations",
+      "type": "array"
+    },
+    "trace_id": {
+      "default": "",
+      "description": "全链路追踪 ID",
+      "title": "Trace Id",
+      "type": "string"
+    },
+    "took_ms": {
+      "default": 0,
+      "description": "耗时（毫秒）",
+      "minimum": 0,
+      "title": "Took Ms",
+      "type": "integer"
+    },
+    "token_usage": {
+      "$ref": "#/$defs/TokenUsage",
+      "description": "Token 耗用"
+    },
+    "warnings": {
+      "description": "非致命告警",
+      "items": {
+        "type": "string"
+      },
+      "title": "Warnings",
+      "type": "array"
+    },
+    "fallback_reason": {
+      "$ref": "#/$defs/FallbackReason",
+      "default": "NONE",
+      "description": "降级原因"
+    }
+  },
+  "required": [
+    "citations",
+    "context_block",
+    "fallback_reason",
+    "status",
+    "trace_id",
+    "warnings"
+  ],
+  "title": "AgentRAGToolResult",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contract-guard.ai/schemas/agentragtoolresult.schema.json"
+}
