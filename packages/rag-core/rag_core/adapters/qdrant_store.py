@@ -11,7 +11,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 from rag_contracts.errors import StoreUnavailableError
 from rag_contracts.ports import VectorHit, VectorRecord
@@ -89,12 +90,15 @@ class QdrantVectorStore:
                 "未安装 qdrant-client，请改用 CG_RAG_VECTOR_STORE=inmemory 或安装该包"
             ) from exc
 
+        # 上层约定 timeout_s 为 float（秒），而 QdrantClient(timeout=) 期望 int | None，
+        # 此处显式取整，避免 mypy arg-type 报错。
+        timeout = int(timeout_s)
         if mode == "local_memory":
-            return QdrantClient(":memory:", timeout=timeout_s)
+            return QdrantClient(":memory:", timeout=timeout)
         if mode == "local_path":
-            return QdrantClient(path=path, timeout=timeout_s)
+            return QdrantClient(path=path, timeout=timeout)
         if mode == "server":
-            return QdrantClient(url=url, api_key=api_key, timeout=timeout_s)
+            return QdrantClient(url=url, api_key=api_key, timeout=timeout)
         raise StoreUnavailableError(f"不支持的 qdrant mode：{mode}")
 
     # ---------------- 内部工具 ----------------
@@ -209,7 +213,7 @@ class QdrantVectorStore:
         ]
         try:
             self._client.upsert(collection_name=self._collection, points=points, wait=True)
-        except Exception as exc:  # noqa: BLE001 - 收敛为可重试异常
+        except Exception as exc:
             raise StoreUnavailableError(f"Qdrant upsert 失败：{exc}") from exc
         return len(points)
 
@@ -240,7 +244,7 @@ class QdrantVectorStore:
                 query_filter=self._build_filter(filters),
                 with_payload=True,
             )
-        except Exception as exc:  # noqa: BLE001 - 收敛为可重试异常
+        except Exception as exc:
             raise StoreUnavailableError(f"Qdrant search 失败：{exc}") from exc
 
         points = getattr(response, "points", None) or []
@@ -279,7 +283,7 @@ class QdrantVectorStore:
                 limit=10_000,
                 with_payload=False,
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             raise StoreUnavailableError(f"Qdrant scroll 失败：{exc}") from exc
 
         ids = [point.id for point in points]

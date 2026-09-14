@@ -20,7 +20,13 @@ from pydantic import ValidationError
 
 from cg_observability import TokenCounter
 from rag_contracts.chunk import ContractChunk
-from rag_contracts.enums import ChunkType, ContractType, FallbackReason, RetrieveStrategy, SourceType
+from rag_contracts.enums import (
+    ChunkType,
+    ContractType,
+    FallbackReason,
+    RetrieveStrategy,
+    SourceType,
+)
 from rag_contracts.ports import VectorRecord
 from rag_contracts.query import RAGQueryRequest, RetrievalFilters
 from rag_core.adapters import HashEmbedder, InMemoryVectorStore, NoopReranker
@@ -42,8 +48,10 @@ _AI_ENGINE = _REPO_ROOT / "packages" / "ai-engine"
 if str(_AI_ENGINE) not in sys.path:
     sys.path.insert(0, str(_AI_ENGINE))
 
-from rag_core.chunking import SimpleChunker, SourceDoc
-from rag_core.chunking.simple_chunker import _CLAUSE_HEAD_RE
+# 说明：以下两个 import 未置于文件顶部是**刻意为之**——它们（及间接依赖）必须先让
+# 上方 sys.path 注入生效才能导入，属测试用的路径引导，不是遗漏。
+from rag_core.chunking import SimpleChunker, SourceDoc  # noqa: E402
+from rag_core.chunking.simple_chunker import _CLAUSE_HEAD_RE  # noqa: E402
 
 
 # ===========================================================================
@@ -331,7 +339,9 @@ def test_retrieve_returns_expected_top1() -> None:
 
 def test_retrieve_citation_assignable_to_precise_citation() -> None:
     """响应的 citation 必须能被既有 PreciseCitation 直接消费。"""
-    from ai_engine.agents.auditor import PreciseCitation  # type: ignore[import-not-found]
+    from ai_engine.agents.auditor import (
+        PreciseCitation,  # type: ignore[import-not-found]
+    )
 
     chunker = SimpleChunker(counter=TokenCounter(force_estimate=True))
     chunks = chunker.chunk(make_doc())
@@ -575,3 +585,147 @@ def test_contract_violation_is_rejected() -> None:
             char_count=2,
             token_count=1,
         )
+
+
+def _build_hybrid_service(
+    chunks: list[ContractChunk], tmp_path: Path
+) -> tuple[RAGService, InMemoryVectorStore]:
+    """组装带 BM25 稀疏路的服务（混合策略测试用）。"""
+    from rag_core.adapters.bm25_store import BM25Store
+
+    embedder = HashEmbedder(dim=64, model_name="hash-test")
+    store = InMemoryVectorStore()
+    store.ensure_collection(embedder.dim)
+    store.upsert(
+        [
+            VectorRecord(chunk=c, vector=v)
+            for c, v in zip(chunks, embedder.embed_batch([c.text for c in chunks]))
+        ]
+    )
+    sparse = BM25Store(data_dir=tmp_path / "bm25")
+    sparse.upsert(chunks)
+    service = RAGService(
+        embedder=embedder,
+        vector_store=store,
+        counter=TokenCounter(force_estimate=True),
+        reranker=NoopReranker(),
+        sparse_store=sparse,
+        dense_top=20,
+        sparse_top=20,
+        rrf_k=60,
+    )
+    return service, store
+
+
+def test_hybrid_strategy_fuses_sparse_and_dense(tmp_path: Path) -> None:
+    """T03-4：HYBRID_RRF 下 fused 非 None，stage_latency_ms 含 sparse/fusion。"""
+    chunker = SimpleChunker(counter=TokenCounter(force_estimate=True))
+    chunks = chunker.chunk(
+        make_doc(
+            text=(
+                "第一条 标的\n甲方向乙方采购服务器设备。\n"
+                "第二条 逾期付款违约金\n买方逾期付款的，应按日支付合同总价千分之五的违约金。\n"
+                "第三条 保密\n双方对商业秘密负有保密义务。"
+            )
+        )
+    )
+    service, _ = _build_hybrid_service(chunks, tmp_path)
+    response = service.retrieve(
+        RAGQueryRequest(
+            query="买方逾期付款的违约金",
+            strategy=RetrieveStrategy.HYBRID_RRF,
+            score_threshold=0.25,
+        )
+    )
+    assert response.retrieved_docs, "应当有召回"
+    assert response.retrieved_docs[0].scores.fused is not None
+    assert "sparse" in response.stage_latency_ms
+    assert "fusion" in response.stage_latency_ms
+    assert not any("未接入 BM25" in w for w in response.warnings)
+
+
+def test_sparse_failure_does_not_break_retrieval(tmp_path: Path) -> None:
+    """T03-4：BM25 抛异常时整体不降级，仍返回稠密结果（稀疏路失败隔离）。"""
+
+    class _BrokenSparse:
+        def upsert(self, chunks: Any) -> int:
+            return 0
+
+        def search(self, query: str, top_k: int) -> list[Any]:
+            raise RuntimeError("bm25 down")
+
+        def delete_by_doc(self, doc_id: str) -> int:
+            return 0
+
+        def health(self) -> bool:
+            return False
+
+    chunker = SimpleChunker(counter=TokenCounter(force_estimate=True))
+    chunks = chunker.chunk(make_doc())
+    embedder = HashEmbedder(dim=64, model_name="hash-test")
+    store = InMemoryVectorStore()
+    store.ensure_collection(embedder.dim)
+    store.upsert(
+        [
+            VectorRecord(chunk=c, vector=v)
+            for c, v in zip(chunks, embedder.embed_batch([c.text for c in chunks]))
+        ]
+    )
+    service = RAGService(
+        embedder=embedder,
+        vector_store=store,
+        counter=TokenCounter(force_estimate=True),
+        reranker=NoopReranker(),
+        sparse_store=_BrokenSparse(),  # type: ignore[arg-type]
+        dense_top=20,
+        sparse_top=20,
+    )
+    response = service.retrieve(
+        RAGQueryRequest(
+            query="合同总价",
+            strategy=RetrieveStrategy.HYBRID_RRF,
+            score_threshold=0.1,
+        )
+    )
+    assert response.degraded is False
+    assert response.retrieved_docs, "稀疏路失败仍应返回稠密结果"
+    assert any("BM25 检索失败" in w for w in response.warnings)
+
+
+def test_rerank_failure_falls_back_to_base_scores() -> None:
+    """§11.5 #3：重排抛 RerankFailedError → 回退 base_scores、置 RERANK_FAILED、不抛异常。"""
+    from rag_contracts.errors import RerankFailedError
+
+    class _BrokenReranker:
+        @property
+        def model_name(self) -> str:
+            return "broken"
+
+        def rerank(self, query: str, texts: Any, base_scores: Any = None) -> list[float]:
+            raise RerankFailedError("rerank down")
+
+    chunker = SimpleChunker(counter=TokenCounter(force_estimate=True))
+    chunks = chunker.chunk(make_doc())
+    embedder = HashEmbedder(dim=64, model_name="hash-test")
+    store = InMemoryVectorStore()
+    store.ensure_collection(embedder.dim)
+    store.upsert(
+        [
+            VectorRecord(chunk=c, vector=v)
+            for c, v in zip(chunks, embedder.embed_batch([c.text for c in chunks]))
+        ]
+    )
+    service = RAGService(
+        embedder=embedder,
+        vector_store=store,
+        counter=TokenCounter(force_estimate=True),
+        reranker=_BrokenReranker(),  # type: ignore[arg-type]
+    )
+    response = service.retrieve(RAGQueryRequest(query="合同总价", score_threshold=0.1))
+
+    assert response.retrieved_docs, "重排失败仍应返回 base_scores 结果"
+    assert response.degraded is True
+    assert response.fallback_reason is FallbackReason.RERANK_FAILED
+    assert any("重排失败" in w for w in response.warnings)
+    assert all(0.0 <= d.scores.final <= 1.0 for d in response.retrieved_docs)
+    assert response.retrieved_docs[0].scores.rerank is None, "未走重排，rerank 分应为 None"

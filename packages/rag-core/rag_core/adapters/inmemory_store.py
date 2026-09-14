@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import math
 from bisect import insort
-from typing import Sequence
+from collections.abc import Sequence
 
 from rag_contracts.ports import VectorHit, VectorRecord
 from rag_contracts.query import RetrievalFilters
@@ -61,8 +61,13 @@ def _matches(payload: dict, filters: RetrievalFilters | None) -> bool:
     ]:
         return False
     if filters.contract_type is not None:
-        expected = filters.contract_type
-        expected = expected.value if hasattr(expected, "value") else expected
+        # 注：此处用新变量承接归一化结果，而非回写 filters.contract_type 的窄化变量。
+        # 回写会让 mypy 推断出 `str | ContractType` 赋给 `ContractType` 的非法赋值
+        # （arg-type/assignment 报错），语义上却是等价的字符串比较。
+        contract_type = filters.contract_type
+        expected = (
+            contract_type.value if hasattr(contract_type, "value") else contract_type
+        )
         if payload.get("contract_type") != expected:
             return False
     if filters.law_codes is not None and payload.get("law_code") not in filters.law_codes:

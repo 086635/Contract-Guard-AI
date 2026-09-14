@@ -86,7 +86,7 @@ def build_vector_store(settings: RagSettings) -> VectorStorePort:
 
 
 def build_reranker(settings: RagSettings) -> RerankerPort | None:
-    """按配置构造重排器。
+    """按配置构造重排器（T03-5 接入 HTTP 精排）。
 
     Args:
         settings: RAG 配置。
@@ -98,25 +98,42 @@ def build_reranker(settings: RagSettings) -> RerankerPort | None:
         return None
     if settings.rerank_mode == "noop":
         return NoopReranker()
-    if settings.rerank_mode in ("local", "http"):
-        # Phase 2/3 落地 CrossEncoderReranker / HttpReranker；
-        # 当前先降级为 noop，保证配置项提前可用且不影响链路。
-        _LOG.warning("rerank_mode=%s 尚未实现，已回退 noop", settings.rerank_mode)
+    if settings.rerank_mode == "http":
+        if not settings.rerank_http_url:
+            # 配置缺失属"降级"而非"崩溃"：回退 noop 并留 warning 供排查
+            _LOG.warning("rerank_mode=http 但未配置 rerank_http_url，已回退 noop")
+            return NoopReranker()
+        from .adapters import HttpReranker
+
+        return HttpReranker(
+            url=settings.rerank_http_url,
+            model=settings.rerank_model,
+            api_key=settings.rerank_api_key,
+            timeout_ms=settings.rerank_timeout_ms,
+            query_path=settings.rerank_path,
+        )
+    if settings.rerank_mode == "local":
+        # 硬约束：rag-core 禁止引入 torch / sentence-transformers
+        _LOG.warning("rerank_mode=local 需 torch，本项目禁用，已回退 noop")
         return NoopReranker()
     return NoopReranker()
 
 
 def build_sparse_store(settings: RagSettings) -> SparseStorePort | None:
-    """按配置构造 BM25 稀疏检索器。
+    """按配置构造 BM25 稀疏检索器（T03-1 接入）。
 
     Args:
         settings: RAG 配置。
 
     Returns:
-        Phase 1/2 暂无默认实现，恒返回 None（T03 接入 BM25Store）。
+        BM25Store 实例；`bm25_enabled=False` 时返回 None（策略会自动退化为 DENSE_ONLY）。
     """
-    del settings  # 预留：T03 根据 bm25_dir 构造 BM25Store
-    return None
+    if not settings.bm25_enabled:
+        return None
+    # 函数内延迟导入（§B.2.6）：统一走适配器包出口，与顶部 import 风格保持一致
+    from .adapters import BM25Store
+
+    return BM25Store(data_dir=settings.bm25_dir)
 
 
 def build_service_from_settings(
@@ -139,6 +156,8 @@ def build_service_from_settings(
         reranker=build_reranker(cfg),
         sparse_store=build_sparse_store(cfg),
         dense_top=cfg.dense_top,
+        sparse_top=cfg.sparse_top,
+        rrf_k=cfg.rrf_k,
         default_max_context_tokens=cfg.max_context_tokens,
     )
     for key, value in overrides.items():

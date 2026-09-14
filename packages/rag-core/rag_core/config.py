@@ -14,6 +14,7 @@ from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
 from rag_contracts.enums import RetrieveStrategy
 
 
@@ -68,6 +69,10 @@ class RagSettings(BaseSettings):
     # ------------------------------------------------------------------
     # 检索与融合（Phase 2 起生效）
     # ------------------------------------------------------------------
+    bm25_enabled: bool = Field(
+        default=True,
+        description="是否启用 BM25 稀疏路。False 时 build_sparse_store 返回 None",
+    )
     bm25_dir: str = Field(default="./data/bm25", description="BM25 索引持久化目录")
     sparse_top: int = Field(default=20, ge=1, description="稀疏路召回条数")
     dense_top: int = Field(default=20, ge=1, description="稠密路召回条数")
@@ -83,6 +88,9 @@ class RagSettings(BaseSettings):
     )
     rerank_model: str = Field(default="BAAI/bge-reranker-v2-m3", description="重排模型名")
     rerank_http_url: str = Field(default="", description="HTTP 重排服务地址")
+    rerank_api_key: str = Field(default="none", description="HTTP 重排服务 Bearer Token")
+    rerank_path: str = Field(default="/rerank", description="HTTP 重排接口路径")
+    rerank_timeout_ms: int = Field(default=3000, ge=100, description="重排单次超时（毫秒）")
     rerank_threshold: float = Field(default=0.35, ge=0.0, le=1.0, description="重排后阈值")
     rerank_top_n: int = Field(default=5, ge=1, le=20, description="重排后保留条数")
 

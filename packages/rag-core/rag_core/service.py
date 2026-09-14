@@ -17,18 +17,27 @@ from __future__ import annotations
 
 import hashlib
 import time
-from typing import Any, Sequence
+from collections.abc import Sequence
+from typing import Any
 
-from cg_observability import TokenCounter, TokenMeter, TraceContext, get_logger, log_event
 from pydantic import ValidationError
+
+from cg_observability import (
+    TokenCounter,
+    TokenMeter,
+    TraceContext,
+    get_logger,
+    log_event,
+)
 from rag_contracts.agent_tool import EMPTY_CONTEXT_HINT
 from rag_contracts.chunk import ContractChunk
 from rag_contracts.citation import clamp_score, to_citation
 from rag_contracts.enums import FallbackReason, RetrieveStrategy
-from rag_contracts.errors import RagError, StoreUnavailableError
+from rag_contracts.errors import RagError, RerankFailedError, StoreUnavailableError
 from rag_contracts.ports import (
     EmbedderPort,
     RerankerPort,
+    SparseHit,
     SparseStorePort,
     VectorHit,
     VectorStorePort,
@@ -42,6 +51,10 @@ from rag_contracts.query import (
 )
 
 from .context_builder import ContextBuilder
+from .fusion import rrf_fuse
+
+# 内部候选三元组：(切片, 稠密余弦分, RRF 融合分)；未走融合时 fused 为 None
+_Candidate = tuple[ContractChunk, float, float | None]
 
 _LOG = get_logger("rag_core.service")
 
@@ -65,6 +78,8 @@ class RAGService:
         reranker: RerankerPort | None = None,
         sparse_store: SparseStorePort | None = None,
         dense_top: int = 20,
+        sparse_top: int = 20,
+        rrf_k: int = 60,
         default_max_context_tokens: int = 3000,
         logger: Any = None,
     ) -> None:
@@ -75,8 +90,10 @@ class RAGService:
             vector_store: 向量库实现。
             counter: Token 计数器；为空则自建。
             reranker: 重排实现；为空则跳过重排（用 dense 分）。
-            sparse_store: BM25 实现；当前版本未接入，预留给 Phase 2。
+            sparse_store: BM25 实现；为空则混合策略退化为 DENSE_ONLY。
             dense_top: dense 路召回条数（融合前的候选量）。
+            sparse_top: sparse 路召回条数。
+            rrf_k: RRF 融合常数。
             default_max_context_tokens: 请求未指定时的上下文预算。
             logger: 自定义 logger；为空用模块级 logger。
         """
@@ -87,6 +104,8 @@ class RAGService:
         self._counter: TokenCounter = counter or TokenCounter()
         self._builder: ContextBuilder = ContextBuilder(counter=self._counter)
         self._dense_top: int = max(1, int(dense_top))
+        self._sparse_top: int = max(1, int(sparse_top))
+        self._rrf_k: int = max(1, int(rrf_k))
         self._default_max_context_tokens: int = int(default_max_context_tokens)
         self._logger: Any = logger or _LOG
 
@@ -153,7 +172,11 @@ class RAGService:
             )
 
             try:
-                candidates = self._recall(request, meter, warnings, strategy)
+                dense_candidates = self._recall(request, meter, warnings, strategy)
+                sparse_hits = self._sparse_recall(request, meter, warnings, trace_id)
+                candidates = self._fuse(
+                    dense_candidates, sparse_hits, meter, warnings, trace_id
+                )
             except RagError as exc:
                 log_event(
                     self._logger,
@@ -170,7 +193,7 @@ class RAGService:
                     detail=str(exc),
                     started=started,
                     meter=meter,
-                    warnings=warnings + [f"检索失败已降级：{exc.code}"],
+                    warnings=[*warnings, f"检索失败已降级：{exc.code}"],
                 )
             except Exception as exc:  # noqa: BLE001 - 兜底：任何异常都转降级，绝不向上抛
                 log_event(
@@ -187,14 +210,21 @@ class RAGService:
                     detail=repr(exc),
                     started=started,
                     meter=meter,
-                    warnings=warnings + [f"检索异常已降级：{type(exc).__name__}"],
+                    warnings=[*warnings, f"检索异常已降级：{type(exc).__name__}"],
                 )
 
-            docs = self._rank(request, candidates, meter, warnings, trace_id)
+            docs, rerank_failed = self._rank(
+                request, candidates, meter, warnings, trace_id
+            )
 
-            # ---- 空召回 / 低于阈值 → 降级（缺失检测信号，不是错误） ----
+            # ---- 重排失败 / 空召回 → 降级 ----
+            # 重排失败是非致命退化（§7.2 步骤 7）：已回退 base_scores，此处标记原因；
+            # 若过滤后为空，EMPTY_RECALL 覆盖之（缺失检测信号优先于重排失败）。
             degraded = False
             reason = FallbackReason.NONE
+            if rerank_failed:
+                degraded = True
+                reason = FallbackReason.RERANK_FAILED
             if not docs:
                 degraded = True
                 reason = FallbackReason.EMPTY_RECALL
@@ -292,7 +322,7 @@ class RAGService:
             with meter.stage("embed"):
                 vector = self._embedder.embed_one(request.query)
             meter.count_text("embedding", request.query)
-        except Exception as exc:  # noqa: BLE001 - 向量化失败统一收敛
+        except Exception as exc:
             raise StoreUnavailableError(f"向量化失败：{exc}") from exc
 
         limit = max(self._dense_top, request.top_k)
@@ -324,39 +354,147 @@ class RAGService:
         return candidates
 
     # ------------------------------------------------------------------
-    # 阶段：重排 + 阈值 + 截断
+    # 阶段：稀疏召回 + RRF 融合
     # ------------------------------------------------------------------
-    def _rank(
+    def _sparse_recall(
         self,
         request: RAGQueryRequest,
-        candidates: Sequence[tuple[ContractChunk, float]],
         meter: TokenMeter,
         warnings: list[str],
         trace_id: str,
-    ) -> list[RetrievedDoc]:
-        """重排 → 阈值过滤 → top_n/top_k 截断，产出最终文档列表。
+    ) -> list[SparseHit]:
+        """BM25 稀疏路召回。失败只告警不中断（稀疏路是增强，不是必需）。
 
         Args:
             request: 检索请求。
-            candidates: 候选（切片, 余弦分）。
             meter: 计量器。
             warnings: 告警收集列表。
             trace_id: 追踪 ID。
 
         Returns:
-            已排序的 RetrievedDoc 列表。
+            BM25 命中列表；未启用或失败时返回 []。
+        """
+        if self._sparse_store is None or not request.enable_sparse:
+            return []
+        try:
+            with meter.stage("sparse"):
+                hits = self._sparse_store.search(request.query, self._sparse_top)
+        except Exception as exc:  # noqa: BLE001 - 稀疏路失败降级为"仅稠密"
+            warnings.append(f"BM25 检索失败，已忽略稀疏路：{exc}")
+            log_event(self._logger, "retrieve.sparse", level="WARNING",
+                      trace_id=trace_id, error=repr(exc))
+            return []
+        log_event(
+            self._logger,
+            "retrieve.sparse",
+            trace_id=trace_id,
+            candidates=len(hits),
+            top_score=round(hits[0].score, 4) if hits else 0.0,
+            latency_ms=meter.latency_ms("sparse"),
+        )
+        return list(hits)
+
+    def _fuse(
+        self,
+        dense: Sequence[tuple[ContractChunk, float]],
+        sparse: Sequence[SparseHit],
+        meter: TokenMeter,
+        warnings: list[str],
+        trace_id: str,
+    ) -> list[_Candidate]:
+        """RRF 融合稠密与稀疏两路。
+
+        ⚠️ 已知限制（登记为 §15 残留风险 R2）：仅被 BM25 命中、未进入稠密候选的
+        chunk_id 无法取回完整 ContractChunk（SparseHit 只有 text），只能丢弃。
+        修复路径：给 VectorStorePort 增加 get_by_ids()，安排在 T04。
+
+        Args:
+            dense: (切片, 余弦分) 列表。
+            sparse: BM25 命中。
+            meter: 计量器。
+            warnings: 告警收集列表。
+            trace_id: 追踪 ID。
+
+        Returns:
+            融合后的候选三元组列表。
+        """
+        if not sparse:
+            return [(chunk, score, None) for chunk, score in dense]
+
+        by_id = {chunk.chunk_id: (chunk, score) for chunk, score in dense}
+        dense_ranked = [(chunk.chunk_id, score) for chunk, score in dense]
+        sparse_ranked = [(hit.chunk_id, hit.score) for hit in sparse]
+
+        with meter.stage("fusion"):
+            fused = rrf_fuse([dense_ranked, sparse_ranked], k=self._rrf_k)
+
+        out: list[_Candidate] = []
+        sparse_only = 0
+        for chunk_id, fused_score in fused:
+            entry = by_id.get(chunk_id)
+            if entry is None:
+                sparse_only += 1  # 见上方 R2：无法重建完整切片
+                continue
+            chunk, dense_score = entry
+            out.append((chunk, dense_score, fused_score))
+        if sparse_only:
+            warnings.append(f"{sparse_only} 条仅 BM25 命中的候选无法取回完整切片，已丢弃")
+
+        log_event(
+            self._logger,
+            "retrieve.fusion",
+            trace_id=trace_id,
+            rrf_k=self._rrf_k,
+            fused_count=len(out),
+            sparse_only=sparse_only,
+            latency_ms=meter.latency_ms("fusion"),
+        )
+        return out
+
+    # ------------------------------------------------------------------
+    # 阶段：重排 + 阈值 + 截断
+    # ------------------------------------------------------------------
+    def _rank(
+        self,
+        request: RAGQueryRequest,
+        candidates: Sequence[_Candidate],
+        meter: TokenMeter,
+        warnings: list[str],
+        trace_id: str,
+    ) -> tuple[list[RetrievedDoc], bool]:
+        """重排 → 阈值过滤 → top_n/top_k 截断，产出最终文档列表。
+
+        Args:
+            request: 检索请求。
+            candidates: 候选三元组（切片, 稠密余弦分, RRF 融合分）。
+            meter: 计量器。
+            warnings: 告警收集列表。
+            trace_id: 追踪 ID。
+
+        Returns:
+            `(docs, rerank_failed)`：已排序的 RetrievedDoc 列表，以及本次是否因
+            `RerankFailedError` 回退到 `base_scores`（供 `retrieve` 置 `RERANK_FAILED`）。
         """
         if not candidates:
-            return []
+            return [], False
 
-        texts = [chunk.text for chunk, _ in candidates]
-        base_scores = [clamp_score(score) for _, score in candidates]
+        texts = [chunk.text for chunk, _, _ in candidates]
+        # base_scores 沿用稠密余弦分（clamp 到 [0,1]）：RRF 融合分是名次倒数
+        # （量级 0.016~0.033），不具备 [0,1] 相关性语义，直接作 final 会击穿
+        # 0.35 缺失检测阈值；融合分仅记录在 ChunkScores.fused 供调试。
+        base_scores = [clamp_score(dense) for _, dense, _ in candidates]
 
         rerank_scores: list[float] | None = None
+        rerank_failed = False
         if request.enable_rerank and self._reranker is not None:
             with meter.stage("rerank"):
                 rerank_scores = self._rerank_safe(request.query, texts, base_scores)
-            if len(rerank_scores) == len(texts):
+            if rerank_scores is None:
+                # §7.2 步骤 7：RerankFailedError → 回退 base_scores（degrade 日志已在
+                # _rerank_safe 记录），此处仅补 warning，供 retrieve 置 RERANK_FAILED。
+                rerank_failed = True
+                warnings.append("重排失败，已回退为融合分")
+            elif len(rerank_scores) == len(texts):
                 dropped = sum(
                     1 for s in rerank_scores if s < request.score_threshold
                 )
@@ -387,7 +525,7 @@ class RAGService:
         ordered = ordered[: request.top_k]
 
         docs: list[RetrievedDoc] = []
-        for rank, ((chunk, dense_score), final) in enumerate(ordered, start=1):
+        for rank, ((chunk, dense_score, fused), final) in enumerate(ordered, start=1):
             if final < request.score_threshold:
                 continue
             docs.append(
@@ -409,7 +547,7 @@ class RAGService:
                     token_count=chunk.token_count,
                     scores=ChunkScores(
                         dense=round(dense_score, 6),
-                        fused=None,
+                        fused=(round(fused, 6) if fused is not None else None),
                         rerank=(round(final, 6) if rerank_scores is not None else None),
                         final=round(final, 6),
                         rank=rank,
@@ -417,16 +555,20 @@ class RAGService:
                     citation=to_citation(chunk, final),
                 )
             )
-        return docs
+        return docs, rerank_failed
 
     def _rerank_safe(
         self, query: str, texts: Sequence[str], base_scores: Sequence[float]
-    ) -> list[float]:
-        """调用重排器（三参契约）。
+    ) -> list[float] | None:
+        """调用重排器（三参契约）；失败时降级返回 `None`。
 
         自 C1 决策起 `RerankerPort.rerank` 已统一为
         `(query, texts, base_scores=None)`，故此处不再需要
         `try/except TypeError` 做签名兼容兜底。
+
+        设计文档 §6.4 / §7.2 步骤 7：`RerankFailedError` 是可重试的**非致命**
+        错误，在此吞掉并记 `retrieve.degrade`，由 `_rank` 回退 `base_scores`
+        并置 `fallback_reason=RERANK_FAILED`，保证 `retrieve()` 永不抛异常（红线 6）。
 
         Args:
             query: 查询文本。
@@ -434,12 +576,23 @@ class RAGService:
             base_scores: 上游得分。
 
         Returns:
-            重排分列表。
+            重排分列表；重排失败时返回 `None`，由调用方回退 `base_scores`。
         """
         assert self._reranker is not None
-        return list(
-            self._reranker.rerank(query, list(texts), base_scores=list(base_scores))
-        )
+        try:
+            return list(
+                self._reranker.rerank(query, list(texts), base_scores=list(base_scores))
+            )
+        except RerankFailedError as exc:
+            log_event(
+                self._logger,
+                "retrieve.degrade",
+                level="WARNING",
+                fallback_reason=FallbackReason.RERANK_FAILED.value,
+                detail=str(exc),
+                error_code=exc.code,
+            )
+            return None
 
     # ------------------------------------------------------------------
     # 降级响应
@@ -483,7 +636,7 @@ class RAGService:
             truncated=False,
             degraded=True,
             fallback_reason=reason,
-            warnings=warnings + [f"降级原因：{reason.value}；{detail}"],
+            warnings=[*warnings, f"降级原因：{reason.value}；{detail}"],
             token_usage=usage,
             stage_latency_ms=meter.latencies,
             took_ms=int((time.perf_counter() - started) * 1000),
