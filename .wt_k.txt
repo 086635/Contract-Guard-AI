@@ -1,0 +1,279 @@
+*** Begin Patch
+*** Add File: 文件集合/codex/1-7评测与召回基线.md
++# 1-7 · 评测与召回基线（T-A8）
++
++> 所属模块：1 · RAG　公共规范见 `0.施工标准与定义归属.md`
++
++## ① 元信息
++
++| 项 | 值 |
++|---|---|
++| 任务 ID | **T-A8** |
++| 优先级 | **P0**（**没有度量就没有调参，"达标"无从证明**） |
++| 人日 | 1.0 |
++| 前置依赖 | T-A5 / T-A6（语义服务）—— 否则基线数字无意义 |
++| 影响面 | 仅新增脚本与数据文件 |
++| 是否触碰契约层 | ❌ 否 |
++
++> 🔴 **本任务必须先于"阈值调参"存在。**
++> 赛题要求「风险条款识别召回率/精准度 ≥75%」，但**目前仓库里没有任何评测手段**。
++> 没有它，所有"调参"都是凭感觉，也无法判断是否达标。
++
++---
++
++## ② 范围
++
++### ✅ 做
++
++- 定义评测指标（Recall@K / MRR）
++- 定义标注集（gold set）的 JSONL 格式
++- 实现 `scripts/eval_recall.py`
++- 产出**基线数字**并登记为回归门禁
++- 提供「无人工标注时的弱标注集自构造方法」
++
++### ❌ 不做
++
++- ❌ 不做端到端业务指标（分类准确率 / 要素 F1 / 风险召回）—— 那是 Agent 模块的评测，本任务只做**检索层**
++- ❌ 不引入评测框架（ragas / deepeval 等）—— 依赖越少越好，标准指标手写即可
++- ❌ 不做 LLM 裁判（LLM-as-judge）—— 成本高且不可复现
++
++---
++
++## ③ 定义归属
++
++| 本文件**定义** | 本文件**引用**（不重复定义） |
++|---|---|
++| `Recall@K` / `MRR` 的计算口径 | `RAGService.retrieve()`（`rag_core/service.py`） |
++| gold set 的 JSONL 字段结构 | `RAGQueryRequest` / `RAGQueryResponse`（`rag_contracts/query.py`） |
++| 弱标注集自构造方法 | `SimpleChunker`（`rag_core/chunking/simple_chunker.py`） |
++| 基线数字的登记位置 | `chunk_id` 的确定性生成规则（`rag_contracts/chunk.py`） |
++
++> ⚠️ **gold 里记录的是 `chunk_id`，而 `chunk_id` 是 uuid5 确定性生成的**（源码已保证）。
++> 这意味着：**只要 `doc_id` / `section_id` / `slice_idx` 不变，重建索引后 `chunk_id` 不变**，
++> gold set **跨重建稳定可复用**。这是本项目契约设计带来的直接红利，评测集不会因重建而失效。
++
++---
++
++## ④ 交付物
++
++| 文件 | 动作 | 职责 |
++|---|---|---|
++| `scripts/eval_recall.py` | **新建** | 评测主脚本 |
++| `scripts/data/gold.jsonl` | **新建** | 人工/半自动标注集 |
++| `scripts/data/weak_gold.jsonl` | 新建（可选） | 弱标注集（自构造，无需人工） |
++| `文件集合/codex/1-7评测与召回基线.md` | 修改 | 回填 §⑦ 基线数字 |
++
++---
++
++## ⑤ 指标定义（**口径必须写死，否则数字不可比**）
++
++### 5.1 Recall@K
++
++```text
++对每条 query：
++    hit@K = 1 if (gold_chunk_ids ∩ top_K_retrieved_ids) != ∅ else 0
++
++Recall@K = mean(hit@K)  over all queries
++```
++
++> **采用「命中即算」口径（hit-rate）**，而非「召回 gold 的比例」。
++> 理由：本场景每个 query 通常只对应 1~3 条标准条款，
++> 「只要 top-K 里出现任意一条正确的，该 case 就算过」更贴近业务判断。
++> ⚠️ **口径一旦选定不得中途更改**，否则历史数字不可比。
++
++### 5.2 MRR（Mean Reciprocal Rank）
++
++```text
++对每条 query：
++    rr = 1 / rank_of_first_gold   （top-K 内没有 gold 则 rr = 0）
++
++MRR = mean(rr) over all queries
++```
++
++> MRR 反映「正确结果排得够不够靠前」——这对本场景尤其重要，
++> 因为 `rerank_top_n` 默认只取 5 条注入 Prompt，**排到第 6 位等于没召回**。
++
++### 5.3 建议同时记录
++
++| 指标 | 用途 |
++|---|---|
++| `Recall@1 / @3 / @5 / @10` | 观察排序质量曲线 |
++| `avg_top_score` | 观察分数分布，辅助阈值标定 |
++| `empty_recall_rate` | **直接对应"缺失标准对照"信号的质量** |
++| `avg_latency_ms` | 观察各阶段耗时（`stage_latency_ms` 已内建） |
++
++---
++
++## ⑥ gold set 格式规格
++
++### 6.1 JSONL 结构（每行一条）
++
++```json
++{"query_id": "q001", "query": "买方逾期付款的违约金怎么约定，上限是多少", "gold_chunk_ids": ["a1b2c3d4-....-...."], "contract_type": "PURCHASE", "source_types": ["STANDARD_CLAUSE", "LAW_ARTICLE"], "note": "对应标准条款 6.2"}
++```
++
++| 字段 | 必填 | 说明 |
++|---|---|---|
++| `query_id` | ✅ | 唯一标识，用于逐条对比与回归 diff |
++| `query` | ✅ | 检索文本（模拟真实待审条款或用户提问） |
++| `gold_chunk_ids` | ✅ | 期望命中的 `chunk_id` 列表（**至少 1 条**） |
++| `contract_type` | ⭕ | 传给 `RetrievalFilters`，用于同类型优先 |
++| `source_types` | ⭕ | 限定检索源 |
++| `note` | ⭕ | 人工备注，便于复核 |
++
++### 6.2 标注集规模建议
++
++| 阶段 | 条数 | 说明 |
++|---|---|---|
++| 冒烟 | 10 | 够跑通脚本，数字仅供 sanity check |
++| **基线** | **≥ 50** | **正式基线的下限**（赛题评审可引用） |
++| 充分 | 100~200 | 分难度分层（简单/需推理/易混淆） |
++
++### 6.3 🔑 无人工标注时的自构造方法（**推荐先用这个**）
++
++> 现实问题：人工标注 50 条耗时且需要法务参与。
++> **下面这个方法可以在 10 分钟内产出可用的弱标注集**，先把评测闭环跑起来。
++
++**方法：以标准条款原文自身作为 query。**
++
++```text
++对每条标准条款 chunk：
++    query = 该 chunk 的标题 + 前 N 个字符（或整条 text）
++    gold_chunk_ids = [该 chunk 自己的 chunk_id]
++
++原理：若检索系统正常，用条款原文去检索，应该能找回它自己。
++      这测的是「检索链路是否接通 + 向量是否可用」，属于【下限测试】。
++```
++
++| 优点 | 局限 |
++|---|---|
++| 零人工成本，立即可用 | **会高估**真实表现（原文 query 太"容易"） |
++| 可作**回归门禁**（防止改坏） | 不能替代人工标注做最终验收 |
++| 能立刻暴露"向量没生效/库没连上"这类致命问题 | — |
++
++> ✅ **建议做法**：
++> ① 先用弱标注集建立**回归门禁**（防止改坏）；
++> ② 再补 50 条**人工标注**作为**验收基线**。
++> 两者**分别记录、不得混淆**。
++
++**生成方式**：可直接复用 `scripts/phase1_smoke.py` 的语料加载逻辑
++（`load_corpus` + `SimpleChunker`），把每个 chunk 转成一行 gold，无需新写解析代码。
++
++---
++
++## ⑦ 脚本规格
++
++### 7.1 命令行接口
++
++```text
++python scripts/eval_recall.py \
++    [--gold scripts/data/gold.jsonl] \
++    [--corpus scripts/data/phase1_sample.jsonl] \
++    [--top-k 5] \
++    [--cutoffs 1,3,5,10] \
++    [--strategy DENSE_ONLY|HYBRID_RRF] \
++    [--threshold 0.35] \
++    [--out reports/eval_YYYYMMDD_HHMMSS.json] \
++    [--baseline reports/eval_baseline.json]
++```
++
++### 7.2 执行流程
++
++```text
++1. 加载语料 → SimpleChunker.chunk() → ContractChunk[]
++2. build_service_from_settings() → RAGService
++3. ensure_collection(dim) + embed_batch + upsert（向量库为空时；已存在则跳过）
++4. 逐条 query 调 retrieve()，收集 retrieved_docs 的 chunk_id 序列
++5. 计算 Recall@1/3/5/10、MRR、empty_recall_rate、avg_top_score、avg_latency_ms
++6. 输出：控制台表格 + JSON 文件（便于回归 diff）
++7. 若提供 --baseline：与基线逐条对比，退化超阈值则非零退出码
++```
++
++### 7.3 输出 JSON 结构
++
++```json
++{
++  "meta": {"created_at": "...", "config": {"vector_store": "milvus", "embed_mode": "http", "rerank_mode": "http", "strategy": "HYBRID_RRF", "collection": "contract_clauses"}, "gold_file": "...", "gold_count": 52},
++  "metrics": {"recall@1": 0.0, "recall@3": 0.0, "recall@5": 0.0, "recall@10": 0.0, "mrr": 0.0, "empty_recall_rate": 0.0, "avg_top_score": 0.0, "avg_latency_ms": 0},
++  "per_query": [{"query_id": "q001", "rank_of_first_gold": 2, "rr": 0.5, "hits": 5, "degraded": false, "top_score": 0.0, "took_ms": 0}],
++  "regression": {"baseline_file": "...", "recall@5_delta": 0.0, "regressed": false}
++}
++```
++
++> ⚠️ **必须把生效配置写进 `meta.config`**。否则不同配置跑出的数字混在一起无法比较 ——
++> 这是评测脚本最常见的失效原因。
++
++### 7.4 回归门禁
++
++```text
++if baseline is provided:
++    delta = current.recall@5 - baseline.recall@5
++    if delta < -0.05:        # 允许 5 个百分点的波动
++        打印逐条退化明细（哪些 query_id 从命中变未命中）
++        exit 1
++```
++
++> 💡 **逐条退化明细比总指标更有用**：它直接告诉你"哪一类问题变差了"。
++
++---
++
++## ⑧ 基线登记表（**实测后回填**）
++
++### 8.1 弱标注集基线（回归门禁用）
++
++| 配置 | Recall@5 | MRR | empty_recall_rate | 日期 |
++|---|---|---|---|---|
++| 改前：`hash` + `noop` + `inmemory` | ⬜ 待填 | ⬜ | ⬜ | |
++| 改后：`http` + `http` + `milvus` | ⬜ 待填 | ⬜ | ⬜ | |
++
++### 8.2 人工标注集基线（验收用）
++
++| 配置 | Recall@1 | Recall@3 | **Recall@5** | Recall@10 | MRR | 日期 |
++|---|---|---|---|---|---|---|
++| ⬜ 待填 | | | | | | |
++
++### 8.3 达标的判断依据
++
++| 赛题指标 | RAG 侧的可测量代理指标 | 目标 |
++|---|---|---|
++| 风险条款识别召回率 ≥ 75% | **Recall@5**（检索层，人工标注集） | **≥ 0.80**（留出余量给上层） |
++| 风险条款识别精准度 ≥ 75% | 结合 `score_threshold` 的 precision | 待 Agent 层联合评估 |
++| 缺失条款提醒 | `empty_recall_rate` 的**合理性** | 该空召回的确实空（人工抽查） |
++
++> ⚠️ **RAG 侧的 Recall@5 目标设 0.80 而非 0.75**，因为上层 Agent 还会有损失，
++> 检索层必须留出余量。检索层刚好 0.75，端到端几乎不可能达标。
++
++---
++
++## ⑨ 测试要求
++
++评测脚本本身也需要**离线可跑**：
++
++| # | 要求 |
++|---|---|
++| 1 | 默认配置（`inmemory` + `hash` + `noop`）下能完整跑完，**不需要任何外部服务** |
++| 2 | 弱标注集模式下，`hash` 向量也应能得到 > 0 的 Recall@5（证明链路通） |
++| 3 | 输出 JSON 可被 `json.loads()` 解析 |
++| 4 | 提供 `--baseline` 但基线文件不存在时，**给出明确提示而非崩溃** |
++| 5 | 脚本退出码语义：0=通过，1=回归退化，2=参数/环境错误 |
++
++> ⚠️ **不要把评测脚本放进 `pytest` 的 `testpaths`**（它会跑全量检索，拖慢单测）。
++> 它属于"手动/CI 定时"执行的工具，不是单测。
++
++---
++
++## ⑩ 避坑清单
++
++| # | 坑 | 后果 | 正确做法 |
++|---|---|---|---|
++| 1 | 不记录生效配置 | 不同配置的数字混在一起，**不可比** | 必须写进 `meta.config` |
++| 2 | 把弱标注集的数字当验收基线 | **高估**真实表现，误导决策 | 两类标注集**分开记录** |
++| 3 | 中途更换 Recall 口径 | 历史数字失效 | 口径**先写死**（§⑤） |
++| 4 | 用 `doc_id` 而非 `chunk_id` 作 gold | 粒度太粗，无法判断是否命中"那一条" | **用 `chunk_id`** |
++| 5 | 担心重建索引后 gold 失效 | 白担心 | `chunk_id` 是 **uuid5 确定性生成**，重建后不变 |
++| 6 | 把评测脚本塞进 `pytest` | 单测变慢，且可能因服务缺失而失败 | 独立脚本 + 手动/CI 定时 |
++| 7 | 只在"全部命中"时才算通过 | 指标粒度太粗，无法定位问题 | 逐条记录 `query_id` 与 `rank_of_first_gold` |
++| 8 | 把 RAG 的 Recall@5 目标直接设为 0.75 | 上层有损失，端到端**必然不达标** | 检索层目标 **0.80**，留余量 |
++| 9 | 只在改后跑一次评测 | 无对比，不知道改动是否有效 | **改前也跑一次**，形成对照 |
++
+*** End Patch

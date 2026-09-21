@@ -1,0 +1,17 @@
+# ============================================================================
+# 换行与二进制属性（2026-09-21 新增）
+#
+# 起因：本机 core.autocrlf=true，一次 git checkout 会把**文档**的 LF 改成 CRLF，
+#       与 文件集合/codex/AGENTS.md §2.4「UTF-8 无 BOM + LF」的落盘约定冲突，
+#       也会让文档自检脚本（crlf=0）误报。
+# 约定：仓库内所有**文本**文件一律 LF；二进制资产显式声明。
+# ============================================================================
+* text=auto eol=lf
+
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.pdf  binary
+*.docx binary
+*.xlsx binary
+*.pkl  binary
