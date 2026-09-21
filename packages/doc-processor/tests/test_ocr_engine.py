@@ -250,7 +250,22 @@ def test_ocr_image_raises_when_engine_missing() -> None:
         engine.ocr_image(_IMAGE, page=1, src_dpi=72)
 
 
-def test_seal_detection_degrades_when_module_missing() -> None:
-    """`seal.py`（T-C6）未落盘时，印章检测返回 `[]` 且不抛异常。"""
+def test_seal_detection_delegates_to_seal_module() -> None:
+    """`seal.py`（T-C6）落盘后：`detect_seals()` 确实委托过去，能返回真实检测结果。"""
     engine = LocalOcrEngine(_settings())
+    detections = engine.detect_seals(str(_FIXTURES / "scan.png"))
+    assert detections, "夹具含红色印章样张，委托链路应返回至少一枚"
+    assert all(item.page >= 1 and item.width > 0 for item in detections)
+
+
+def test_seal_detection_degrades_when_import_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`3-3 §⑥-9`：`seal.py` **不可导入**时返回 `[]` 且不抛异常。
+
+    注：模块落盘后不再用"文件不存在"来构造该场景，改为把 `sys.modules` 里的条目置 None
+    （效果与未落盘一致：import 抛 `ImportError`），这样降级契约仍然被守住。
+    """
+    import sys
+
+    engine = LocalOcrEngine(_settings())
+    monkeypatch.setitem(sys.modules, "doc_processor.ocr.seal", None)
     assert engine.detect_seals(str(_FIXTURES / "scan.png")) == []

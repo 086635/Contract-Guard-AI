@@ -215,6 +215,7 @@
 | `T-C4` 要素与条款抽取 | `3204318` | 条款编号正则收敛到 `rag_contracts/patterns.py`（唯一处）+ 规则抽取 + AST | `native.pdf` 25 条条款/458 ms；`contract.docx` 3 条/121 ms |
 | `T-C5` 坐标与偏移索引 | `873d2c8` | `char_offset → BBox` 二分索引 + 只读降级（前端高亮前提） | 5 页 80 行建索引 0.11 ms；`locate` P50 0.035 ms / P95 0.088 ms |
 | `T-C7` 解析任务接线 | `018ca9f` | `parse_doc` 全链路 + `ParseOutcome` 信封 + `data/parse/` 工件 + 进度上报（**OCR 线终点**） | 四路全通（PDF_NATIVE 463 ms / SCANNED 7.6 s / IMAGE 5.8 s / DOCX 101 ms）；条款 bbox 35/35 |
+| `T-C6` 印章三段式检测 | `见本轮提交` | 红色双段掩膜 → 极坐标展开 → 四方向 OCR → 主体模糊比对（**创新点，无现成方案**） | `scan.png` 圆环文字「某某科技」被正确识别（置信度 0.9）；区域检测 <10 ms |
 
 | 项 | 结果 |
 |---|---|

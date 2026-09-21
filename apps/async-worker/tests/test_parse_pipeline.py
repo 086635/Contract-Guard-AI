@@ -3,7 +3,7 @@
 覆盖：
 1. 装配（字符偏移唯一处：分隔符 `\n`、空行不占偏移、半开区间）；
 2. 接缝（条款 payload 键名、bbox 形状、span 与 AST 不一致时置空而不猜）；
-3. 支路（DOCX 合成坐标、扫描件页数上限、引擎不可用降级、印章模块缺失只告警一次）；
+3. 支路（DOCX 合成坐标、扫描件页数上限、引擎不可用降级、印章模块不可用只告警一次、真实红章接缝）；
 4. 源文件定位（本地/显式路径/MinIO 三通道）与工件原子写；
 5. 红线：不写第二处缩放、不写行聚类。
 """
@@ -17,6 +17,7 @@ import pytest
 from doc_processor.config import OcrSettings
 from worker.parse_pipeline import (
     ParseOutcome,
+    ParsePipeline,
     SourceUnavailableError,
     assemble_text_lines,
     build_parse_pipeline,
@@ -129,12 +130,13 @@ def test_pdf_native_pipeline_end_to_end() -> None:
     )
     payload = outcome.to_payload()
     assert payload["fileType"] == "PDF_NATIVE"
-    assert payload["status"] == "DEGRADED"  # 3-8 未落盘 → 按状态表降级
+    # 印章模块（3-8）已落盘；本夹具没有红章 → 0 枚 → 不触发任何降级
+    assert payload["status"] == "SUCCESS"
     assert payload["lineCount"] > 0 and payload["charCount"] > 0
     assert payload["clauses"] and payload["layoutBlocks"]
     assert payload["coordinatesSynthetic"] is False
     assert payload["ocrUsed"] is False
-    assert any("印章模块" in item for item in payload["warnings"])
+    assert payload["sealDetections"] == [] and payload["warnings"] == []
     assert {entry["stage"] for entry in payload["stageLog"]} >= {
         "route",
         "parse_text",
@@ -205,13 +207,38 @@ def test_engine_unavailable_degrades(monkeypatch: pytest.MonkeyPatch) -> None:
     assert any("OCR 引擎不可用" in item for item in payload["warnings"])
 
 
-def test_seal_module_missing_warns_once() -> None:
-    """印章模块缺失：多页 PDF 也只产生**一条** warning（不逐页刷屏）。"""
+def test_seal_module_missing_warns_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    """印章模块不可用时：**降级** + 多页 PDF 也只产生一条 warning（不逐页刷屏）。
+
+    注：`3-8` 已落盘，故用 `_load_seal()` 返回 None 注入"模块缺失"（与未落盘等效）。
+    """
+    monkeypatch.setattr(ParsePipeline, "_load_seal", lambda self: None)
     outcome = build_parse_pipeline(settings=_settings()).run(
         _FIXTURES / "native.pdf", "c-sealwarn"
     )
+    assert outcome.status == "DEGRADED"
     seal_warnings = [item for item in outcome.warnings if "印章模块" in item]
     assert len(seal_warnings) == 1
+
+
+def test_pipeline_detects_real_seal_on_fixture() -> None:
+    """`3-6 ↔ 3-8` 接缝：`scan.png` 的红章经管线上报为完整 `SealSignatureDetection`。"""
+    outcome = build_parse_pipeline(settings=_settings()).run(
+        _FIXTURES / "scan.png", "c-seal-real"
+    )
+    payload = outcome.to_payload()
+    assert payload["fileType"] == "IMAGE"
+    assert payload["sealDetections"], "夹具含红章，管线上应产出印章 payload"
+    seal = payload["sealDetections"][0]
+    assert seal["id"].startswith("seal-001-")
+    assert seal["status"] in {
+        "VALID",
+        "UNAUTHORIZED",
+        "BLURRY_UNRECOGNIZABLE",
+        "SUSPICIOUS_OVERLAP",
+    }
+    assert seal["bbox"]["coordinateSystem"] == "PDF_POINTS"
+    assert seal["extractedText"]
 
 
 # ===========================================================================

@@ -46,14 +46,24 @@ class OcrEngine:
         raise NotImplementedError
 
 
-# 只增导出：实现类在 engine.py（引擎 import 全部延迟到函数体内，缺引擎不影响本包导入）
+# 只增导出：实现类在 engine.py / seal.py（引擎 import 全部延迟到函数体内，缺引擎不影响本包导入）
 from .engine import LocalOcrEngine, build_ocr_engine, detect_engine  # noqa: E402
+from .seal import (  # noqa: E402
+    LocalSealDetector,
+    SealAnalysis,
+    detect_seals_in_image,
+    to_detection_payload,
+)
 
 __all__ = [
     "LocalOcrEngine",
+    "LocalSealDetector",
     "OcrEngine",
     "OcrResult",
+    "SealAnalysis",
     "SealDetection",
     "build_ocr_engine",
     "detect_engine",
+    "detect_seals_in_image",
+    "to_detection_payload",
 ]

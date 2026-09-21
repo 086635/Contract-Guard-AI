@@ -37,8 +37,10 @@ def _run(file_key: str, contract_id: str, local_path: Path | str | None = None) 
 def test_task_apply_pdf_native() -> None:
     """数字版 PDF 经任务跑通：四类产出齐全、阶段日志完整。"""
     result = _run("ignored-key", "c-apply", _FIXTURES / "native.pdf")
-    assert result["status"] == "DEGRADED"
+    # 印章模块（3-8）已落盘、夹具无红章 → 全链路 SUCCESS
+    assert result["status"] == "SUCCESS"
     assert result["fileType"] == "PDF_NATIVE"
+    assert result["sealDetections"] == []
     assert result["clauses"] and result["layoutBlocks"]
     assert result["artifactPath"]
     assert {entry["stage"] for entry in result["stageLog"]} >= {
