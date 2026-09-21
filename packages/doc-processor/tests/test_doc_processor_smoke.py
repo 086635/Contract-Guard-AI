@@ -10,7 +10,6 @@
 from __future__ import annotations
 
 import dataclasses as dc
-from pathlib import Path
 
 
 def test_package_is_importable() -> None:

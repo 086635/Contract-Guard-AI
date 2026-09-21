@@ -887,26 +887,40 @@ name = "doc-processor"
 version = "1.1.0"
 source = { editable = "packages/doc-processor" }
 dependencies = [
+    { name = "cg-observability" },
     { name = "onnxruntime" },
     { name = "pdfplumber" },
     { name = "pillow" },
     { name = "pydantic" },
-    { name = "pymupdf" },
+    { name = "pydantic-settings" },
     { name = "pypdfium2" },
     { name = "python-docx" },
     { name = "rapidocr-onnxruntime" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "pymupdf" },
+    { name = "pytest" },
+]
+
 [package.metadata]
 requires-dist = [
+    { name = "cg-observability", editable = "packages/cg-observability" },
     { name = "onnxruntime", specifier = ">=1.20" },
     { name = "pdfplumber", specifier = ">=0.11" },
     { name = "pillow", specifier = ">=10.0" },
     { name = "pydantic", specifier = ">=2.7" },
-    { name = "pymupdf", specifier = ">=1.24" },
+    { name = "pydantic-settings", specifier = ">=2.3,<3.0" },
     { name = "pypdfium2", specifier = ">=5,<6" },
     { name = "python-docx", specifier = ">=1.1" },
     { name = "rapidocr-onnxruntime", specifier = ">=1.3,<2.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pymupdf", specifier = ">=1.24" },
+    { name = "pytest", specifier = ">=8.0" },
 ]
 
 [[package]]
