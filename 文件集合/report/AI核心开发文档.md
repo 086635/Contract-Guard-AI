@@ -1,5 +1,26 @@
 # AI 核心开发文档（教学级落地指南）
 
+> ⚠️ **文档纠偏声明 · 2026-09-21**（本节由文档纠偏流程**追加**，原文**未删改**）
+>
+> **状态**：🟠 **部分过期** —— **落点章节不可用**，其余章节仍可参考。
+>
+> | # | 本文档的过期内容 | 现行事实 |
+> |---|---|---|
+> | 1 | §0 落点表把 `packages/rag-etl/{extractors,transformers,pipelines}` 列为「知识库清洗」落点 | **该包不存在，且不得创建**（全文 6 处引用均为废弃规划） |
+> | 2 | L189/194/207/211 的落点写 `packages/rag-etl/...` | 现行：切片 → `packages/rag-core/rag_core/chunking/`；建库与评测脚本 → `scripts/` |
+> | 3 | L335 评测脚本落点 `packages/rag-etl/pipelines/eval_recall.py` | 现行落点 **`scripts/eval_recall.py`** |
+> | 4 | 使用 `ClauseVectorStore` / `ClauseAwareChunker` 旧名 | 现行 `QdrantVectorStore` / `SimpleChunker` |
+> | 5 | 把 `HybridRetriever` 当主检索实现 | 它是 **`NotImplementedError` 空壳**，须降级为薄桥接 |
+> | 6 | `ScopedClauseMemory`（2 处） | 🔴 **全仓禁止第二份**；唯一处以 `ai_engine/memory/scoped_memory.py` 为准 |
+>
+> ✅ **仍准确的部分**：L259 的 `apps/async-worker/worker/storage/qdrant_client.py`
+> —— 该文件**确实存在，且仍仅作连接工厂**。
+>
+> **该信谁**：见 `文件集合/codex/0.施工标准与定义归属.md` **§0.11 文档权威层级**。
+> 一句话：**落点查 L0（`文件集合/codex/`）／契约字段查 L1（`RAG_MODULE_DESIGN.md`）／实现与命名查 L2（`RAG搭建框架.md`）／仓库现状查 L3（`项目代码深度阅读与分析报告.md`）**。
+
+
+
 > **配套文档**：`核心构建PRD.md`（选型与里程碑）、`data_scheme.md`（数据类型契约）、`architecture_assembly_report_2026-08-18.md`（Monorepo 骨架）
 > **目标读者**：直接参与本系统开发的工程师（后端 / AI 引擎 / 前端）
 > **本文定位**：把 PRD 的"选型决策"翻译为"逐行可执行步骤"，覆盖 **OCR → RAG → Agent → 三者联动 → 输出版本管理** 全链路，每一步都给出代码骨架、落点文件与验证方法。

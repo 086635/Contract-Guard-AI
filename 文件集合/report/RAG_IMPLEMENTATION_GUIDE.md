@@ -1,5 +1,32 @@
 # 合同审查 RAG 体系与 LangGraph Agent 联动技术落地指引文档
 
+> ⚠️ **文档纠偏声明 · 2026-09-21**（本节由文档纠偏流程**追加**，原文**未删改**）
+>
+> **状态**：🔴 **L6 · 历史档案（已过期）** —— **不得作为实现依据**。
+>
+> 本文写于 `rag-core` / `rag-contracts` 抽象层落地**之前**，其目录规划已被整体放弃。
+> 最危险之处：它把**不存在的包**标注为「**待新建**」，照着做会新建出错误目录。
+>
+> | # | 本文档的过期内容 | 现行事实 |
+> |---|---|---|
+> | 1 | §0 落点表把 `packages/rag-etl/rag_etl/{models,extractors,chunking,pipeline}.py` 标为「**待新建**」 | **该包不存在，且不得创建**；切片落 `packages/rag-core/rag_core/chunking/` |
+> | 2 | `worker/storage/clause_vector_store.py` 标为「**待新建**」 | 已被 `rag_core/adapters/qdrant_store.py` 取代 |
+> | 3 | `worker/storage/bm25_store.py` 标为「**待新建**」 | 已被 `rag_core/adapters/bm25_store.py` 取代 |
+> | 4 | 通篇使用 `ClauseChunk`（**13 处**） | 现行契约类名 **`ContractChunk`**（`rag_contracts/chunk.py`，**28 字段**） |
+> | 5 | `ClauseVectorStore`（9 处） | 现行 **`QdrantVectorStore`** |
+> | 6 | `ClauseAwareChunker`（5 处） | 现行 `SimpleChunker`；层级版 `SectionAwareChunker`（T-A9） |
+> | 7 | 把 `HybridRetriever` 当主检索实现（11 处） | `ai_engine/rag/retriever.py` 的它是 **`NotImplementedError` 空壳**，须降级为**薄桥接**（转调 `rag_core`） |
+> | 8 | 评测脚本落点 `packages/rag-etl/pipelines/eval_recall.py` | 现行落点 **`scripts/eval_recall.py`** |
+> | 9 | 全文 **29 处** `rag-etl` 引用 | 全部作废 |
+>
+> ✅ **仍可用的部分**：RRF `k=60` 的算法说明、Reranker 阈值 `0.35` 的取值理由、BM25 的 idf 公式、切片策略的**思路**。
+> **当"原理读物"看，不要当"施工图"用。**
+>
+> **该信谁**：见 `文件集合/codex/0.施工标准与定义归属.md` **§0.11 文档权威层级**。
+> 一句话：**落点查 L0（`文件集合/codex/`）／契约字段查 L1（`RAG_MODULE_DESIGN.md`）／实现与命名查 L2（`RAG搭建框架.md`）／仓库现状查 L3（`项目代码深度阅读与分析报告.md`）**。
+
+
+
 > 文档定位：本指引是 **可直接指导代码编写的实现圣经（白皮书级）**，面向本项目 AI/RAG 首席架构师与 Phase 2 核心引擎开发同学。
 > 适用范围：企业合同智能审核与风险预警系统（contract-guard-ai，Polyglot Monorepo）。
 > 配套契约：`packages/schema/openapi.yaml`、`文件集合/report/data_scheme.md`、`文件集合/report/前端开发指导契约.md`。
