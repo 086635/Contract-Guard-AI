@@ -82,16 +82,31 @@ class LlmSettings(BaseSettings):
         env_prefix="CG_LLM_", env_file=".env", extra="ignore"
     )
 
-    provider: Literal["offline", "openai"] = "offline"
-    model: str = "gpt-4o-mini"          # provider="openai" 时生效
+    provider: Literal["offline", "openai", "deepseek", "ollama"] = "offline"
+    model: str = "gpt-4o-mini"          # provider != "offline" 时生效
     temperature: float = 0.0            # 审核/重写要求可复现 → 默认 0
-    max_tokens: int = 2048
+    max_tokens: int = 2048              # ⚠️ reasoning 模型下限，见下方实测约束 ②
     timeout_s: float = 30.0
     max_retries: int = 2
-    json_mode: Literal["json_schema", "json_mode", "none"] = "json_schema"
+    json_mode: Literal["json_schema", "json_mode", "none"] = "json_mode"
     api_key: str | None = None          # 禁止写死，只从环境变量读
     base_url: str | None = None
 ```
+
+> 🔬 **实测约束（2026-09-21 本机真调 DeepSeek，D2-d 拍板后回填 —— **必须**照此实现）**：
+>
+> ① **`response_format={"type":"json_schema"}` 在 DeepSeek 上不可用**（HTTP 400 `This response_format type is unavailable now`）
+>    → `.with_structured_output(model, method="function_calling")` **必须显式传 `method`**（框架默认会试 json_schema 并直接 400）；
+>    同时适配层要**保留一条降级链**：`function_calling` 失败 → `{"type":"json_object"}`（实测可用）→ 纯提示词 + 后置 JSON 解析。
+>    `json_mode` 的**默认值因此从 `"json_schema"` 改为 `"json_mode"`**（旧默认会在 DeepSeek 上必败）。
+>
+> ② **`deepseek-flash` 是 reasoning 模型**：`reasoning_tokens` **先占** `max_tokens`（实测 `max_tokens=16` → `content` 是**空串**，`reasoning_tokens=16`）
+>    → `max_tokens` 默认 2048 是**下限**而非建议值；并把「`content` 为空且 `reasoning_tokens` 触顶」判为**截断**（记 warning + 允许一次放大重试）。
+>
+> ③ **provider 预设（统一接口多端，D4-a 的落地形态）**：`deepseek` → `base_url=https://api.deepseek.com/v1`；
+>    `ollama` → `base_url=http://localhost:11434/v1`（`api_key` 随便填，如 `ollama`）；`openai` → 走官方。
+>    **三者共用同一套 OpenAI 兼容适配器**，切换只改环境变量（`CG_LLM_PROVIDER` / `CG_LLM_MODEL` / `CG_LLM_BASE_URL` / `CG_LLM_API_KEY`）。
+>    ⚠️ 实测 ollama **客户端已装但服务未启动** → `provider` 默认仍是 `offline`（离线红线），ollama 只作可选切换。
 
 ```python
 # ai_engine/llm/errors.py

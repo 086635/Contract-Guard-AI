@@ -264,10 +264,11 @@ openai 3.3.1              （官方 SDK）
 
 #### D2.5 决策清单
 
-- [ ] **D2-a**：确认 LLM 接入走 `langchain-openai`（推荐）还是裸 SDK
-- [ ] **D2-b**：确认 Graph 采用**自绘 `StateGraph` + 6 阶段**拓扑
-- [ ] **D2-c**：确认 checkpointer 选型（开发 `InMemorySaver` / 生产 `PostgresSaver`）
-- [ ] **D2-d**：确认 LLM 供应商与模型名（用于填 `CG_LLM_*`，并注意 **JSON 结构化输出的稳定性**，这直接决定风险识别的达标率）
+- [x] **D2-a**：✅ **已拍板（2026-09-21）**：走 **`langchain-openai` + `ChatOpenAI`**（结构化输出与 Pydantic 契约天然契合）
+- [x] **D2-b**：✅ **已拍板（2026-09-21）**：**自绘 `StateGraph` + 6 阶段**（classify → extract → risk → conflict → standard_compare → report_draft）
+- [x] **D2-c**：✅ **已拍板（2026-09-21）**：**开发 `InMemorySaver` / 生产 `PostgresSaver`**（Celery 多进程下多轮改写必须落外部存储）
+- [x] **D2-d**：✅ **已拍板（2026-09-21）**：**DeepSeek**，模型 **`deepseek-flash`**，`base_url=https://api.deepseek.com/v1`（key 只进 `.env`）。
+      🔬 **实测（2026-09-21，本机真调）**：`GET /models` 只有 `deepseek-flash` / `deepseek-v4-pro`；`POST /v1/chat/completions` **200 / 1.1 s**；`response_format={"type":"json_object"}` **可用且 JSON 可解析**；⚠️ `response_format={"type":"json_schema"}` **不可用**（400 `This response_format type is unavailable now`）→ **结构化输出必须走 function calling**（`.with_structured_output(model, method="function_calling")`）；⚠️ `deepseek-flash` 是 **reasoning 模型**（`reasoning_tokens` 先吃 `max_tokens`），`max_tokens=16` 时 `content` 为空串。
 
 ---
 
@@ -329,11 +330,12 @@ openai 3.3.1              （官方 SDK）
 
 #### D3.5 决策清单
 
-- [ ] **D3-a**：确认主路线 PaddleOCR **3.x（PP-OCRv5）**，还是保守用 **2.x（PP-OCRv4）**
+- [x] **D3-a**：✅ **已拍板（2026-09-21，被实测改写）**：**③ RapidOCR 为主路线**。
+      实测结论：`paddlepaddle 3.3.1` 在本机装得上，但 `paddleocr 2.10` 包装层 **import 即崩**（`ppocr.data.imaug` → `albumentations.pytorch` → 撞上系统 Python 里损坏的 `torch`，`OSError WinError 127`）→ 路线 A 放弃，`paddleocr` / `paddlepaddle` 声明已一并移除（见 `3-1 §⑤` 的纠偏段）。若将来要用 PP-StructureV3，须 `paddleocr>=3.0` 且环境不暴露坏 torch。
       （⚠️ 3.x API 不兼容 2.x，`packages/doc-processor/pyproject.toml` 现声明 `paddleocr>=2.7`，需同步改）
-- [ ] **D3-b**：确认是否加入 **RapidOCR** 作为降级路线
-- [ ] **D3-c**：确认印章方案采用「HSV 颜色分割 + 极坐标展开 + 模糊比对」三段式
-- [ ] **D3-d**：确认 OCR 是否也用于**手写签名**识别（若是，难度显著上升，建议本次只做「存在性检测」不做识别）
+- [x] **D3-b**：✅ **已拍板（2026-09-21）**：**已加入并升级为主路线**（`rapidocr-onnxruntime 1.4.4` + `onnxruntime 1.30.0`，模型随包分发、离线可用）
+- [x] **D3-c**：✅ **已拍板（2026-09-21）**：**确认三段式**（已落地 `3-8`，实测圆环文字「某某科技」被正确识别，置信度 0.9）
+- [x] **D3-d**：✅ **已拍板（2026-09-21）**：**只做存在性检测，不做手写识别**（需另训模型，本次不划算）
 
 ---
 
@@ -381,9 +383,10 @@ Reranker  : BAAI/bge-reranker-v2-m3 —— 项目 CG_RAG_RERANK_MODEL 默认值�
 
 #### D4.4 决策清单
 
-- [ ] **D4-a**：确认 embedding/rerank 服务形态（TEI 容器 / 云端 API / Xinference）
-- [ ] **D4-b**：确认是否有 GPU（有 → TEI GPU 镜像；无 → CPU 镜像，bge-m3 在 CPU 上单条约 50~200ms，可接受）
-- [ ] **D4-c**：确认「换模型 = 重建索引」的操作流程（`chunk.embedding_model` 字段已在契约里，可据此识别旧索引）
+- [x] **D4-a**：✅ **已拍板（2026-09-21）**：**统一 HTTP 接口 + 配置区分多端** —— 开发期走本地 **ollama**，将来云端模型与本地模型**只靠 `CG_RAG_EMBED_*` / `CG_RAG_RERANK_*` 的 base_url / model / api_key 区分**，代码零改动（`HttpEmbedder` / `HttpReranker` 已实现且已有测试）。
+      🔬 实测：ollama **客户端 0.34.0 已装但服务未启动**（`/api/tags` 无响应）→ `.env` 必须保留离线默认（`embed_mode=hash` + `rerank_mode=noop`），ollama 作为**可选切换**（见 `.env.example`）。
+- [x] **D4-b**：✅ **已拍板（2026-09-21）**：**有 GPU**（测得 NVIDIA RTX 5060 Laptop 8 GB）**但大数据量不走本地计算** → 同样走「统一接口多端调用」（本地 GPU 只用于调试/小批量）。⚠️ 由此**不需要**在 compose 里硬绑 GPU 镜像。
+- [x] **D4-c**：✅ **已拍板（2026-09-21，Agent 自行判断）**：**换模型必须重建索引**，流程固化为四步 —— ① 读 `CG_RAG_EMBED_MODEL` + `CG_RAG_VECTOR_DIM`；② 扫 `chunk.embedding_model` 与当前不一致的存量切片（契约里已有该字段）；③ 用**新 collection 名**（`<collection>_<model_slug>`）重建，旧 collection 保留只读；④ 冒烟 3 条查询确认 `EMPTY_RECALL` 消失后再切默认名。⚠️ 维度变化（非 1024）视为**破坏性变更**，必须先改 `rag_contracts.EMBEDDING_DIM` 并全量重建。
 
 ---
 
@@ -1571,7 +1574,7 @@ ruff check . ; mypy packages/rag-core
 
 | # | 事项 | 模式 | 判据（做完怎么算过） |
 |---|---|---|---|
-| **G0-1** | **决策收口**：D2-a/b/c/d（Agent）、D3-a/b/c/d（OCR）、D4-a/b/c（语义服务） | **Plan** | 三张决策表（`2.AGENT模块.md §2.7`、`3.OCR模块.md §3.7`、`1.RAG模块.md §1.7`）状态列改「已拍板 + 日期」；本节 §1 的 12 个勾选框全部勾上 |
+| **G0-1** | ✅ **已完成 2026-09-21** · **决策收口**：D2-a/b/c/d（Agent）、D3-a/b/c/d（OCR）、D4-a/b/c（语义服务） | **Plan** | 三张决策表（`2.AGENT模块.md §2.7`、`3.OCR模块.md §3.7`、`1.RAG模块.md §1.7`）状态列改「已拍板 + 日期」；本节 §1 的 12 个勾选框全部勾上 |
 | **G0-2** | ✅ **已完成 2026-09-21**（commit `87e15d9`）· **`1-1` T-A0 前置修复**：装 `celery`、补 `SparseHit.payload`、补 `ai-engine` workspace 依赖、`pytest.ini` 固化 | **Goal** | `1-1 §⑦` 断言逐条通过；此后**一条命令**即可跑测试；`1-1 §⑧` 回填表填完 |
 | **G0-3** | ✅ **已完成 2026-09-21**（commit `a298907`）· **`3-1` T-C0 引擎与依赖安装**：落定路线 B `rapidocr-onnxruntime`，移除悬空的 `paddleocr` 声明 | **Default（交互）** | `3-1 §⑦` 断言通过；`scripts/check_ocr_env.py` 输出 `engine=rapid\|paddle`；`pyproject.toml` 无悬空声明、版本不敞口 |
 
@@ -1625,15 +1628,15 @@ Plan（出决策 + 代价） → Default（回填决策表 / 文档） → Goal�
 | # | 缺口 | 影响 | 处置 |
 |---|---|---|---|
 | R1 | 无 DB DAL；`api-gateway` mock 驱动 | `Contract.status`、SSE、真实落库**做不到** | 待建任务（`2-6 §⑨-8` / `3-6 §⑨-8` 已登记），**不在任何现有任务内** |
-| R2 | `CG_LLM_*` 与 API Key 未定（D2-d） | `T-B3` / `T-B4` 只能用**桩模型**验收，真实质量无法判定 | G0-1 拍板 |
-| R3 | 语义服务未定（D4） | 默认 `HashEmbedder` + `NoopReranker` → 召回率上不去，`T-A8` 基线会难看 | G0-1 拍板 + `1-6` 实现 |
+| ~~R2~~ | ✅ **已收敛（2026-09-21）**：D2-d 定为 **DeepSeek `deepseek-flash`**（key 只进 `.env`） | 不再只能用桩模型：可真调 | **G0-1 已完成** —— `2-2` 落盘时按实测约束写（必须 `function_calling`、`max_tokens ≥ 2048`） |
+| R3 | 🟡 **形态已定、实现未做**：D4-a/b = 「统一 HTTP 接口 + 配置区分多端（开发期 ollama）」 | 召回率仍上不去，直到 `T-A5/A6` 落盘 | **G0-1 已完成** → 只等 `1-6` 实现（见 `1.RAG模块.md §1.7.2`） |
 | ~~R4~~ | ✅ **已收敛**：`celery` 不在 `.venv` | 依赖未收口 | **G0-2（`1-1`，commit `87e15d9`）**：`uv sync --all-packages` 后 `.venv` 内 `celery 5.6.3` |
 | ~~R5~~ | ✅ **已收敛**：无 OCR 引擎 | 引擎相关断言无法执行 | **G0-3（`3-1`，commit `a298907`）**：路线 B 就位并真实出字（2 行中文 score 0.999） |
 | R6 | 模块 4 文档未落盘 | 前端侧无任务可领，端到端演示只有后端一半 | 需新增一次「补模块 4 文档」的 Goal |
 
 ### 12.7 下一步（立刻可执行）
 
-1. **开一个 Plan 会话**（G0-1）：把 D2 / D3 / D4 三组决策一次拍完 —— 三份模块总纲的推荐方案已经写好，多数只需**确认**；
+1. ~~开一个 Plan 会话跑 G0-1~~ ✅ **已完成（2026-09-21）**：12 项决策全部拍板并回填三张决策表 + 本节 §1 的 12 个复选框；其中 **D2-d 经本机真调核销**（DeepSeek `deepseek-flash`：`json_schema` 不可用 → 必须 `function_calling`；reasoning 模型 → `max_tokens` 需 ≥ 2048）；
 2. 用 **Default** 把结论回填到三张决策表 + 勾上本节 §1 的 12 个复选框；
 3. 开**第一个 Goal**（G0-2，`1-1` T-A0），objective 直接复制根 `AGENTS.md` §3.1 的模板；
 4. ~~G0-3（`3-1`）穿插用 Default 做掉~~ ✅ 已完成（实测 `paddlepaddle 3.3.1` 装得上，但 `paddleocr 2.10` 包装层 import 崩于系统 torch → 按 `3-1` 切 RapidOCR，详见 `文件集合/交付报告/Gate0收尾报告.md`）。
