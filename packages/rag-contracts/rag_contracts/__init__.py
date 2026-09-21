@@ -55,6 +55,7 @@ from .errors import (
     StoreUnavailableError,
     TransientRagError,
 )
+from .patterns import CLAUSE_HEAD_RE
 from .ports import (
     EmbedderPort,
     RerankerPort,
@@ -97,6 +98,8 @@ __all__ = [
     "TOOL_DESCRIPTION",
     "TOOL_NAME",
     "__version__",
+    # ---- 共享词法模式（T-C4：条款编号**唯一定义处**）----
+    "CLAUSE_HEAD_RE",
     # ---- 枚举 ----
     "ChunkType",
     "ContractType",

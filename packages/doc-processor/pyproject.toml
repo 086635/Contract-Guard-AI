@@ -9,6 +9,7 @@ dependencies = [
     "pdfplumber>=0.11",
     "python-docx>=1.1",
     "cg-observability",              # 日志 / 埋点**唯一通道**（3-2 §⑥-7）
+    "rag-contracts",                 # 条款编号正则唯一处（3-4 §③：patterns.py）
     # OCR & 印章定位
     "pillow>=10.0",
     "rapidocr-onnxruntime>=1.3,<2.0",
@@ -31,6 +32,7 @@ build-backend = "hatchling.build"
 
 [tool.uv.sources]
 cg-observability = { workspace = true }
+rag-contracts = { workspace = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["doc_processor"]

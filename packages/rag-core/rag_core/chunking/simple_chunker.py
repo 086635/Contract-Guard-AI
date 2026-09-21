@@ -17,17 +17,15 @@ from typing import Any, Sequence
 from cg_observability import TokenCounter
 from rag_contracts.chunk import ContractChunk
 from rag_contracts.enums import ChunkType, ContractType, SourceType
+from rag_contracts.patterns import CLAUSE_HEAD_RE as _CLAUSE_HEAD_RE
 
 # 条款/法条编号锚点：
 #   ① 中文编号：第五条 / 第五章 / 第3章 / 第五百八十五条
 #   ② 阿拉伯编号：6.2 / 3.1.2 / 1)
-_CLAUSE_HEAD_RE = re.compile(
-    r"^\s*(?P<num>"
-    r"第[一二三四五六七八九十百千零〇\d]+[条章节款项]"
-    r"|\d+(?:\.\d+)+"
-    r"|\d+\)"
-    r")\s*(?P<rest>.*)$"
-)
+# 🔴 **定义处已迁至 `rag_contracts/patterns.py`（T-C4）**，本文件顶部以
+#    `from rag_contracts.patterns import CLAUSE_HEAD_RE as _CLAUSE_HEAD_RE` 引入。
+#    迁移只换了"定义位置"，语义**逐字未变**；改它会同时改变切片与解析结果，
+#    必须跑两处回归（`packages/rag-core` + `packages/doc-processor`）。
 
 # 无编号的正文前缀（如"鉴于……"）归入前言块
 _PREAMBLE_SECTION_ID = "PREAMBLE"

@@ -30,14 +30,28 @@ class ParsedClause:
 
 
 class NodeExtractor:
-    """要素 / 条款节点提取骨架。
+    """要素 / 条款节点提取端口（契约，**字段与方法签名冻结**）。
 
-    TODO（工程实现）：结合 layout + ocr 输出，抽取 ParsedElement 与
-    ParsedClause（AST 拓扑），归一化到 BBox 坐标。
+    实现见 `doc_processor.parser.extractor.LocalNodeExtractor`（T-C4，规则优先）。
     """
 
     def extract_elements(self, source_path: str) -> list[ParsedElement]:
-        raise NotImplementedError("parser.extract_elements 待实现")
+        """抽取合同要素（甲乙方 / 金额 / 日期 / 期限 / 管辖地）。"""
+        raise NotImplementedError
 
     def extract_clauses(self, source_path: str) -> list[ParsedClause]:
-        raise NotImplementedError("parser.extract_clauses 待实现")
+        """抽取条款并构建 AST 拓扑（level / parent_id / children_ids）。"""
+        raise NotImplementedError
+
+
+# 只增导出：实现类在 extractor.py；`TextLine` 供 3-5 / 3-6 复用（单向依赖，见 3-4 §③）
+from .extractor import LocalNodeExtractor, TextLine, build_node_extractor  # noqa: E402
+
+__all__ = [
+    "LocalNodeExtractor",
+    "NodeExtractor",
+    "ParsedClause",
+    "ParsedElement",
+    "TextLine",
+    "build_node_extractor",
+]
