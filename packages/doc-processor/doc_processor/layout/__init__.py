@@ -31,10 +31,23 @@ class LayoutBlock:
 
 
 class LayoutAnalyzer:
-    """PP-StructureV2 版面分析骨架。
+    """版面分析端口（契约）。
 
-    TODO（工程实现）：接入 PP-StructureV2，输出 LayoutBlock 列表。
+    实现见 `doc_processor.layout.analyzer.LocalLayoutAnalyzer`（T-C3，规则优先）。
     """
 
     def analyze(self, pdf_path: str) -> list[LayoutBlock]:
-        raise NotImplementedError("layout.analyze 待实现：接入 PP-StructureV2")
+        """对 PDF 做版面分析，返回按阅读顺序排列的区块。"""
+        raise NotImplementedError
+
+
+# 只增导出：实现类在 analyzer.py；⚠️ `StyledLine` 是版面层**局部类型**，不在此导出
+from .analyzer import LocalLayoutAnalyzer, build_layout_analyzer  # noqa: E402
+
+__all__ = [
+    "BlockType",
+    "LayoutAnalyzer",
+    "LayoutBlock",
+    "LocalLayoutAnalyzer",
+    "build_layout_analyzer",
+]
