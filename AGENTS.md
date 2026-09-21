@@ -142,7 +142,7 @@ scripts/             建库、评测、冒烟脚本（不要放进 packages/）
 
 ```text
 目标：按《文件集合/codex/<文档名>.md》完成 <任务 ID>。
-完成定义：① 该文档 §⑦ 断言逐条实测通过；② pytest ≥ 173 passed（命令见 §4.1）；
+完成定义：① 该文档 §⑦ 断言逐条实测通过；② pytest ≥ 197 passed（命令见 §4.1）；
 ③ 回填该文档「实测后回填」表；④ 给出改动文件清单。
 约束：只改 0.§0.8 落点表允许的文件；不新增重复定义（0.§0.7）；不越界改 service.py / rag_contracts。
 停手条件：见本文件 §3.3 —— 命中即停下来报告，不要绕。
@@ -235,8 +235,9 @@ D:\aanacoda1\python.exe -m pytest -q --basetemp="$root\.tmp_t\bt" -p no:cachepro
 单包 / 单文件：把 `-q` 之后换成路径，例如 `D:\aanacoda1\python.exe -m pytest packages/rag-core -q`。
 
 - ⚠️ **不要裸敲 `pytest`**：本机默认 `pytest` 走**系统 Python**（`D:\aanacoda1`），实测会因 `pydantic-core 2.27.2` 与 `pydantic` 不匹配直接 `SystemError`。**必须**先设上面的 `PYTHONPATH`，让 `.venv` 的包优先。
-- **离线基线：173 passed / 1 skipped**（2026-09-21 T-A0 / T-C0 / T-A7 / T-C1 之后；T-A0 前为 140）。
-  少于 173 = 你删坏了东西；多于 173 = 你加了测试（好事，但要在汇报里说明）。
+- **离线基线：197 passed / 1 skipped**（2026-09-21 T-A0 / T-C0 / T-A7 / T-C1 / T-C2 之后；T-A0 前为 140）。
+  少于 197 = 你删坏了东西；多于 197 = 你加了测试（好事，但要在汇报里说明）。
+  ⏱ 总耗时约 **28 秒**（OCR 真实引擎用例占大头：单页 A4@200dpi ≈ 4 s）。
   skip 是**设计内**的：`CG_OCR_TEST_PADDLE` 未设置时跳过 PaddleOCR 路线断言（`0.§0.6.2`）。
 - ℹ️ 仓库根已有 `pytest.ini`（T-A0-4）：`pythonpath` 含各 workspace 包与 `.venv/Lib/site-packages`，**手工 `PYTHONPATH` 不再必需**；但本机 `%TEMP%` 受限，仍建议按上面的命令设 `TEMP/TMP`。
 - 依赖外部服务（Milvus / HTTP 模型 / DB）的测试，**未配置环境变量时必须 skip，不得 fail、不得 error**——统一写法见 `0.§0.6.2`。
@@ -300,7 +301,7 @@ rag-contracts ──> rag-core ──> ai-engine ──> async-worker
 每个任务必须逐条满足：
 
 1. 施工文档的「验收标准 / 可执行断言」**逐条通过**
-2. `pytest` **全绿，且不少于基线 173 passed**（允许设计内的 skip）
+2. `pytest` **全绿，且不少于基线 197 passed**（允许设计内的 skip）
 3. **不新增** ruff 错误
 4. **回填文档**：施工文档里的「实测后回填」表格（如 `1-6` §⑧ 阈值、`1-7` §⑧ 基线登记表）必须回填；**弱标注集与人工标注集分别记录、不得混淆**
 5. 给出改动的文件清单
@@ -313,7 +314,7 @@ rag-contracts ──> rag-core ──> ai-engine ──> async-worker
 
 | 事实 | 值 |
 |---|---|
-| 测试基线 | **173 passed / 1 skipped**（2026-09-21，约 6 秒，全离线；1 skip = PaddleOCR 路线断言） |
+| 测试基线 | **197 passed / 1 skipped**（2026-09-21，约 28 秒，全离线；1 skip = PaddleOCR 路线断言；耗时主要在 OCR 真实引擎） |
 | 契约字段 | `ContractChunk` 28 字段；`RagSettings` **35** 字段（T-A7 删除重复声明 `log_level`，原 36） |
 | 端口（Protocol） | 5 个：`VectorStorePort` / `SparseStorePort` / `EmbedderPort` / `RerankerPort` / `TokenCounterPort` |
 | `rag_core/adapters/` | 8 个文件（含 `qdrant_store` / `inmemory_store` / `bm25_store`） |
@@ -348,4 +349,4 @@ rag-contracts ──> rag-core ──> ai-engine ──> async-worker
 ---
 
 *维护约定*：**本文件只增不删**；同类错误出现第三次时才新增规则。
-*最后更新：2026-09-21（Gate 0 收尾 + W1 起步：T-A7 配置接线、T-C1 文档分流器落盘，基线 173 passed、`RagSettings` 35 字段）*
+*最后更新：2026-09-21（Gate 0 收尾 + W1 起步：T-A7 / T-C1 / T-C2 落盘，基线 197 passed、`RagSettings` 35 字段）*

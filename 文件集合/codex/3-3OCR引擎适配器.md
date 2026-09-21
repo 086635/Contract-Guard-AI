@@ -161,11 +161,11 @@ def render_pdf_page(
 
 | 项 | 实测值（落地时填写） |
 |---|---|
-| 引擎名与版本（`engine_name`） | ⬜ 待回填 |
-| A4 / `render_dpi=200` 单页 OCR 耗时（P50 / P95） | ⬜ 待回填 |
-| 平均识别行数与平均置信度 | ⬜ 待回填 |
-| 超时线程"后台跑完"的实测影响（CPU / 内存） | ⬜ 待回填 |
-| 结构兼容层实测命中的分支（A/B/C） | ⬜ 待回填 |
+| 引擎名与版本（`engine_name`） | **`rapid`** —— `rapidocr_onnxruntime 1.4.4` + `onnxruntime 1.30.0`；引擎初始化 **1813 ms**（惰性构造且进程内缓存，见 §⑥-8） |
+| A4 / `render_dpi=200` 单页 OCR 耗时（P50 / P95） | 3 次实测 `9346 / 4046 / 3673 ms` → **P50 = 4046 ms**、**P95（3 次最大）= 9346 ms**（首次含预热）。渲染产物 **1653×2339 px = 595×842 pt**（A4）→ 证明渲染 DPI 与点换算正确 |
+| 平均识别行数与平均置信度 | **17 行/页**；平均置信度 **0.991**（`native.pdf` 第 1 页，`min_confidence=0.5`） |
+| 超时线程"后台跑完"的实测影响（CPU / 内存） | 实测（桩引擎 `sleep 3s` + `timeout_s=1`）：**调用在 1058 ms 返回空结果**，但**进程要等到 3004 ms 才退出** —— `concurrent.futures` 在解释器退出时 join 工作线程，被超时的引擎调用会拖住退出；真实场景表现为短暂 CPU 占用。**不得对外宣称"已中断引擎"** |
+| 结构兼容层实测命中的分支（A/B/C） | **C（RapidOCR）**：实测返回 `tuple(len=2)`，第 1 项为 17 条 `[box, text, score]`（`entry[1]` 是 `str`）→ 走 C 分支。A（PaddleOCR 2.x）/ B（3.x）由**表驱动单测**覆盖（真实引擎在 3-1 已判定不可用） |
 
 ---
 
@@ -234,8 +234,8 @@ D:\aanacoda1\python.exe -c "from doc_processor.ocr import OcrResult, SealDetecti
 | `test_out_of_page_box_filtered` | 注入出界框 → 被丢弃 |
 | `test_engine_unavailable_raises` | §⑦ 断言 5（monkeypatch `detect_engine`） |
 | `test_timeout_marks_page_skipped` | 桩引擎 sleep 超时 → 该页返回 `[]` + `ocr.page.timeout` 记录（**用注入的假 `timeout_s=0.01`**） |
-| `test_no_engine_import_at_top_level` | §⑦ 断言 6 |
-| `test_contracts_unchanged` | §⑦ 断言 7 |
+| `test_no_engine_import_at_top_level` | §⑦ 断言 6 —— ⚠️ **已由 `test_engine_availability.py`（3-1 §⑧）实现**，本文件**不重复实现**（同一条守卫只允许一处，标准 §0.7） |
+| `test_contracts_unchanged` | §⑦ 断言 7 —— ⚠️ **已由 `test_doc_processor_smoke.py`（T-A0-4）的 `test_frozen_contracts_are_unchanged` 覆盖**（含 `OcrResult` / `SealDetection`），本文件不重复实现 |
 
 > 🔴 需要真实引擎的用例（断言 2 / 6 组）在**无引擎机器**上仍应 **fail**（本任务的定义就是引擎可用）；
 > 仅"第二引擎"相关用例才允许 `skipif`（标准 §0.6.2）。

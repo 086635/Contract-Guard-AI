@@ -40,4 +40,55 @@ class UnsupportedFormatError(DocProcessorError):
         super().__init__(f"不可用的输入文件：{self.path}（{reason}）")
 
 
-__all__ = ["DocProcessorError", "UnsupportedFormatError"]
+class OcrEngineUnavailableError(DocProcessorError):
+    """OCR 引擎不可用（未安装，或装了包装层却缺推理内核）。
+
+    🔴 **必须在构造引擎时抛出**，不允许返回一个"什么都不做"的空引擎 ——
+    那会让调用方（`3-6`）静默产出空结果，比直接崩更难排查（`3-3 §⑥-7`）。
+
+    Attributes:
+        engine: 期望的引擎名（`rapid` / `paddle`）。
+    """
+
+    def __init__(self, engine: str, detail: str = "") -> None:
+        """初始化。
+
+        Args:
+            engine: 期望的引擎名。
+            detail: 补充说明（如"包装层在但缺推理内核"）。
+        """
+        self.engine = engine
+        self.detail = detail
+        suffix = f"（{detail}）" if detail else ""
+        super().__init__(
+            f"OCR 引擎不可用：{engine}{suffix}。装法：uv add --package doc-processor "
+            "rapidocr-onnxruntime onnxruntime"
+        )
+
+
+class RenderFailedError(DocProcessorError):
+    """PDF → 图像渲染失败，或图像不可读（页越界 / 文件损坏 / 格式不支持）。
+
+    Attributes:
+        path: 目标文件路径。
+        reason: 一句中文原因。
+    """
+
+    def __init__(self, path: str | Path, reason: str) -> None:
+        """初始化。
+
+        Args:
+            path: 文件路径。
+            reason: 中文原因。
+        """
+        self.path = str(path)
+        self.reason = reason
+        super().__init__(f"渲染 / 读取失败：{self.path}（{reason}）")
+
+
+__all__ = [
+    "DocProcessorError",
+    "OcrEngineUnavailableError",
+    "RenderFailedError",
+    "UnsupportedFormatError",
+]

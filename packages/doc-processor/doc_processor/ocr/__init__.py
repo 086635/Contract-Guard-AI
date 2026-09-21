@@ -32,13 +32,28 @@ class SealDetection:
 
 
 class OcrEngine:
-    """PaddleOCR + 印章定位骨架。
+    """OCR 引擎端口（契约，**字段与方法签名冻结**）。
 
-    TODO（工程实现）：接入 PaddleOCR 与印章检测模型，输出 OcrResult / SealDetection。
+    实现见 `doc_processor.ocr.engine.LocalOcrEngine`（T-C2）。
     """
 
     def ocr_page(self, image_path: str) -> list[OcrResult]:
-        raise NotImplementedError("ocr.ocr_page 待实现：接入 PaddleOCR")
+        """对单张图片做 OCR。"""
+        raise NotImplementedError
 
     def detect_seals(self, image_path: str) -> list[SealDetection]:
-        raise NotImplementedError("ocr.detect_seals 待实现：接入印章检测模型")
+        """检测印章（含印章文字识别）。"""
+        raise NotImplementedError
+
+
+# 只增导出：实现类在 engine.py（引擎 import 全部延迟到函数体内，缺引擎不影响本包导入）
+from .engine import LocalOcrEngine, build_ocr_engine, detect_engine  # noqa: E402
+
+__all__ = [
+    "LocalOcrEngine",
+    "OcrEngine",
+    "OcrResult",
+    "SealDetection",
+    "build_ocr_engine",
+    "detect_engine",
+]
