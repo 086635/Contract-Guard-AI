@@ -197,3 +197,19 @@
 **本轮改动的文档**：`AGENTS.md`、`文件集合/codex/3-1依赖与引擎安装.md`、`文件集合/report/codex项目推进.md`
 
 > 附：`文件集合/交付报告/` 与 `文件集合/codex/` 均在 `main` 上；本轮工作全部在分支 `codex/impl-rag-agent-ocr`。
+
+---
+
+## 10. 附录 · W1 首个任务已提前完成：`T-A7` 配置接线（2026-09-21）
+
+> **为什么能提前做**：`T-A7` 的 `1-3 §①` 明确写「**前置依赖：无**」，且**不依赖任何待拍板的决策**
+> （与向量库、LLM、语义服务全部无关）。Gate 0 的工程部分既已收口，它就成了唯一"零等待"的关键路径任务。
+
+| 项 | 结果 |
+|---|---|
+| 任务 | **T-A7**（`1-3 配置与工厂接线` 的 P0 部分；P2 的 `T-A2` Milvus **按文档推迟**） |
+| 做了什么 | 把 8 项「声明了但无消费者」的配置项全部闭环（`1-3 §⑧` 的表） |
+| 关键设计 | ① 服务级兜底用 **`request.model_fields_set`** 判定"请求是否显式传值"（**不用 falsy 比较**，否则 `score_threshold=0.0` 会被误伤）；② `rerank_threshold` **只在精排真正生效时下发**（noop / 缺 URL → `None`），避免把相关性下限扣两次、把离线默认路径打成空召回；③ `log_level` **删除**（`logger.py` 直接读环境变量，反向接线会破坏分层）；④ `max_retries` / `max_query_chars` **不塞进 `rag-core`**，只登记消费方 = Agent 工具层（T-B4） |
+| 验证 | `pytest` **162 passed / 1 skipped**（T-A7 前 153）；`phase1_smoke.py` **exit 0**；`ruff` 改动文件 **0 新增错误**；实测 `CG_RAG_STRATEGY=HYBRID_RRF` 时 `response.strategy == HYBRID_RRF`，请求显式传 `DENSE_ONLY` 时以请求为准 |
+| 副作用（已登记） | `RagSettings` 字段数 **36 → 35**（删 `log_level`）；`AGENTS.md §7` 已同步 |
+| 文档回填 | `1-3` 顶部已追加「T-A7 落地记录」表（含 8 项逐条归属）；`§⑨` 断言 8~10 通过，断言 1~7（Milvus）标注"当前不适用" |

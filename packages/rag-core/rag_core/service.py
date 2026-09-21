@@ -81,6 +81,10 @@ class RAGService:
         sparse_top: int = 20,
         rrf_k: int = 60,
         default_max_context_tokens: int = 3000,
+        default_strategy: RetrieveStrategy | None = None,
+        default_score_threshold: float | None = None,
+        rerank_top_n: int | None = None,
+        rerank_threshold: float | None = None,
         logger: Any = None,
     ) -> None:
         """初始化（依赖全部由外部注入，便于单测与 Phase 切换）。
@@ -95,6 +99,10 @@ class RAGService:
             sparse_top: sparse 路召回条数。
             rrf_k: RRF 融合常数。
             default_max_context_tokens: 请求未指定时的上下文预算。
+            default_strategy: 服务级默认策略（T-A7）：**仅当请求未显式传** `strategy` 时生效。
+            default_score_threshold: 服务级默认阈值（T-A7）：请求未显式传 `score_threshold` 时生效。
+            rerank_top_n: 重排保留条数的服务级默认值（T-A7）：请求未显式传时生效。
+            rerank_threshold: 精排分下限（T-A7）：仅当精排真正生效时由工厂下发，否则 None。
             logger: 自定义 logger；为空用模块级 logger。
         """
         self._embedder: EmbedderPort = embedder
@@ -107,6 +115,11 @@ class RAGService:
         self._sparse_top: int = max(1, int(sparse_top))
         self._rrf_k: int = max(1, int(rrf_k))
         self._default_max_context_tokens: int = int(default_max_context_tokens)
+        # T-A7：配置接线（私有字段名必须与工厂 overrides 的键同形，否则反射静默失效）
+        self._default_strategy: RetrieveStrategy | None = default_strategy
+        self._default_score_threshold: float | None = default_score_threshold
+        self._rerank_top_n: int | None = rerank_top_n
+        self._rerank_threshold: float | None = rerank_threshold
         self._logger: Any = logger or _LOG
 
     # ---------------- 只读属性（供建库脚本复用同一套组件） ----------------
@@ -150,7 +163,12 @@ class RAGService:
         started = time.perf_counter()
         meter = TokenMeter(self._counter)
         warnings: list[str] = []
-        strategy = request.strategy
+        # T-A7：配置值只做「服务级兜底」——请求显式传过就必须以请求为准。
+        # 用 model_fields_set 判定「是否显式传」，而不是拿值与默认值比较：
+        # score_threshold=0.0 是合法且刻意的低阈值，falsy 判定会误伤。
+        strategy = self._effective_strategy(request)
+        threshold = self._effective_score_threshold(request)
+        rerank_top_n = self._effective_rerank_top_n(request)
 
         # Phase 1：没有 BM25 实现时，HYBRID_RRF 自动退化为 DENSE_ONLY
         if strategy is not RetrieveStrategy.DENSE_ONLY and self._sparse_store is None:
@@ -166,7 +184,7 @@ class RAGService:
                 query_len=len(request.query),
                 query_hash=hashlib.sha1(request.query.encode("utf-8")).hexdigest()[:8],
                 top_k=request.top_k,
-                threshold=request.score_threshold,
+                threshold=threshold,
                 strategy=strategy.value,
                 has_filters=request.filters.model_dump(exclude_none=True) != {},
             )
@@ -214,7 +232,13 @@ class RAGService:
                 )
 
             docs, rerank_failed = self._rank(
-                request, candidates, meter, warnings, trace_id
+                request,
+                candidates,
+                meter,
+                warnings,
+                trace_id,
+                threshold=threshold,
+                rerank_top_n=rerank_top_n,
             )
 
             # ---- 重排失败 / 空召回 → 降级 ----
@@ -234,7 +258,7 @@ class RAGService:
                     level="WARNING",
                     trace_id=trace_id,
                     fallback_reason=reason.value,
-                    detail=f"候选 {len(candidates)} 条，过滤后 0 条（阈值 {request.score_threshold}）",
+                    detail=f"候选 {len(candidates)} 条，过滤后 0 条（阈值 {threshold}）",
                 )
 
             # ---- 上下文拼装 ----
@@ -473,6 +497,37 @@ class RAGService:
         return out
 
     # ------------------------------------------------------------------
+    # T-A7：配置兜底（请求优先，配置仅在「未显式传」时生效）
+    # ------------------------------------------------------------------
+    def _effective_strategy(self, request: RAGQueryRequest) -> RetrieveStrategy:
+        """解析本次请求实际生效的检索策略。
+
+        Args:
+            request: 检索请求。
+
+        Returns:
+            请求显式指定时用请求值，否则用 `default_strategy`（为空则用契约默认值）。
+        """
+        if self._default_strategy is not None and "strategy" not in request.model_fields_set:
+            return self._default_strategy
+        return request.strategy
+
+    def _effective_score_threshold(self, request: RAGQueryRequest) -> float:
+        """解析本次请求实际生效的相关性下限（配置兜底，请求优先）。"""
+        if (
+            self._default_score_threshold is not None
+            and "score_threshold" not in request.model_fields_set
+        ):
+            return self._default_score_threshold
+        return request.score_threshold
+
+    def _effective_rerank_top_n(self, request: RAGQueryRequest) -> int:
+        """解析本次请求实际生效的重排保留条数（配置兜底，请求优先）。"""
+        if self._rerank_top_n is not None and "rerank_top_n" not in request.model_fields_set:
+            return self._rerank_top_n
+        return request.rerank_top_n
+
+    # ------------------------------------------------------------------
     # 阶段：重排 + 阈值 + 截断
     # ------------------------------------------------------------------
     def _rank(
@@ -482,6 +537,9 @@ class RAGService:
         meter: TokenMeter,
         warnings: list[str],
         trace_id: str,
+        *,
+        threshold: float,
+        rerank_top_n: int,
     ) -> tuple[list[RetrievedDoc], bool]:
         """重排 → 阈值过滤 → top_n/top_k 截断，产出最终文档列表。
 
@@ -491,6 +549,8 @@ class RAGService:
             meter: 计量器。
             warnings: 告警收集列表。
             trace_id: 追踪 ID。
+            threshold: 本次生效的相关性下限（已含 T-A7 的配置兜底）。
+            rerank_top_n: 本次生效的重排保留条数（已含 T-A7 的配置兜底）。
 
         Returns:
             `(docs, rerank_failed)`：已排序的 RetrievedDoc 列表，以及本次是否因
@@ -510,15 +570,17 @@ class RAGService:
         if request.enable_rerank and self._reranker is not None:
             with meter.stage("rerank"):
                 rerank_scores = self._rerank_safe(request.query, texts, base_scores)
+            # T-A7：精排阈值只在精排真正产出分数时叠加；
+            # 工厂已保证 noop / 未配置 URL 时下发 None（否则等于把下限扣两次）。
+            if rerank_scores is not None and self._rerank_threshold is not None:
+                threshold = max(threshold, self._rerank_threshold)
             if rerank_scores is None:
                 # §7.2 步骤 7：RerankFailedError → 回退 base_scores（degrade 日志已在
                 # _rerank_safe 记录），此处仅补 warning，供 retrieve 置 RERANK_FAILED。
                 rerank_failed = True
                 warnings.append("重排失败，已回退为融合分")
             elif len(rerank_scores) == len(texts):
-                dropped = sum(
-                    1 for s in rerank_scores if s < request.score_threshold
-                )
+                dropped = sum(1 for s in rerank_scores if s < threshold)
                 log_event(
                     self._logger,
                     "retrieve.rerank",
@@ -542,12 +604,12 @@ class RAGService:
 
         # 重排后保留条数（设计文档：3~5 为宜，过多挤占 Prompt 预算）
         if request.enable_rerank and rerank_scores is not None:
-            ordered = ordered[: request.rerank_top_n]
+            ordered = ordered[:rerank_top_n]
         ordered = ordered[: request.top_k]
 
         docs: list[RetrievedDoc] = []
         for rank, ((chunk, dense_score, fused), final) in enumerate(ordered, start=1):
-            if final < request.score_threshold:
+            if final < threshold:
                 continue
             docs.append(
                 RetrievedDoc(

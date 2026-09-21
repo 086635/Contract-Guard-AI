@@ -136,6 +136,27 @@ def build_sparse_store(settings: RagSettings) -> SparseStorePort | None:
     return BM25Store(data_dir=settings.bm25_dir)
 
 
+def _rerank_threshold_for(settings: RagSettings) -> float | None:
+    """精排阈值是否下发（T-A7 的「分工」实现）。
+
+    只有**精排真正生效**时才下发 `rerank_threshold`，否则返回 None：
+    `noop` / `local`（本项目禁用，工厂会回退 noop）/ `http` 但未配 URL（同样回退 noop）
+    这三种情况下的「精排分」其实就是上游分，再叠加一个 0.35 的阈值等于把
+    `score_threshold` 重复扣两次，会把离线默认路径（低阈值 + NoopReranker）打成空召回。
+
+    Args:
+        settings: RAG 配置。
+
+    Returns:
+        精排分下限；精排不生效时为 None。
+    """
+    if not settings.rerank_enabled or settings.rerank_mode in ("noop", "local"):
+        return None
+    if settings.rerank_mode == "http" and not settings.rerank_http_url:
+        return None  # build_reranker 会回退 noop，见上
+    return settings.rerank_threshold
+
+
 def build_service_from_settings(
     settings: RagSettings | None = None, **overrides: Any
 ) -> RAGService:
@@ -159,6 +180,11 @@ def build_service_from_settings(
         sparse_top=cfg.sparse_top,
         rrf_k=cfg.rrf_k,
         default_max_context_tokens=cfg.max_context_tokens,
+        # T-A7：把 4 个「声明了但无消费者」的配置项接到服务级兜底上
+        default_strategy=cfg.strategy,
+        default_score_threshold=cfg.score_threshold,
+        rerank_top_n=cfg.rerank_top_n,
+        rerank_threshold=_rerank_threshold_for(cfg),
     )
     for key, value in overrides.items():
         if hasattr(service, f"_{key}"):

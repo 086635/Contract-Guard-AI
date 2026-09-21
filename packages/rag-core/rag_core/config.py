@@ -91,29 +91,78 @@ class RagSettings(BaseSettings):
     rerank_api_key: str = Field(default="none", description="HTTP 重排服务 Bearer Token")
     rerank_path: str = Field(default="/rerank", description="HTTP 重排接口路径")
     rerank_timeout_ms: int = Field(default=3000, ge=100, description="重排单次超时（毫秒）")
-    rerank_threshold: float = Field(default=0.35, ge=0.0, le=1.0, description="重排后阈值")
-    rerank_top_n: int = Field(default=5, ge=1, le=20, description="重排后保留条数")
+    rerank_threshold: float = Field(
+        default=0.35,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "（T-A7 接线）精排分下限：**仅当精排真正生效**时叠加到相关性下限；"
+            "noop / 未配置 URL 时为 None（不叠加，保证离线默认路径行为不变）"
+        ),
+    )
+    rerank_top_n: int = Field(
+        default=5,
+        ge=1,
+        le=20,
+        description="（T-A7 接线）重排后保留条数的**服务级默认值**，请求未显式传时生效",
+    )
 
     # ------------------------------------------------------------------
     # 预算、降级与默认值
     # ------------------------------------------------------------------
     max_context_tokens: int = Field(default=3000, ge=256, le=32000, description="上下文 Token 预算")
-    max_query_chars: int = Field(default=2000, ge=100, description="工具入参 query 字符上限")
-    timeout_ms: int = Field(default=3000, ge=100, le=30000, description="整体超时（毫秒）")
-    max_retries: int = Field(default=3, ge=1, description="最大重试次数")
+    max_query_chars: int = Field(
+        default=2000,
+        ge=100,
+        description=(
+            "（T-A7 接线）消费方：Agent 工具层「防线 1 · 超长拦截」"
+            "（`ai_engine/agents/tools.py`，T-B4）；rag-core 不实现切分（分层红线）"
+        ),
+    )
+    timeout_ms: int = Field(
+        default=3000,
+        ge=100,
+        le=30000,
+        description=(
+            "整体超时（毫秒）。消费方①：Qdrant 客户端超时（factory.build_vector_store）；"
+            "消费方②（T-A7）：retrieve() 的整体预算语义"
+        ),
+    )
+    max_retries: int = Field(
+        default=3,
+        ge=1,
+        description=(
+            "（T-A7 接线）消费方：Agent 工具层「防线 2 · 超时重试」"
+            "（`ai_engine/agents/tools.py`，T-B4）；rag-core 不实现重试（分层红线）"
+        ),
+    )
     score_threshold: float = Field(
-        default=0.35, ge=0.0, le=1.0, description="相关性下限（沿用前作 0.35）"
+        default=0.35,
+        ge=0.0,
+        le=1.0,
+        description="相关性下限（沿用前作 0.35）。（T-A7 接线）作为服务级默认阈值，请求未显式传时生效",
     )
     strategy: RetrieveStrategy = Field(
         default=RetrieveStrategy.DENSE_ONLY,
-        description="默认检索策略。Phase 1 固定 DENSE_ONLY；Phase 2 起改 HYBRID_RRF",
+        description=(
+            "（T-A7 接线）服务级默认检索策略：**仅当请求未显式传 strategy 时生效**。"
+            "注意它与 RAGQueryRequest.strategy 的默认值（HYBRID_RRF）差异是**刻意的**："
+            "请求侧是「能力声明」，本配置是「当前实际启用」，不要统一二者"
+        ),
     )
 
     # ------------------------------------------------------------------
     # 缓存与日志
     # ------------------------------------------------------------------
-    cache_ttl_s: int = Field(default=300, ge=0, description="热 Query 缓存 TTL（秒）")
-    log_level: str = Field(default="INFO", description="日志级别")
+    cache_ttl_s: int = Field(
+        default=300,
+        ge=0,
+        description="热 Query 缓存 TTL（秒）。⚠️ **已登记未实现**：当前无缓存实现，保留字段以免丢失需求记录",
+    )
+    # T-A7：**删除 log_level 字段**。日志级别实际由 `cg_observability/logger.py` 直接读环境变量
+    # `CG_RAG_LOG_LEVEL`（os.environ.get），本字段是重复声明、改了不生效。
+    # 反向接线（让 cg_observability 消费 RagSettings）会破坏分层（可观测层在 rag-core 之下），
+    # 故这里只能删，不能接。
 
 
 @lru_cache(maxsize=1)
