@@ -65,18 +65,28 @@ ignore = ["E501", "RUF001", "RUF002", "RUF003"]
 # 与本仓库"依赖 → 本地包之间留空行"的既有风格冲突，产生成片 I001 误报。
 # 注意：此处登记的是**顶层模块名**，与包目录名不同（ai-engine 目录 → ai_engine 模块）。
 # 其中 ai_engine 由 rag-core 的测试用例导入；其余 workspace 包随全仓统一时再补。
-known-first-party = ["rag_core", "rag_contracts", "cg_observability", "ai_engine"]
+known-first-party = [
+    "rag_core", "rag_contracts", "cg_observability",
+    "ai_engine", "doc_processor", "app", "worker",
+]
 
 # ---------------------------------------------------------------------------
 # mypy：类型检查
 # uv 以"路径式 editable(.pth)"安装 workspace 兄弟包，而 mypy 不解析 .pth，
 # 若不显式声明 mypy_path，跨包 import 会一律误报 [import-not-found]（实测 29 条），
-# 导致类型检查结果不可信。此处仅登记 rag-core 直接依赖的两个兄弟包；
-# 其余包的 mypy 接入随"全仓工具链统一"的 Chore Task 一并处理。
+# 导致类型检查结果不可信。T-A0-4 起登记**全部** workspace 包（原仅两个兄弟包）。
 # 注：**刻意不固定 python_version**。若按 requires-python 下限写死 "3.11"，
 # mypy 会以 3.11 语法解析依赖存根，numpy>=2.5 的 .pyi 使用 PEP 695 `type` 语句，
 # 直接产生 `Type statement is only supported in Python 3.12+` 的语法错（实测），
 # 使检查无法进行。故交给 mypy 沿用当前解释器版本（本机 3.13）。
 # ---------------------------------------------------------------------------
 [tool.mypy]
-mypy_path = ["packages/rag-contracts", "packages/cg-observability"]
+mypy_path = [
+    "packages/rag-contracts",
+    "packages/cg-observability",
+    "packages/rag-core",
+    "packages/ai-engine",
+    "packages/doc-processor",
+    "apps/api-gateway",
+    "apps/async-worker",
+]

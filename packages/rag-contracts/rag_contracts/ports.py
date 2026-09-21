@@ -45,6 +45,11 @@ class SparseHit(BaseModel):
     chunk_id: str = Field(description="切片 ID")
     score: float = Field(description="BM25 原始分（未归一，越大越相似）")
     text: str = Field(default="", description="命中文本（调试用）")
+    # T-A0-2：载荷必须给默认值，否则旧 pickle 反序列化会因缺字段校验失败
+    payload: dict = Field(
+        default_factory=dict,
+        description="完整 ContractChunk payload，供稀疏路独占候选还原切片",
+    )
 
 
 @runtime_checkable

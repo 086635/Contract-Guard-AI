@@ -7,6 +7,7 @@
 4. RAGService：召回命中、阈值降级、Token 与分段耗时、citation 可赋值
 5. 配置默认值：离线可跑（inmemory + hash + noop）
 6. InMemory 与 Qdrant(local_memory) 结果一致性（无 qdrant-client 时跳过）
+7. T-A0-2：稀疏路独占候选由 `SparseHit.payload` 还原，不再被丢弃
 """
 
 from __future__ import annotations
@@ -27,7 +28,7 @@ from rag_contracts.enums import (
     RetrieveStrategy,
     SourceType,
 )
-from rag_contracts.ports import VectorRecord
+from rag_contracts.ports import SparseHit, VectorRecord
 from rag_contracts.query import RAGQueryRequest, RetrievalFilters
 from rag_core.adapters import HashEmbedder, InMemoryVectorStore, NoopReranker
 from rag_core.config import RagSettings
@@ -729,3 +730,92 @@ def test_rerank_failure_falls_back_to_base_scores() -> None:
     assert any("重排失败" in w for w in response.warnings)
     assert all(0.0 <= d.scores.final <= 1.0 for d in response.retrieved_docs)
     assert response.retrieved_docs[0].scores.rerank is None, "未走重排，rerank 分应为 None"
+
+
+# ===========================================================================
+# 7. T-A0-2：稀疏路独占候选由 payload 还原，不再被丢弃
+# ===========================================================================
+def _build_sparse_only_service(
+    chunks: list[ContractChunk], tmp_path: Path, sparse_store: Any = None
+) -> RAGService:
+    """稠密库为空、仅稀疏路有命中的服务（验证稀疏独占候选的还原）。"""
+    from rag_core.adapters.bm25_store import BM25Store
+
+    embedder = HashEmbedder(dim=64, model_name="hash-test")
+    empty_store = InMemoryVectorStore()
+    empty_store.ensure_collection(embedder.dim)  # 故意不 upsert：稠密路零候选
+    if sparse_store is None:
+        sparse_store = BM25Store(data_dir=tmp_path / "bm25")
+        sparse_store.upsert(chunks)
+    return RAGService(
+        embedder=embedder,
+        vector_store=empty_store,
+        counter=TokenCounter(force_estimate=True),
+        reranker=NoopReranker(),
+        sparse_store=sparse_store,
+        dense_top=20,
+        sparse_top=20,
+        rrf_k=60,
+    )
+
+
+def test_hybrid_keeps_sparse_only_candidate(tmp_path: Path) -> None:
+    """T-A0-2 断言 6/7：稀疏独占候选由 payload 还原，且不再出现"无法取回"告警。"""
+    chunker = SimpleChunker(counter=TokenCounter(force_estimate=True))
+    chunks = chunker.chunk(
+        make_doc(
+            text=(
+                "第一条 逾期付款\n"
+                "买方逾期付款的，应按日支付合同总价千分之五的违约金。"
+            )
+        )
+    )
+    service = _build_sparse_only_service(chunks, tmp_path)
+
+    response = service.retrieve(
+        RAGQueryRequest(
+            query="逾期付款违约金",
+            strategy=RetrieveStrategy.HYBRID_RRF,
+            score_threshold=0.0,
+        )
+    )
+    assert not any("无法取回完整切片" in w for w in response.warnings)
+    assert [d.chunk_id for d in response.retrieved_docs] == [c.chunk_id for c in chunks]
+    # 稠密路未命中 → 稠密分 0.0（阈值判定用稠密分，故需精排或调参才能过 0.35）
+    assert all(d.scores.dense == 0.0 for d in response.retrieved_docs)
+    assert all(d.scores.fused is not None for d in response.retrieved_docs)
+
+
+def test_hybrid_sparse_only_without_payload_still_warns(tmp_path: Path) -> None:
+    """payload 缺失（旧格式索引）时仍保守丢弃并告警 —— 不把无法还原的候选当命中。"""
+
+    class _LegacySparse:
+        """模拟旧索引：命中不带 payload。"""
+
+        def upsert(self, chunks: Any) -> int:
+            return 0
+
+        def search(self, query: str, top_k: int) -> list[SparseHit]:
+            return [SparseHit(chunk_id="c-legacy", score=1.0, text="旧索引命中")]
+
+        def delete_by_doc(self, doc_id: str) -> int:
+            return 0
+
+        def health(self) -> bool:
+            return True
+
+    chunker = SimpleChunker(counter=TokenCounter(force_estimate=True))
+    chunks = chunker.chunk(make_doc())
+    service = _build_sparse_only_service(
+        chunks, tmp_path, sparse_store=_LegacySparse()  # type: ignore[arg-type]
+    )
+    response = service.retrieve(
+        RAGQueryRequest(
+            query="逾期付款违约金",
+            strategy=RetrieveStrategy.HYBRID_RRF,
+            score_threshold=0.0,
+        )
+    )
+    assert any("无法取回完整切片" in w for w in response.warnings)
+    assert response.retrieved_docs == []
+    assert response.degraded is True

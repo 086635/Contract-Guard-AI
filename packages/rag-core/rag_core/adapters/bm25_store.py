@@ -38,6 +38,7 @@ class BM25Store:
         _doc_source : chunk_id -> doc_id（支撑 delete_by_doc）
         _df         : term -> 多少篇文档含它
         _avgdl      : 全库平均文档长度
+        _payloads   : chunk_id -> 完整 ContractChunk payload（供稀疏路独占候选还原，T-A0-2）
     """
 
     def __init__(self, data_dir: str | Path = "./data/bm25") -> None:
@@ -54,6 +55,7 @@ class BM25Store:
         self._doc_source: dict[str, str] = {}
         self._df: defaultdict[str, int] = defaultdict(int)
         self._avgdl = 0.0
+        self._payloads: dict[str, dict] = {}
         self._load()
 
     # ---------------- 持久化 ----------------
@@ -66,23 +68,39 @@ class BM25Store:
         """启动时加载索引。文件不存在或损坏时静默降级为空索引。
 
         元组顺序必须与 save() 严格一致 —— 顺序错位会导致 TF/DF 静默错乱。
+        T-A0-2 起为 7 元组（新增 `_payloads`）：**必须显式兼容旧 6 元组**，
+        否则老索引会被 try/except 当成「损坏」而整库静默重建（索引白丢）。
         """
         if not self._path.exists():
             return
         try:
             blob = pickle.loads(self._path.read_bytes())
-            (
-                self._tf,
-                self._texts,
-                self._doc_len,
-                self._doc_source,
-                self._df,
-                self._avgdl,
-            ) = blob
+            if len(blob) == 7:
+                (
+                    self._tf,
+                    self._texts,
+                    self._doc_len,
+                    self._doc_source,
+                    self._df,
+                    self._avgdl,
+                    self._payloads,
+                ) = blob
+            else:
+                # 兼容旧版 6 元组：payload 缺失，置空（下次 save() 自动升级为 7 元组）
+                (
+                    self._tf,
+                    self._texts,
+                    self._doc_len,
+                    self._doc_source,
+                    self._df,
+                    self._avgdl,
+                ) = blob
+                self._payloads = {}
         except Exception:  # noqa: BLE001 - 索引损坏时重建优于崩溃
             self._tf, self._texts = {}, {}
             self._doc_len, self._doc_source = {}, {}
             self._df, self._avgdl = defaultdict(int), 0.0
+            self._payloads = {}
         else:
             self._df = defaultdict(int, self._df)
 
@@ -97,6 +115,7 @@ class BM25Store:
                     self._doc_source,
                     dict(self._df),
                     self._avgdl,
+                    self._payloads,
                 )
             )
         )
@@ -120,6 +139,8 @@ class BM25Store:
             self._texts[chunk.chunk_id] = chunk.text
             self._doc_len[chunk.chunk_id] = sum(tf.values())
             self._doc_source[chunk.chunk_id] = chunk.doc_id
+            # T-A0-2：payload 一并入库，使稀疏路独占候选可还原完整切片
+            self._payloads[chunk.chunk_id] = chunk.to_payload()
             # DF 只关心"是否出现"，故遍历去重后的词集合
             for term in tf:
                 self._df[term] += 1
@@ -167,7 +188,12 @@ class BM25Store:
             : max(0, top_k)
         ]
         return [
-            SparseHit(chunk_id=cid, score=float(score), text=self._texts.get(cid, ""))
+            SparseHit(
+                chunk_id=cid,
+                score=float(score),
+                text=self._texts.get(cid, ""),
+                payload=self._payloads.get(cid, {}),
+            )
             for cid, score in ranked
         ]
 
@@ -206,6 +232,7 @@ class BM25Store:
         self._texts.pop(chunk_id, None)
         self._doc_len.pop(chunk_id, None)
         self._doc_source.pop(chunk_id, None)
+        self._payloads.pop(chunk_id, None)
 
     def _refresh_avgdl(self) -> None:
         """重算平均文档长度（每次增删后必须调用）。"""

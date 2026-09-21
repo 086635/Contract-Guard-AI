@@ -404,9 +404,9 @@ class RAGService:
     ) -> list[_Candidate]:
         """RRF 融合稠密与稀疏两路。
 
-        ⚠️ 已知限制（登记为 §15 残留风险 R2）：仅被 BM25 命中、未进入稠密候选的
-        chunk_id 无法取回完整 ContractChunk（SparseHit 只有 text），只能丢弃。
-        修复路径：给 VectorStorePort 增加 get_by_ids()，安排在 T04。
+        残留风险 R2 已由 T-A0-2 收敛：`SparseHit.payload` 携带完整切片，
+        仅被 BM25 命中的候选可**直接还原**，不再需要 `get_by_ids()` 往返一次存储。
+        payload 缺失（旧格式索引）或无法通过契约校验时，才保守丢弃并记 warning。
 
         Args:
             dense: (切片, 余弦分) 列表。
@@ -428,17 +428,38 @@ class RAGService:
         with meter.stage("fusion"):
             fused = rrf_fuse([dense_ranked, sparse_ranked], k=self._rrf_k)
 
+        # 先为「稀疏路独占」候选还原切片（T-A0-2）：命中片段自带 payload，
+        # 无需再访问向量库；payload 为空或校验失败者仍保守丢弃。
+        payload_chunks: dict[str, ContractChunk] = {}
+        invalid_payload = 0
+        dense_ids = set(by_id)
+        for hit in sparse:
+            if hit.chunk_id in dense_ids or not hit.payload:
+                continue
+            try:
+                payload_chunks[hit.chunk_id] = ContractChunk.from_payload(hit.payload)
+            except ValidationError:
+                invalid_payload += 1
+
         out: list[_Candidate] = []
         sparse_only = 0
         for chunk_id, fused_score in fused:
             entry = by_id.get(chunk_id)
-            if entry is None:
-                sparse_only += 1  # 见上方 R2：无法重建完整切片
+            if entry is not None:
+                chunk, dense_score = entry
+                out.append((chunk, dense_score, fused_score))
                 continue
-            chunk, dense_score = entry
-            out.append((chunk, dense_score, fused_score))
+            restored = payload_chunks.get(chunk_id)
+            if restored is None:
+                sparse_only += 1  # payload 缺失（旧索引）→ 无法重建
+                continue
+            # 稠密路未命中，稠密分填 0.0（_rank 的阈值判定用稠密分，
+            # 故这类候选需精排或阈值调参才能进入最终结果 —— 见 T-A0 收尾报告）
+            out.append((restored, 0.0, fused_score))
         if sparse_only:
             warnings.append(f"{sparse_only} 条仅 BM25 命中的候选无法取回完整切片，已丢弃")
+        if invalid_payload:
+            warnings.append(f"{invalid_payload} 条稀疏候选的 payload 无法还原切片，已丢弃")
 
         log_event(
             self._logger,

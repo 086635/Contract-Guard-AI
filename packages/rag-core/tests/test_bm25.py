@@ -7,6 +7,7 @@
 4. 幂等 upsert：同 chunk 二次写入 `stats()["docs"]` 不增长
 5. 增量更新：`delete_by_doc` 回退 DF（IDF 增大，同文档分数上升）
 6. pickle 持久化：save/load 往返一致；损坏索引静默降级为空
+7. T-A0-2：`SparseHit.payload` 往返、**旧 6 元组索引兼容**、删除时清理 payload
 
 ⚠️ 关于 `score(c2) == 0.0`（§8.5）：
 该断言基于 RAG对照解析.md §3.5 的**纯中文二元组切词**；本项目
@@ -18,6 +19,7 @@
 
 from __future__ import annotations
 
+import pickle
 from pathlib import Path
 
 from rag_contracts.chunk import ContractChunk
@@ -203,3 +205,56 @@ def test_corrupted_index_falls_back_empty(tmp_path: Path) -> None:
     assert store.stats()["docs"] == 0
     assert store.search(_QUERY) == []
     assert store.health() is True
+
+
+# ===========================================================================
+# 7. T-A0-2：SparseHit.payload（稀疏路独占候选的还原依据）
+# ===========================================================================
+def test_sparse_hit_carries_payload(tmp_path: Path) -> None:
+    """命中必须带回完整 payload，否则稀疏独占候选只能被丢弃。"""
+    store = build_store(tmp_path)
+    chunk = make_chunk("DOC-1", "s1", "买方逾期付款的违约金")
+    store.upsert([chunk])
+
+    hit = store.search("逾期付款", top_k=10)[0]
+    assert hit.payload, "payload 不得为空"
+    assert hit.payload["chunk_id"] == chunk.chunk_id
+
+
+def test_sparse_payload_roundtrip(tmp_path: Path) -> None:
+    """payload → ContractChunk 与写入对象等值（不丢字段）。"""
+    store = build_store(tmp_path)
+    chunk = make_chunk("DOC-1", "s1", "买方逾期付款的违约金")
+    store.upsert([chunk])
+
+    payload = store.search("逾期付款", top_k=10)[0].payload
+    assert ContractChunk.from_payload(payload).model_dump() == chunk.model_dump()
+
+
+def test_bm25_load_legacy_6_tuple(tmp_path: Path) -> None:
+    """旧版 6 元组索引仍能加载（不得被 try/except 当成损坏而整库重建）。"""
+    data_dir = tmp_path / "bm25"
+    store = build_store(tmp_path)
+    store.upsert([make_chunk("DOC-LEGACY", "s1", "买方逾期付款的违约金")])
+    expected = store.search("逾期付款", top_k=10)[0].chunk_id
+
+    blob = pickle.loads((data_dir / "index.pkl").read_bytes())
+    assert len(blob) == 7, "当前落盘格式应为 7 元组"
+    (data_dir / "index.pkl").write_bytes(pickle.dumps(blob[:6]))  # 降级为旧格式
+
+    reloaded = BM25Store(data_dir=data_dir)
+    assert reloaded.stats()["docs"] == 1, "旧索引必须被加载，而不是重建为空"
+    hit = reloaded.search("逾期付款", top_k=10)[0]
+    assert hit.chunk_id == expected
+    assert hit.payload == {}, "旧索引无 payload → 空 dict（下游保守丢弃）"
+
+
+def test_bm25_delete_clears_payload(tmp_path: Path) -> None:
+    """删除切片时 payload 同步清理，避免内存泄漏。"""
+    store = build_store(tmp_path)
+    store.upsert([make_chunk("DOC-1", "s1", "买方逾期付款的违约金")])
+    assert store._payloads != {}
+
+    assert store.delete_by_doc("DOC-1") == 1
+    assert store._payloads == {}
+    assert store.search("违约金", top_k=10) == []

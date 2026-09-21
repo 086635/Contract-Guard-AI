@@ -4,7 +4,8 @@ version = "1.1.0"
 description = "异步任务处理节点（Celery）：文档解析 / 批量审核 / 报告渲染"
 requires-python = ">=3.11"
 dependencies = [
-    "celery[redis]>=5.4",
+    "celery>=5.3,<6.0",         # T-A0-1：运行期必需（此前 .venv 内缺失，靠系统 Python 兜底）
+    "redis>=5.0",
     "pydantic>=2.7",
     "ai-engine",
     "doc-processor",
