@@ -142,7 +142,7 @@ scripts/             建库、评测、冒烟脚本（不要放进 packages/）
 
 ```text
 目标：按《文件集合/codex/<文档名>.md》完成 <任务 ID>。
-完成定义：① 该文档 §⑦ 断言逐条实测通过；② pytest ≥ 140 passed（命令见 §4.1）；
+完成定义：① 该文档 §⑦ 断言逐条实测通过；② pytest ≥ 153 passed（命令见 §4.1）；
 ③ 回填该文档「实测后回填」表；④ 给出改动文件清单。
 约束：只改 0.§0.8 落点表允许的文件；不新增重复定义（0.§0.7）；不越界改 service.py / rag_contracts。
 停手条件：见本文件 §3.3 —— 命中即停下来报告，不要绕。
@@ -235,8 +235,10 @@ D:\aanacoda1\python.exe -m pytest -q --basetemp="$root\.tmp_t\bt" -p no:cachepro
 单包 / 单文件：把 `-q` 之后换成路径，例如 `D:\aanacoda1\python.exe -m pytest packages/rag-core -q`。
 
 - ⚠️ **不要裸敲 `pytest`**：本机默认 `pytest` 走**系统 Python**（`D:\aanacoda1`），实测会因 `pydantic-core 2.27.2` 与 `pydantic` 不匹配直接 `SystemError`。**必须**先设上面的 `PYTHONPATH`，让 `.venv` 的包优先。
-- **离线基线：140 passed**（无网络 / 无外部服务 / 无 API Key 下必须全绿，约 5 秒）。
-  少于 140 = 你删坏了东西；多于 140 = 你加了测试（好事，但要在汇报里说明）。
+- **离线基线：153 passed / 1 skipped**（2026-09-21 T-A0 / T-C0 之后；此前为 140）。
+  少于 153 = 你删坏了东西；多于 153 = 你加了测试（好事，但要在汇报里说明）。
+  skip 是**设计内**的：`CG_OCR_TEST_PADDLE` 未设置时跳过 PaddleOCR 路线断言（`0.§0.6.2`）。
+- ℹ️ 仓库根已有 `pytest.ini`（T-A0-4）：`pythonpath` 含各 workspace 包与 `.venv/Lib/site-packages`，**手工 `PYTHONPATH` 不再必需**；但本机 `%TEMP%` 受限，仍建议按上面的命令设 `TEMP/TMP`。
 - 依赖外部服务（Milvus / HTTP 模型 / DB）的测试，**未配置环境变量时必须 skip，不得 fail、不得 error**——统一写法见 `0.§0.6.2`。
 
 ### 4.2 静态检查 —— ⚠️ **当前不为零，不要声称「全绿」**
@@ -298,7 +300,7 @@ rag-contracts ──> rag-core ──> ai-engine ──> async-worker
 每个任务必须逐条满足：
 
 1. 施工文档的「验收标准 / 可执行断言」**逐条通过**
-2. `pytest` **全绿，且不少于基线 140 passed**
+2. `pytest` **全绿，且不少于基线 153 passed**（允许设计内的 skip）
 3. **不新增** ruff 错误
 4. **回填文档**：施工文档里的「实测后回填」表格（如 `1-6` §⑧ 阈值、`1-7` §⑧ 基线登记表）必须回填；**弱标注集与人工标注集分别记录、不得混淆**
 5. 给出改动的文件清单
@@ -311,14 +313,14 @@ rag-contracts ──> rag-core ──> ai-engine ──> async-worker
 
 | 事实 | 值 |
 |---|---|
-| 测试基线 | **140 passed**（约 5 秒，全离线） |
+| 测试基线 | **153 passed / 1 skipped**（2026-09-21，约 4 秒，全离线；1 skip = PaddleOCR 路线断言） |
 | 契约字段 | `ContractChunk` 28 字段；`RagSettings` 36 字段 |
 | 端口（Protocol） | 5 个：`VectorStorePort` / `SparseStorePort` / `EmbedderPort` / `RerankerPort` / `TokenCounterPort` |
 | `rag_core/adapters/` | 8 个文件（含 `qdrant_store` / `inmemory_store` / `bm25_store`） |
 | 向量库 | **Qdrant 主力**（`qdrant_client 1.19.0` 已装）；Milvus 为 **P2 备选**（`pymilvus` **未装**） |
 | `.venv` 已装 | `langgraph 1.2.11` / `langchain_core 1.6.0` / `openai 3.3.1` / `paddleocr` / `pdfplumber` / `pypdfium2` / `opencv` |
-| `.venv` 缺包 | `paddlepaddle`、`celery`、`pymilvus`、`rank_bm25`、`jieba`、`sentence_transformers`、`langchain-openai`、`langgraph-checkpoint-postgres/redis` |
-| 依赖判据（**2026-09-21 实测补充**） | 上两行的「已装 / 缺包」一律以 **`.venv\Lib\site-packages`** 为准；系统 Python（`D:\aanacoda1`）里的包在 §4.1 前缀下会**顺带可见**，**不代表已收口**。实测：`celery` / `pymupdf`(`fitz`) / `pymilvus` / `jieba` / `rank_bm25` / `sentence_transformers` / `langchain_openai` / `langgraph-checkpoint-postgres` **都在系统 Python、不在 `.venv`**；`redis` / `langgraph` / `langchain_core` / `openai` / `paddleocr` / `pdfplumber` / `python-docx` / `pypdfium2` / `opencv(headless)` / `numpy` / `qdrant_client` / `minio` 在 `.venv` 内 |
+| `.venv` 缺包 | `pymilvus`、`rank_bm25`、`jieba`、`sentence_transformers`、`langchain-openai`、`langgraph-checkpoint-postgres/redis`（**`celery` 已于 T-A0 收口进 `.venv`**；`paddleocr` / `paddlepaddle` 已于 T-C0 移除，OCR 走 RapidOCR） |
+| 依赖判据（**2026-09-21 实测补充**） | 上两行的「已装 / 缺包」一律以 **`.venv\Lib\site-packages`** 为准；系统 Python（`D:\aanacoda1`）里的包在 §4.1 前缀下会**顺带可见**，**不代表已收口**。实测（T-A0 / T-C0 之后）：`pymilvus` / `jieba` / `rank_bm25` / `sentence_transformers` / `langchain_openai` / `langgraph-checkpoint-postgres` / `torch` **仍在系统 Python、不在 `.venv`**；`celery` / `redis` / `qdrant_client` / `rapidocr_onnxruntime` / `onnxruntime` / `pymupdf` / `cv2` / `numpy` / `pypdfium2` **已在 `.venv`**；`redis` / `langgraph` / `langchain_core` / `openai` / `paddleocr` / `pdfplumber` / `python-docx` / `pypdfium2` / `opencv(headless)` / `numpy` / `qdrant_client` / `minio` 在 `.venv` 内 |
 | 语义层 | 🟡 默认 `HashEmbedder` + `NoopReranker`（**伪向量 / 无精排**，是召回率瓶颈） |
 | 产品接入 | 🟡 `rag_core` 目前**只被 `scripts/phase1_smoke.py` 消费**；`api-gateway` 仍是 mock 驱动 |
 | 文档 vs 代码 | 模块 1 / 2 / 3 的施工文档**已全部落盘**（`1-1`~`1-8` / `2-1`~`2-9` / `3-1`~`3-8`）；但 Agent（13 py / 486 行）、OCR（5 py / 175 行）、`async-worker` 仍是骨架，共 **11 处 `NotImplementedError`**、**零测试** |
@@ -339,9 +341,11 @@ rag-contracts ──> rag-core ──> ai-engine ──> async-worker
 | 控制台输出中文 / emoji | `UnicodeEncodeError: 'gbk' codec`（**只是显示问题，文件内容多半是好的**） | 先写入 UTF-8 文件再读；或只打印码点十六进制做校验 |
 | 文件被截断为 0 字节 | 先 `open("wb")` 后 `encode()` 失败所致 | **先 `data = txt.encode("utf-8")`，再 `open(..., "wb")`** |
 | 写含中文的文件 | 手敲命令易被编码破坏 | PowerShell 单引号 here-string + `[IO.File]::WriteAllText($p,$t,(New-Object System.Text.UTF8Encoding($false)))`（已验证：中文/emoji 0 丢失） |
-| `.venv\Scripts\ruff.exe` 可正常运行 | 只有 `python.exe` 不可用 | ruff / 其它工具 exe 直接用 `.venv\Scripts\*.exe` |
+| `.venv\Scripts\ruff.exe` 可正常运行 | 只有 `python.exe` 不可用 | ruff / 其它工具 exe 直接用 `.venv\Scripts\*.exe`；⚠️ `pytest.exe` / `mypy.exe` 也是 `python.exe` 启动器，**同样不可用** → 一律 `python -m pytest` / `python -m mypy` |
+| 在 uv workspace 里 `uv add/remove --package X` | 只同步该成员，**会把其它成员的依赖从 `.venv` 剪掉**（实测：celery / redis / qdrant-client 被剪，测试凭空多出 2 个 skip） | 紧随一次 **`uv sync --all-packages`**；判断信号：pytest 出现本不该有的 skip |
+| 裸敲 `pytest`（无 `TEMP`） | `pytest.ini` 已兜住包路径，但 `tmp_path` 仍撞本机 `%TEMP%`（`C:\DevTemp`）权限 | 仍需 `TEMP`/`TMP` → `$root\.tmp_t`（§4.1）；或 `--basetemp` |
 
 ---
 
 *维护约定*：**本文件只增不删**；同类错误出现第三次时才新增规则。
-*最后更新：2026-09-21（合并 `文件集合/codex/AGENTS.md` §3/§4 为 **§3.1~§3.5**：模式选择 / SOP 10 步 / 停手条件 / 汇报模板 / 跨会话交接）*
+*最后更新：2026-09-21（Gate 0 收尾：基线 153 passed、celery/OCR 引擎收口、§8 增 uv workspace 剪枝与 pytest.exe 两条坑）*

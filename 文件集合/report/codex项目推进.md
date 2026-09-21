@@ -1559,7 +1559,7 @@ ruff check . ; mypy packages/rag-core
 | 判据 | 现状 | 证据 |
 |---|---|---|
 | 文档侧是否够用 | ✅ 够 | 模块 1 / 2 / 3 共 **27 份子任务文档**全部落盘，9 节齐；`0.施工标准与定义归属.md` 给出定义归属表 + 落点表 + DoD；两份 `AGENTS.md` 给出执行规程 |
-| 每个任务能否**离线判定完成** | ✅ 能 | 每篇 §⑦ 都是可复制执行的断言；§⑧ 必测用例；基线 `pytest` **140 passed**（2026-09-21 实测，4.50s） |
+| 每个任务能否**离线判定完成** | ✅ 能 | 每篇 §⑦ 都是可复制执行的断言；§⑧ 必测用例；基线 `pytest` **153 passed / 1 skipped**（2026-09-21 T-A0 后实测；原基线 140） |
 | 是否会「自由发挥」跑偏 | ✅ 已被约束 | 落点表 `0.§0.8` 钉死可改文件；定义归属 `0.§0.7` 禁第二处定义；停手条件（根 `AGENTS.md` §3.3）覆盖 7 类越界 |
 | 决策是否拍完 | ❌ **未拍完** | `§1 的 D2-a/b/c/d`、`§1 的 D3-a/b/c/d`、`§1 的 D4-a/b/c` 共 **12 个勾选项仍为空** |
 | 依赖是否收口 | ❌ 未收口 | `celery` 不在 `.venv`（仅系统 Python 有）；`paddlepaddle` / `rapidocr-onnxruntime` **完全未装**；`pymilvus` 仅在系统 Python |
@@ -1572,8 +1572,8 @@ ruff check . ; mypy packages/rag-core
 | # | 事项 | 模式 | 判据（做完怎么算过） |
 |---|---|---|---|
 | **G0-1** | **决策收口**：D2-a/b/c/d（Agent）、D3-a/b/c/d（OCR）、D4-a/b/c（语义服务） | **Plan** | 三张决策表（`2.AGENT模块.md §2.7`、`3.OCR模块.md §3.7`、`1.RAG模块.md §1.7`）状态列改「已拍板 + 日期」；本节 §1 的 12 个勾选框全部勾上 |
-| **G0-2** | **`1-1` T-A0 前置修复**：装 `celery`、补 `SparseHit.payload`、补 `ai-engine` workspace 依赖、`pytest.ini` 固化 | **Goal** | `1-1 §⑦` 断言逐条通过；此后**一条命令**即可跑测试；`1-1 §⑧` 回填表填完 |
-| **G0-3** | **`3-1` T-C0 引擎与依赖安装**：`rapidocr-onnxruntime`（主）或 `paddlepaddle`（备），并让声明与实际一致 | **Default（交互）** | `3-1 §⑦` 断言通过；`scripts/check_ocr_env.py` 输出 `engine=rapid\|paddle`；`pyproject.toml` 无悬空声明、版本不敞口 |
+| **G0-2** | ✅ **已完成 2026-09-21**（commit `87e15d9`）· **`1-1` T-A0 前置修复**：装 `celery`、补 `SparseHit.payload`、补 `ai-engine` workspace 依赖、`pytest.ini` 固化 | **Goal** | `1-1 §⑦` 断言逐条通过；此后**一条命令**即可跑测试；`1-1 §⑧` 回填表填完 |
+| **G0-3** | ✅ **已完成 2026-09-21**（commit `a298907`）· **`3-1` T-C0 引擎与依赖安装**：落定路线 B `rapidocr-onnxruntime`，移除悬空的 `paddleocr` 声明 | **Default（交互）** | `3-1 §⑦` 断言通过；`scripts/check_ocr_env.py` 输出 `engine=rapid\|paddle`；`pyproject.toml` 无悬空声明、版本不敞口 |
 
 > G0-3 建议用 **Default 模式**而不是 Goal：装包需要网络与权限，且「`paddlepaddle` 在 cp313/Windows 可能无轮子」需要人当场转向路线 B（`3-1 §⑥/§⑨`）。
 
@@ -1627,8 +1627,8 @@ Plan（出决策 + 代价） → Default（回填决策表 / 文档） → Goal�
 | R1 | 无 DB DAL；`api-gateway` mock 驱动 | `Contract.status`、SSE、真实落库**做不到** | 待建任务（`2-6 §⑨-8` / `3-6 §⑨-8` 已登记），**不在任何现有任务内** |
 | R2 | `CG_LLM_*` 与 API Key 未定（D2-d） | `T-B3` / `T-B4` 只能用**桩模型**验收，真实质量无法判定 | G0-1 拍板 |
 | R3 | 语义服务未定（D4） | 默认 `HashEmbedder` + `NoopReranker` → 召回率上不去，`T-A8` 基线会难看 | G0-1 拍板 + `1-6` 实现 |
-| R4 | `celery` 不在 `.venv` | 依赖未收口；换机器/换容器可能直接 import 失败 | G0-2（`1-1`） |
-| R5 | `paddlepaddle` / `rapidocr-onnxruntime` 未装 | OCR 引擎相关断言（`3-1` / `3-3` / `3-6` 扫描件支路）无法执行 | G0-3（`3-1`） |
+| ~~R4~~ | ✅ **已收敛**：`celery` 不在 `.venv` | 依赖未收口 | **G0-2（`1-1`，commit `87e15d9`）**：`uv sync --all-packages` 后 `.venv` 内 `celery 5.6.3` |
+| ~~R5~~ | ✅ **已收敛**：无 OCR 引擎 | 引擎相关断言无法执行 | **G0-3（`3-1`，commit `a298907`）**：路线 B 就位并真实出字（2 行中文 score 0.999） |
 | R6 | 模块 4 文档未落盘 | 前端侧无任务可领，端到端演示只有后端一半 | 需新增一次「补模块 4 文档」的 Goal |
 
 ### 12.7 下一步（立刻可执行）
@@ -1636,7 +1636,7 @@ Plan（出决策 + 代价） → Default（回填决策表 / 文档） → Goal�
 1. **开一个 Plan 会话**（G0-1）：把 D2 / D3 / D4 三组决策一次拍完 —— 三份模块总纲的推荐方案已经写好，多数只需**确认**；
 2. 用 **Default** 把结论回填到三张决策表 + 勾上本节 §1 的 12 个复选框；
 3. 开**第一个 Goal**（G0-2，`1-1` T-A0），objective 直接复制根 `AGENTS.md` §3.1 的模板；
-4. G0-3（`3-1`）穿插用 Default 做掉，遇到 `paddlepaddle` 装不上就按 `3-1 §⑨-1` 切 RapidOCR。
+4. ~~G0-3（`3-1`）穿插用 Default 做掉~~ ✅ 已完成（实测 `paddlepaddle 3.3.1` 装得上，但 `paddleocr 2.10` 包装层 import 崩于系统 torch → 按 `3-1` 切 RapidOCR，详见 `文件集合/交付报告/Gate0收尾报告.md`）。
 
 > **判据一句话**：Gate 0 过完之后，「一条命令跑测试 + 引擎可用 + 12 个决策已定」，
 > 后面的每一个 Goal 就都变成「读文档 → 改落点 → 跑断言 → 回填」的确定性动作。
