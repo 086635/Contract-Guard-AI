@@ -21,10 +21,10 @@ class NormalizedBBox:
 
 
 class BBoxAligner:
-    """坐标归一化对齐骨架。
+    """坐标归一化对齐端口（契约）。
 
-    TODO（工程实现）：实现多源坐标系到 PDF_POINTS 的仿射变换，并维护
-    (char_offset -> BBox) 索引表。
+    `to_pdf_points()` **已实现且语义正确 —— 全仓唯一缩放处，禁止另写一份**。
+    `(char_offset → BBox)` 索引表由子类实现（见 `aligner/aligner.py`，T-C5）。
     """
 
     def to_pdf_points(
@@ -38,3 +38,15 @@ class BBoxAligner:
             width=w * scale,
             height=h * scale,
         )
+
+
+# 只增导出：索引器实现（`(char_offset → BBox)`）在 aligner.py；
+# `NormalizedBBox` 与 `to_pdf_points()` 一字未改。
+from .aligner import LocalBBoxAligner, build_bbox_aligner  # noqa: E402
+
+__all__ = [
+    "BBoxAligner",
+    "LocalBBoxAligner",
+    "NormalizedBBox",
+    "build_bbox_aligner",
+]
