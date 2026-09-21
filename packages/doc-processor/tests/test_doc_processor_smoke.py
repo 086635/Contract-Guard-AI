@@ -3,7 +3,8 @@
 本包此前**零测试**。这里只锁三件与模块 3 后续任务强相关的不变量：
 1. 包可导入、版本已声明；
 2. 四层契约类型**字段冻结**（3-3 / 3-5 / 3-8 的断言都建立在它之上）；
-3. 引擎不得在模块顶层导入（`3-1 §⑧` 的延迟导入红线，保证离线可导入）。
+3. 包内源码不自带引擎延迟导入之外的隐患（引擎相关断言见
+   `test_engine_availability.py` —— 那里才是 `3-1 §⑧` 的正式落点）。
 """
 
 from __future__ import annotations
@@ -47,24 +48,3 @@ def test_frozen_contracts_are_unchanged() -> None:
     assert [f.name for f in dc.fields(NormalizedBBox)][:5] == [
         "page", "x", "y", "width", "height",
     ]
-
-
-def test_engine_not_imported_at_package_top_level() -> None:
-    """`3-1 §⑧`：引擎只能在函数体内延迟导入，模块顶层出现即破坏离线可导入性。"""
-    root = Path(__file__).resolve().parents[1] / "doc_processor"
-    banned = (
-        "import paddleocr",
-        "from paddleocr",
-        "import rapidocr_onnxruntime",
-        "from rapidocr_onnxruntime",
-    )
-    offenders: list[str] = []
-    for path in sorted(root.rglob("*.py")):
-        for lineno, line in enumerate(
-            open(path, encoding="utf-8").read().splitlines(), start=1
-        ):
-            if line.startswith((" ", "\t")):  # 缩进 = 函数体内，属允许的延迟导入
-                continue
-            if any(token in line for token in banned):
-                offenders.append(f"{path.name}:{lineno}")
-    assert offenders == [], f"引擎必须延迟导入：{offenders}"
