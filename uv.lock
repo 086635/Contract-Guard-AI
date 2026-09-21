@@ -298,6 +298,7 @@ source = { editable = "apps/async-worker" }
 dependencies = [
     { name = "ai-engine" },
     { name = "celery" },
+    { name = "cg-observability" },
     { name = "doc-processor" },
     { name = "pydantic" },
     { name = "redis" },
@@ -312,6 +313,7 @@ dev = [
 requires-dist = [
     { name = "ai-engine", editable = "packages/ai-engine" },
     { name = "celery", specifier = ">=5.3,<6.0" },
+    { name = "cg-observability", editable = "packages/cg-observability" },
     { name = "doc-processor", editable = "packages/doc-processor" },
     { name = "pydantic", specifier = ">=2.7" },
     { name = "redis", specifier = ">=5.0" },

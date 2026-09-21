@@ -214,6 +214,7 @@
 | `T-C3` 版面分析器 | `0f96a07` | 规则优先（字号/加粗/表格线），扫描件兜底占位块 | 5 页 10 块（TITLE 5 + PARAGRAPH 5）、单页 41 ms |
 | `T-C4` 要素与条款抽取 | `3204318` | 条款编号正则收敛到 `rag_contracts/patterns.py`（唯一处）+ 规则抽取 + AST | `native.pdf` 25 条条款/458 ms；`contract.docx` 3 条/121 ms |
 | `T-C5` 坐标与偏移索引 | `873d2c8` | `char_offset → BBox` 二分索引 + 只读降级（前端高亮前提） | 5 页 80 行建索引 0.11 ms；`locate` P50 0.035 ms / P95 0.088 ms |
+| `T-C7` 解析任务接线 | `见 T-C7 提交` | `parse_doc` 全链路 + `ParseOutcome` 信封 + `data/parse/` 工件 + 进度上报（**OCR 线终点**） | 四路全通（PDF_NATIVE 463 ms / SCANNED 7.6 s / IMAGE 5.8 s / DOCX 101 ms）；条款 bbox 35/35 |
 
 | 项 | 结果 |
 |---|---|

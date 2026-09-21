@@ -142,7 +142,7 @@ scripts/             建库、评测、冒烟脚本（不要放进 packages/）
 
 ```text
 目标：按《文件集合/codex/<文档名>.md》完成 <任务 ID>。
-完成定义：① 该文档 §⑦ 断言逐条实测通过；② pytest ≥ 268 passed（命令见 §4.1）；
+完成定义：① 该文档 §⑦ 断言逐条实测通过；② pytest ≥ 292 passed（命令见 §4.1）；
 ③ 回填该文档「实测后回填」表；④ 给出改动文件清单。
 约束：只改 0.§0.8 落点表允许的文件；不新增重复定义（0.§0.7）；不越界改 service.py / rag_contracts。
 停手条件：见本文件 §3.3 —— 命中即停下来报告，不要绕。
@@ -235,11 +235,13 @@ D:\aanacoda1\python.exe -m pytest -q --basetemp="$root\.tmp_t\bt" -p no:cachepro
 单包 / 单文件：把 `-q` 之后换成路径，例如 `D:\aanacoda1\python.exe -m pytest packages/rag-core -q`。
 
 - ⚠️ **不要裸敲 `pytest`**：本机默认 `pytest` 走**系统 Python**（`D:\aanacoda1`），实测会因 `pydantic-core 2.27.2` 与 `pydantic` 不匹配直接 `SystemError`。**必须**先设上面的 `PYTHONPATH`，让 `.venv` 的包优先。
-- **离线基线：268 passed / 1 skipped**（2026-09-21 T-A0/T-C0/T-A7/T-C1/T-C2/T-C3/T-C4/T-C5 之后；T-A0 前为 140）。
-  少于 268 = 你删坏了东西；多于 268 = 你加了测试（好事，但要在汇报里说明）。
+- **离线基线：292 passed / 2 skipped**（2026-09-21，T-C7 后；T-A0 前为 140）。
+  少于 292 = 你删坏了东西；多于 292 = 你加了测试（好事，但要在汇报里说明）。
   ⏱ 总耗时约 **80 秒**（OCR 真实引擎用例占大头：单页 A4@200dpi 4~9 s；版面/抽取是纯规则，秒级）。
-  skip 是**设计内**的：`CG_OCR_TEST_PADDLE` 未设置时跳过 PaddleOCR 路线断言（`0.§0.6.2`）。
+  skip 是**设计内**的：① `CG_OCR_TEST_PADDLE` 未设置 → 跳过 PaddleOCR 路线断言（`0.§0.6.2`）；
+  ② `worker/adapters.py`（T-B8）未落盘 → 跳过解析↔审核接缝联测（其余键名断言照跑）。
 - ℹ️ 仓库根已有 `pytest.ini`（T-A0-4）：`pythonpath` 含各 workspace 包与 `.venv/Lib/site-packages`，**手工 `PYTHONPATH` 不再必需**；但本机 `%TEMP%` 受限，仍建议按上面的命令设 `TEMP/TMP`。
+  ⚠️ `testpaths` 已含 **`apps/async-worker/tests`**（2026-09-21 补，T-C7 落盘首批 worker 用例）；缺这行会让全量测试**静默漏掉整包**。
 - 依赖外部服务（Milvus / HTTP 模型 / DB）的测试，**未配置环境变量时必须 skip，不得 fail、不得 error**——统一写法见 `0.§0.6.2`。
 
 ### 4.2 静态检查 —— ⚠️ **当前不为零，不要声称「全绿」**
@@ -301,7 +303,7 @@ rag-contracts ──> rag-core ──> ai-engine ──> async-worker
 每个任务必须逐条满足：
 
 1. 施工文档的「验收标准 / 可执行断言」**逐条通过**
-2. `pytest` **全绿，且不少于基线 268 passed**（允许设计内的 skip）
+2. `pytest` **全绿，且不少于基线 292 passed**（允许设计内的 skip）
 3. **不新增** ruff 错误
 4. **回填文档**：施工文档里的「实测后回填」表格（如 `1-6` §⑧ 阈值、`1-7` §⑧ 基线登记表）必须回填；**弱标注集与人工标注集分别记录、不得混淆**
 5. 给出改动的文件清单
@@ -314,7 +316,7 @@ rag-contracts ──> rag-core ──> ai-engine ──> async-worker
 
 | 事实 | 值 |
 |---|---|
-| 测试基线 | **268 passed / 1 skipped**（2026-09-21，约 70 秒，全离线；1 skip = PaddleOCR 路线断言；耗时主要在 OCR 真实引擎） |
+| 测试基线 | **292 passed / 2 skipped**（2026-09-21，约 35 秒，全离线；skip 之一 = PaddleOCR 路线断言，之二 = `worker/adapters.py` 属 T-B8 未落盘） |
 | 契约字段 | `ContractChunk` 28 字段；`RagSettings` **35** 字段（T-A7 删除重复声明 `log_level`，原 36） |
 | 条款编号正则 | 唯一处 **`rag_contracts/patterns.py::CLAUSE_HEAD_RE`**（T-C4 从 `simple_chunker.py` 迁移；两处消费方 import 同一对象，由 `test_patterns.py` + `test_extractor.py` 各一条守卫用例锁死） |
 | 端口（Protocol） | 5 个：`VectorStorePort` / `SparseStorePort` / `EmbedderPort` / `RerankerPort` / `TokenCounterPort` |
@@ -347,8 +349,9 @@ rag-contracts ──> rag-core ──> ai-engine ──> async-worker
 | 在 uv workspace 里 `uv add/remove --package X` | 只同步该成员，**会把其它成员的依赖从 `.venv` 剪掉**（实测：celery / redis / qdrant-client 被剪，测试凭空多出 2 个 skip） | 紧随一次 **`uv sync --all-packages`**；判断信号：pytest 出现本不该有的 skip |
 | 裸敲 `pytest`（无 `TEMP`） | `pytest.ini` 已兜住包路径，但 `tmp_path` 仍撞本机 `%TEMP%`（`C:\DevTemp`）权限 | 仍需 `TEMP`/`TMP` → `$root\.tmp_t`（§4.1）；或 `--basetemp` |
 | `.tmp_t\bt` 变成「不可删除」目录 | pytest 启动时 `rm_rf` 旧 basetemp → `PermissionError [WinError 5]`，导致所有用到 `tmp_path` 的用例 **集体 ERROR**（实测 32 条） | 换一个 basetemp 目录即可（`--basetemp="$root\.tmp_t\bt2"`）；旧目录留给系统回收，**不要**用 `cmd /c rd` 之类跨 shell 删除 |
+| 结果后端（redis）没起 | Celery `update_state` 按重试策略空转，**约 30 s/次**：`parse_doc` 单任务实测从 0.6 s 变 33 s（不是死循环，是重试） | 演示前确认 redis 可用（compose 已含）；单测用 autouse fixture 把 `result_backend` 置空（详见 `apps/async-worker/tests/test_parse_doc_task.py`） |
 
 ---
 
 *维护约定*：**本文件只增不删**；同类错误出现第三次时才新增规则。
-*最后更新：2026-09-21（Gate 0 收尾 + W1 起步：T-A7 / T-C1 / T-C2 / T-C3 / T-C4 / T-C5 落盘，基线 268 passed、OCR 线只剩 T-C6/T-C7）*
+*最后更新：2026-09-21（Gate 0 收尾 + W1：T-A7 / T-C1 / T-C2 / T-C3 / T-C4 / T-C5 / T-C7 落盘，基线 292 passed；OCR 线只剩 T-C6 印章）*
