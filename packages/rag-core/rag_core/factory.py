@@ -25,9 +25,63 @@ from rag_contracts.ports import (
 
 from .adapters import HashEmbedder, HttpEmbedder, InMemoryVectorStore, NoopReranker
 from .config import RagSettings, get_settings
+from .provider_presets import detect_provider, resolve_preset
 from .service import RAGService
 
 _LOG = get_logger("rag_core.factory")
+
+
+def _looks_like_url(value: str) -> bool:
+    """判断配置值是 URL 还是裸 provider 名。
+
+    Args:
+        value: `CG_RAG_EMBED_BASE_URL` 的取值。
+
+    Returns:
+        True 表示是以 http(s):// 开头的 URL。
+    """
+    return value.strip().lower().startswith(("http://", "https://"))
+
+
+def _resolve_embed_endpoint(settings: RagSettings) -> dict[str, str]:
+    """用 provider 预设补全**留空**的 embedding 端点（`1.C3` §⑤/§⑥）。
+
+    provider 只能从 `embed_base_url` 反查（本卡不新增配置项，反查规则见
+    `provider_presets.detect_provider`）：
+
+    - 值写成 provider 名（`ollama` / `tei` / `openai`）→ 用预设的 `base_url` + `path` + `model`；
+    - 值是 URL 且 `host:port` 命中预设 → **只补** `path` / `model`（显式配了就不补）；
+    - 其它（用户自定义端点）→ 全部按配置值走，**不套预设**。
+
+    Args:
+        settings: RAG 配置。
+
+    Returns:
+        含 `base_url` / `path` / `model` / `provider` 的字典。
+    """
+    provider = detect_provider("embed", settings.embed_base_url)
+    preset = resolve_preset("embed", provider) if provider else {}
+    explicit = settings.model_fields_set
+    base_url = settings.embed_base_url
+    if provider and not _looks_like_url(base_url):
+        # 「留空」的一种形式：值写成 provider 名（如 CG_RAG_EMBED_BASE_URL=ollama）
+        base_url = preset["base_url"]
+    path = (
+        settings.embed_path
+        if "embed_path" in explicit
+        else preset.get("path", settings.embed_path)
+    )
+    model = (
+        settings.embed_model
+        if "embed_model" in explicit
+        else preset.get("model", settings.embed_model)
+    )
+    return {
+        "base_url": base_url,
+        "path": path,
+        "model": model,
+        "provider": provider or "",
+    }
 
 
 def build_embedder(settings: RagSettings) -> EmbedderPort:
@@ -45,14 +99,16 @@ def build_embedder(settings: RagSettings) -> EmbedderPort:
     if settings.embed_mode == "hash":
         return HashEmbedder(dim=settings.vector_dim, model_name="hash-trick-v1")
     if settings.embed_mode == "http":
+        endpoint = _resolve_embed_endpoint(settings)
         return HttpEmbedder(
-            base_url=settings.embed_base_url,
-            model=settings.embed_model,
+            base_url=endpoint["base_url"],
+            model=endpoint["model"],
             api_key=settings.embed_api_key,
             dim=settings.vector_dim,
             batch_size=settings.embed_batch_size,
             timeout_ms=settings.embed_timeout_ms,
-            path=settings.embed_path,
+            path=endpoint["path"],
+            provider=endpoint["provider"],
         )
     raise ValueError(f"不支持的 embed_mode：{settings.embed_mode}")
 
