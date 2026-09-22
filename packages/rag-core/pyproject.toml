@@ -21,6 +21,12 @@ heavy = [
     "python-docx>=1.1",            # 标准条款 DOCX 解析
     "pdfplumber>=0.11",            # PDF 文本与坐标
 ]
+# Milvus 备选向量库（决策 D1：Qdrant 主力 + Milvus 备选）
+#   安装：uv pip install -e "packages/rag-core[milvus]"
+#   🔴 只走 `CG_RAG_VECTOR_STORE=milvus` 显式启用；**严禁**成为任何默认值
+milvus = [
+    "pymilvus>=2.4,<4.0",          # 适配器 `adapters/milvus_store.py`（T-A1）
+]
 # ⚠️ 禁止在默认依赖中引入 sentence-transformers / torch（设计文档 §3.5.2 硬约束 2）
 
 [build-system]

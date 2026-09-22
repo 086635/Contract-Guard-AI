@@ -15,10 +15,11 @@ from .noop_rerank import NoopReranker
 
 if TYPE_CHECKING:
     # 仅供类型检查器解析 __getattr__ 懒导出的属性类型（PEP 562）：
-    # 缺此块时 mypy 会把 QdrantVectorStore / HttpReranker 推断为 object，
+    # 缺此块时 mypy 会把 QdrantVectorStore / MilvusVectorStore / HttpReranker 推断为 object，
     # 在调用处报 `"object" not callable`。运行时不执行此块，仍由 __getattr__ 延迟导入。
     # 注：BM25Store 已在运行时急切导入，类型检查器可直接解析，无需重复登记。
     from .http_reranker import HttpReranker
+    from .milvus_store import MilvusVectorStore
     from .qdrant_store import QdrantVectorStore
 
 __all__ = [
@@ -27,6 +28,7 @@ __all__ = [
     "HttpEmbedder",
     "HttpReranker",
     "InMemoryVectorStore",
+    "MilvusVectorStore",
     "NoopReranker",
     "QdrantVectorStore",
     "cosine",
@@ -35,7 +37,10 @@ __all__ = [
 
 
 def __getattr__(name: str) -> object:
-    """延迟导出 `QdrantVectorStore` / `HttpReranker`（避免默认路径 import 重型 SDK）。
+    """延迟导出 `QdrantVectorStore` / `MilvusVectorStore` / `HttpReranker`。
+
+    （避免默认路径 import 重型 SDK；`milvus_store` 内对 `pymilvus` 也是延迟导入，
+    两处缺一不可 —— 见 1-2 §④ / §⑩ 避坑 11。）
 
     Args:
         name: 属性名。
@@ -50,6 +55,10 @@ def __getattr__(name: str) -> object:
         from .qdrant_store import QdrantVectorStore
 
         return QdrantVectorStore
+    if name == "MilvusVectorStore":
+        from .milvus_store import MilvusVectorStore
+
+        return MilvusVectorStore
     if name == "HttpReranker":
         from .http_reranker import HttpReranker
 

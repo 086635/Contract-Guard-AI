@@ -533,3 +533,73 @@ pymilvus 各版本间存在差异，以下 6 点**必须在你的实际版本上
 | 10 | 给 `ensure_collection` 传错 `dim` | 集合与向量维度不符，写入报错 | 维度只从 `RagSettings.vector_dim`（1024）来，**不要硬编码第二份** |
 | 11 | 在 `adapters/__init__.py` 顶层急切 `import MilvusVectorStore` | 未装 `pymilvus` 时**整个 `adapters` 包** import 失败，离线默认路径被破坏（与坑 5 同源，但在包出口侧） | 走既有 **PEP 562 `__getattr__` 懒导出**（见 §④ 末尾） |
 
+---
+
+## ⑪ 落地记录与实测纠偏（**2026-09-22**，T-A1 收口）
+
+> 本节按 `0.§0.11.2` 规则 3 追加（**修正低层、不删原文**）：以下是**在目标版本上实测后**
+> 与 §⑤ / §⑥ / §⑦ / §⑧ 原文**不一致**的地方。原文保留，以本节为准。
+
+### ⑪.1 交付物（与 §④ 的差异：**多一个 pyproject**）
+
+| 文件 | 动作 | 说明 |
+|---|---|---|
+| `packages/rag-core/rag_core/adapters/milvus_store.py` | **新建** | 与 §④ 一致 |
+| `packages/rag-core/rag_core/adapters/__init__.py` | 修改 | 按 §④ 走 **PEP 562 懒导出**三处（`TYPE_CHECKING` / `__all__` / `__getattr__`） |
+| `packages/rag-core/tests/test_milvus_store.py` | **新建** | 离线 17 + 集成 4（skipif） |
+| `packages/rag-core/pyproject.toml` | 修改 | §④ 未列、但**组件卡 `1.C5` §④ 列为落点**：新增 extra `milvus = ["pymilvus>=2.4,<4.0"]`，并注明「只走 `CG_RAG_VECTOR_STORE=milvus` 显式启用，严禁成为默认值」 |
+
+> ⚠️ **`1-3配置与工厂接线.md` §⑥ 与本文件 §④ 的冲突已裁决**：`1-3` 写「`adapters/__init__.py`
+> 顶层急切 `import milvus_store` 是安全的」，本文件 §④（+ §⑩ 坑 11）**禁止**顶层急切导入。
+> 采用**本文件**的 PEP 562 懒导出：它**同时满足** `1-3 §⑨` 断言 6
+> （`from rag_core.adapters import MilvusVectorStore` 成功 —— PEP 562 对 `from … import …` 同样生效），
+> 且不会在 `pymilvus` 缺包时把整个 `adapters` 包的出口绑死。
+> **`1-3 §⑥` 的片段请在 T-A2 落地时按此修正。**
+
+### ⑪.2 §⑦「必须实测确认的 6 个点」逐条结果（pymilvus **3.0.0** + milvus-lite **3.0**）
+
+| # | 结论 | 实测证据 | 对代码的影响 |
+|---|---|---|---|
+| 1 | ✅ 参数名确认 | `MilvusClient.__init__(uri, user, password, db_name, token, timeout, **kwargs)`（`inspect.signature`）；**超时参数名是 `timeout` 而非 `timeout_s`** | §⑥ 骨架把 `timeout_s` 丢了（构造时未传）→ 已补 `timeout=timeout_s`，否则 T-A2 的 `CG_RAG_MILVUS_TIMEOUT_S` 会是**死配置** |
+| 2 | ⚠️ 返回结构**与骨架预期不同** | `client.delete(filter=…)` 实测返回 **`list[str]`**（lite 返回主键）；pymilvus 源码在服务端不回主键时返回 `OmitZeroDict({"delete_count":…, "cost":…})`（**零值被省略**） | `delete_by_doc()` 加 `list/tuple` 分支（骨架只处理 dict → 会恒返回 0） |
+| 3 | ✅ 可取到 JSON 字段 | 命中为 `dict`（`Hit(dict)`）：`{"chunk_id": …, "distance": …, "entity": {"payload": {…}}}` | — |
+| 4 | 🔴 **与 §⑤ 原文相反** | `metric_type=COSINE` 时 `distance = 1 - cos`：同向量自检索 **0.0**、正交 **1.0**、反向 **2.0**，结果按该值**升序**；对照实验：`L2` 返回真实距离、`IP` 返回点积（越大越好） | 新增 `_score_from_distance()`：`score = 1 - distance`，把口径拉回契约的「余弦相似度、越大越相似」，与 Qdrant/InMemory 一致。**不修就会全库反向排序** |
+| 5 | 🔴 **不支持标量索引** | `add_index(index_type="INVERTED")` 不传 `metric_type` → `create_index missing required 'metric_type' param`；传了 → `field 'doc_id' has type VARCHAR; create_index only supports vector fields`。即**带标量索引的 `create_collection` 整体失败** | 按 §⑦-5「不支持则去掉该循环」→ `ensure_collection()` **不建标量索引**（expr 过滤仍正确，仅失去过滤加速） |
+| 6 | ✅ 64 安全 | uuid5 = 36 字符，`max_length=64` 写入通过；`_MAX_LEN` 其余字段与 `ContractChunk.max_length` 逐项核对 | 无需调整 |
+
+### ⑪.3 §⑤ / §⑥ 的其余必要偏离
+
+| # | 原文 | 实测后 | 理由 |
+|---|---|---|---|
+| 1 | §⑤「`distance` 即相似度」 | 见 ⑪.2-#4，反向映射 | 契约 `VectorHit.score`「越大越相似」 |
+| 2 | §⑥ `__init__` 里 `uri: str = "http://localhost:19530"`（卡片 §⑤ 写 `uri=""`） | 采用 §⑥ 的默认值 | 与 `1-3 §⑤` 的 `milvus_uri` 默认值一致；`uri=""` 会构造必败 |
+| 3 | §⑥ 骨架 `self._client = self._build_client(...)` 不包异常 | `_build_client` 内 **try/except → `StoreUnavailableError`** | 实测 `MilvusClient` **构造即建连**，服务不可达会抛裸 `MilvusException`；§⑥ docstring 已承诺 `Raises: StoreUnavailableError` |
+| 4 | §⑥ `create_collection` 后即返回（`has_collection` 命中则直接 `return`） | 「已存在」分支补 `load_collection()` | 实测**跨进程**集合处于 `released`，`search` 报 `code=101 Collection … is in state 'released'`；`load` 幂等（连调 2 次 OK） |
+| 5 | §⑥ `def _build_expr(self, …)`（实例方法） | 改为 `@staticmethod` | §⑨ 明确要求「`_escape` / `_build_expr` / `_row_of` 做成 `@staticmethod`，测试直接通过类调用、**不实例化**」（骨架自身不符，按 §⑨ 执行） |
+| 6 | §⑥ 无命名字段常量 | 新增 `_PK_FIELD = "chunk_id"` | 实测命中字典的键是**主键字段名**（`search_result.py:151` 用 `pk_name`）而非 `id`：schema 写入与命中读取必须共用同一常量 |
+
+### ⑪.4 §⑧ 断言与 §⑨ 测试要求的落地情况
+
+| §⑧ 断言 | 结果 |
+|---|---|
+| 1 未装 pymilvus 可 import | ✅ `sys.modules['pymilvus']=None` 后 `import rag_core` + `build_service_from_settings()` → `offline ok -> RAGService` |
+| 2 包出口可导入 | ✅ `from rag_core.adapters import MilvusVectorStore`（PEP 562） |
+| 3 满足 `VectorStorePort` | ✅ `test_implements_vector_store_port`（注入假 `pymilvus`；**注意** `MilvusVectorStore()` 会真建连，无 server 时按设计抛 `StoreUnavailableError`） |
+| 4 `name` 形如 `milvus:server` | ✅ `test_name_reflects_mode` |
+| 5 非法 mode 抛错 | ✅ `test_invalid_mode_raises` |
+| 6 payload 可 `from_payload()` 还原 | ✅ 集成用例断言 `hits[0].payload == chunk.to_payload()`（等价于 `from_payload` 零改动可用） |
+| 7 `_build_expr` 对含 `"` 的值不产生语法错 | ✅ 离线 `test_build_expr_escapes_quoted_values` + 集成 `test_search_respects_filters`（真机 expr 不报错） |
+| 8 离线基线未退化 | ✅ 全量 `pytest` → 干净时 **334 passed / 6 skipped / 0 failed**（exit 0，出现 2 次）。基线核对：改动前收集 **319**（= `317 passed + 2 skipped`，与 `AGENTS.md §7` 一致）；改动后收集 **340**（+21，全部在 `rag-core`）→ 现有用例**无一退化**。⚠️ 唯一不稳定用例：`packages/doc-processor/tests/test_ocr_engine.py::test_ocr_pdf_page_uses_render_dpi`（真实 RapidOCR，页级超时固定 30 s，而单页 A4@200dpi 本机实测 **47.3 s**）——**改动前的基线首跑即失败**，与本次改动无因果关系（`doc_processor` 不 import `rag_core`），属模块 3 / T-C2 边界，未处置 |
+
+### ⑪.5 集成用例实跑方式（**无 Docker 也能验**）
+
+本机 Docker daemon 未起，但有 `milvus-lite 3.0`（`pymilvus` 3.0.0 自带 `.db` URI 支持）——
+把 URI 指向一个本地 `.db` 文件即可跑通全部 4 条集成断言（**T-A4 的真机联调仍按 `1-4` 起 server**）：
+
+```powershell
+$env:CG_RAG_TEST_MILVUS_URI = "$root\.tmp_t\milvus_it.db"    # 或 http://localhost:19530（T-A3 起服务后）
+D:\aanacoda1\python.exe -m pytest packages/rag-core/tests/test_milvus_store.py -q
+# 实测：21 passed（含 4 条集成）；Top-10 重合度 1.00
+```
+
+**未做项**：真机 `server` 模式联调（需 `1-3` 配置接线 + `1-4` 容器编排，属 T-A2 / T-A3 / T-A4）。
