@@ -97,6 +97,7 @@
 | `rag_core.chunking.simple_chunker` | 模块 | 切片器 | 已有 |
 | `rag_core.adapters` | 模块 | 适配器统一出口 | 已有 |
 | `rag_core.adapters.embedding` | 模块 | `HashEmbedder` / `HttpEmbedder` / `tokenize` | 已有 |
+| `rag_core.provider_presets` | 模块 | `EMBED_PRESETS` / `RERANK_PRESETS` / `resolve_preset` / `detect_provider`（**T-A5 新增**） | 已有 |
 | `rag_core.adapters.inmemory_store` | 模块 | `InMemoryVectorStore` / `cosine` | 已有 |
 | `rag_core.adapters.qdrant_store` | 模块 | `QdrantVectorStore` | 已有 |
 | `rag_core.adapters.noop_rerank` | 模块 | `NoopReranker` | 已有 |
@@ -129,6 +130,7 @@
 | `ContextBuilder` / `ContextBuildResult` | `rag_core.context_builder` | 上下文拼装 | 已有 |
 | `SimpleChunker` / `SourceDoc` / `ChunkStats` | `rag_core.chunking.simple_chunker` | 切片 | 已有 |
 | `HashEmbedder` / `HttpEmbedder` | `rag_core.adapters.embedding` | 向量化 | 已有 |
+| `EMBED_PRESETS` / `RERANK_PRESETS` / `resolve_preset` / `detect_provider`（**T-A5 新增**） | `rag_core.provider_presets` | provider 端点预设（**唯一处**） | 已有 |
 | `InMemoryVectorStore` | `rag_core.adapters.inmemory_store` | 内存向量库 | 已有 |
 | `QdrantVectorStore` | `rag_core.adapters.qdrant_store` | Qdrant 向量库 | 已有 |
 | `NoopReranker` | `rag_core.adapters.noop_rerank` | 恒等重排 | 已有 |
@@ -927,6 +929,25 @@ graph BT
 | `TokenCounter` | `cg_observability/token_counter.py` | Token 计数 | `model="gpt-3.5-turbo", *, chars_per_token=1.5, force_estimate=False` | `count` / `count_many` / `count_batch`；`backend` / `estimated` 属性 | `TokenCounterPort` | 无状态 | 不抛异常（tiktoken 缺失自动回落估算） | 否 |
 | `TokenMeter` | 同上 | 分阶段 Token + 耗时累加 | `counter=None` | `add` / `count_text` / `usage` / `stage(name)` / `record_latency` / `latency_ms` / `latencies` / `snapshot` / `total` | `TokenCounterPort` | ❌ 单调用内使用，勿跨线程共享 | 不抛异常 | 否 |
 | `TraceContext` / `Span` | `cg_observability/trace.py` | trace/span 上下文 | `trace_id=None, name="request"` / `name, *, trace_id=None` | `__enter__/__exit__` / `span(name)` / `set(**attrs)` / `to_dict()` | — | ✅ `contextvars` 隔离 | 不抛异常 | 否 |
+
+> ⚠️ **T-A5 追加（2026-09-22，实测后纠偏；原文保留）**：`HttpEmbedder`
+> （`rag_core/adapters/embedding.py`）新增一个**只用于埋点**的构造参数 `provider: str = ""`
+> （**不属** `EmbedderPort`），并补三条行为：① **空文本**（`""` / 纯空白）→ 返回同维零向量且
+> **不发请求**（服务端普遍不接受空 `input`）；② **维度 / 条数不符** → 记 `embed.degrade`(WARNING)
+> 后抛 `EmbedFailedError`（**不截断、不补零**）；③ **超长文本不做本地截断**
+> （`CG_RAG_MAX_QUERY_CHARS` 的消费方是 Agent 工具层「防线 1」，见 `2-5`）。
+> 同时新增模块 `rag_core/provider_presets.py`（provider 端点**唯一处**）、
+> `detect_provider()` 与 `factory.build_embedder()` 的「**预设只补留空**」装配
+> （**不新增任何配置项**）。完整规则与实测数据见 `文件集合/codex/1.C3向量化器.md`。
+
+> ⚠️ **T-A6 追加（2026-09-22，实测后纠偏；原文保留）**：`factory.build_reranker()`
+> 同样消费 `provider_presets.RERANK_PRESETS`（**只补留空**：`rerank_http_url` 写成 provider 名或
+> `host:port` 命中预设时，补 `path` / `model`；**留空 URL 仍走 `NoopReranker`**，
+> 见 `1.C4重排器.md` §⑤）。`HttpReranker` 本身**未改**。
+> 🔴 **实测反例**：ollama 0.34 **没有** rerank 端点（`/rerank`、`/v1/rerank`、`/api/rerank` 均 404），
+> 故 `RERANK_PRESETS["ollama"]` 只作兼容保留，命中时工厂会打 WARNING；**本地精排请用 TEI**。
+> 另：`scripts/phase1_smoke.py` **写死** `strategy=DENSE_ONLY`，其日志不会出现
+> `retrieve.sparse` / `retrieve.fusion`（要看五阶段需用 `HYBRID_RRF` 请求）。
 
 ### 6.2 ★ `BM25Store`（T03 待建 —— 照着就能写）
 

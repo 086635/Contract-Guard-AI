@@ -141,8 +141,46 @@ def build_vector_store(settings: RagSettings) -> VectorStorePort:
     raise ValueError(f"不支持的 vector_store：{settings.vector_store}")
 
 
+def _resolve_rerank_endpoint(settings: RagSettings) -> dict[str, str]:
+    """用 provider 预设补全**留空**的 rerank 端点（`1.C4` §⑤/§⑥）。
+
+    与 `_resolve_embed_endpoint` 同款规则（provider 反查 → 只补留空）：
+
+    - `rerank_http_url` 写成 provider 名（`tei`）→ 用预设的 `base_url` + `path` + `model`；
+    - 值是 URL 且 `host:port` 命中预设 → **只补** `path` / `model`（显式配了就不补）；
+    - 其它（用户自建端点，例如本机 rerank 服务）→ **不套预设**，全按配置值走。
+
+    ⚠️ 与 embedding 的差异：`rerank_http_url` **留空**时**不套预设**，而是沿用既有降级
+    （warning + `NoopReranker`，见 `1.C4` §⑤ 行为表）—— 故本函数的入参一定是非空 URL。
+
+    Args:
+        settings: RAG 配置。
+
+    Returns:
+        含 `url` / `path` / `model` / `provider` 的字典。
+    """
+    provider = detect_provider("rerank", settings.rerank_http_url)
+    preset = resolve_preset("rerank", provider) if provider else {}
+    explicit = settings.model_fields_set
+    url = settings.rerank_http_url
+    if provider and not _looks_like_url(url):
+        # 「留空」的一种形式：值写成 provider 名（如 CG_RAG_RERANK_HTTP_URL=tei）
+        url = preset["base_url"]
+    path = (
+        settings.rerank_path
+        if "rerank_path" in explicit
+        else preset.get("path", settings.rerank_path)
+    )
+    model = (
+        settings.rerank_model
+        if "rerank_model" in explicit
+        else preset.get("model", settings.rerank_model)
+    )
+    return {"url": url, "path": path, "model": model, "provider": provider or ""}
+
+
 def build_reranker(settings: RagSettings) -> RerankerPort | None:
-    """按配置构造重排器（T03-5 接入 HTTP 精排）。
+    """按配置构造重排器（T03-5 接入 HTTP 精排；T-A6 接 provider 预设）。
 
     Args:
         settings: RAG 配置。
@@ -161,12 +199,21 @@ def build_reranker(settings: RagSettings) -> RerankerPort | None:
             return NoopReranker()
         from .adapters import HttpReranker
 
+        endpoint = _resolve_rerank_endpoint(settings)
+        if endpoint["provider"] == "ollama":
+            # 实测（2026-09-22）：ollama 0.34 **没有** rerank 端点（/rerank、/v1/rerank、
+            # /api/rerank 均 404）→ 这么配会 RERANK_FAILED 静默回退。预设条目为兼容
+            # `1.C4 §⑤` 与 `.env.example` 而保留，但必须在装配处显式告警（`1-6 §⑩` 避坑 1/4）。
+            _LOG.warning(
+                "rerank 命中 ollama 预设，但 ollama 不提供 rerank 端点（实测 404）——"
+                "本地精排请改用 TEI（CG_RAG_RERANK_HTTP_URL=http://localhost:8081）"
+            )
         return HttpReranker(
-            url=settings.rerank_http_url,
-            model=settings.rerank_model,
+            url=endpoint["url"],
+            model=endpoint["model"],
             api_key=settings.rerank_api_key,
             timeout_ms=settings.rerank_timeout_ms,
-            query_path=settings.rerank_path,
+            query_path=endpoint["path"],
         )
     if settings.rerank_mode == "local":
         # 硬约束：rag-core 禁止引入 torch / sentence-transformers

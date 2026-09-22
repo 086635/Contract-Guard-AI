@@ -733,6 +733,124 @@ def test_rerank_failure_falls_back_to_base_scores() -> None:
 
 
 # ===========================================================================
+# 6b. C4 / T-A6：精排阈值口径（作用于 rerank 分；noop 路径不叠加）
+# ===========================================================================
+def _service_with_reranker(
+    chunks: list[ContractChunk], reranker: Any, **service_kwargs: Any
+) -> RAGService:
+    """装配一个带指定重排器的服务（阈值口径用例专用）。"""
+    embedder = HashEmbedder(dim=64, model_name="hash-test")
+    store = InMemoryVectorStore()
+    store.ensure_collection(embedder.dim)
+    store.upsert(
+        [
+            VectorRecord(chunk=c, vector=v)
+            for c, v in zip(chunks, embedder.embed_batch([c.text for c in chunks]))
+        ]
+    )
+    return RAGService(
+        embedder=embedder,
+        vector_store=store,
+        counter=TokenCounter(force_estimate=True),
+        reranker=reranker,
+        **service_kwargs,
+    )
+
+
+class _FixedReranker:
+    """桩重排器：对每条候选返回固定分（用于验证阈值作用在 rerank 分上）。"""
+
+    def __init__(self, score: float) -> None:
+        self._score = score
+
+    @property
+    def model_name(self) -> str:
+        """模型名（埋点用）。"""
+        return "stub-fixed"
+
+    def rerank(self, query: str, texts: Any, base_scores: Any = None) -> list[float]:
+        """返回与 texts 等长的固定分。"""
+        del query, base_scores
+        return [self._score] * len(texts)
+
+
+def test_noop_does_not_apply_rerank_threshold() -> None:
+    """§⑧-5 防回退：noop 路径不下发 rerank_threshold，否则离线默认路径会被扣成空召回。"""
+    chunker = SimpleChunker(counter=TokenCounter(force_estimate=True))
+    chunks = chunker.chunk(make_doc())
+    service = _service_with_reranker(
+        chunks,
+        NoopReranker(),
+        default_score_threshold=0.0,
+        rerank_threshold=None,  # 工厂 `_rerank_threshold_for()` 在 noop 路径就是下发 None
+    )
+    response = service.retrieve(RAGQueryRequest(query="合同总价", score_threshold=0.0))
+
+    # 逐条命中即可（返回顺序按得分，不保证等于入库顺序）
+    assert sorted(d.chunk_id for d in response.retrieved_docs) == sorted(
+        c.chunk_id for c in chunks
+    )
+    assert response.degraded is False
+
+
+def test_rerank_threshold_applies_to_rerank_scores() -> None:
+    """§②-3 阈值口径自证：`rerank_threshold` 过滤的是 **rerank 分**（不是 dense / final 的别名）。
+
+    桩返回固定分 0.20：阈值 0.35 时全部被拒（`EMPTY_RECALL`），阈值 0.10 时全部保留，
+    且 `scores.rerank` 就是 0.20 —— 三条一起证明"阈值作用在 rerank 分上"。
+    """
+    chunker = SimpleChunker(counter=TokenCounter(force_estimate=True))
+    chunks = chunker.chunk(make_doc())
+
+    blocked = _service_with_reranker(
+        chunks, _FixedReranker(0.20), rerank_threshold=0.35
+    ).retrieve(RAGQueryRequest(query="合同总价", score_threshold=0.0))
+    assert blocked.retrieved_docs == [], "rerank 分低于 rerank_threshold 应被过滤"
+    assert blocked.degraded is True
+    assert blocked.fallback_reason is FallbackReason.EMPTY_RECALL
+
+    allowed = _service_with_reranker(
+        chunks, _FixedReranker(0.20), rerank_threshold=0.10
+    ).retrieve(RAGQueryRequest(query="合同总价", score_threshold=0.0))
+    assert sorted(d.chunk_id for d in allowed.retrieved_docs) == sorted(
+        c.chunk_id for c in chunks
+    )
+    assert all(d.scores.rerank == 0.20 for d in allowed.retrieved_docs)
+
+
+def test_rerank_length_mismatch_falls_back(monkeypatch: pytest.MonkeyPatch) -> None:
+    """§⑧-4：真实 `HttpReranker` 收到长度不符的响应 → 抛错 → 服务回退 base_scores + RERANK_FAILED。
+
+    这条走的是**真实适配器**（只把 `httpx.post` 换成桩），因此覆盖的是生产路径：
+    `HttpReranker` 自检长度 → `RerankFailedError` → `_rerank_safe` 回退 → `FallbackReason.RERANK_FAILED`。
+    """
+    import httpx
+
+    from rag_core.adapters.http_reranker import HttpReranker
+
+    class _ShortResp:
+        def raise_for_status(self) -> None:
+            """桩：恒 2xx。"""
+
+        def json(self) -> dict[str, Any]:
+            """只返回 1 个分数，而候选有 2 条以上。"""
+            return {"scores": [0.9]}
+
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: _ShortResp())
+    chunker = SimpleChunker(counter=TokenCounter(force_estimate=True))
+    chunks = chunker.chunk(make_doc())
+    service = _service_with_reranker(
+        chunks, HttpReranker(url="http://localhost:8081", timeout_ms=1000)
+    )
+
+    response = service.retrieve(RAGQueryRequest(query="合同总价", score_threshold=0.0))
+
+    assert response.retrieved_docs, "长度不符应回退 base_scores，而不是空召回"
+    assert response.fallback_reason is FallbackReason.RERANK_FAILED
+    assert all(d.scores.rerank is None for d in response.retrieved_docs)
+
+
+# ===========================================================================
 # 7. T-A0-2：稀疏路独占候选由 payload 还原，不再被丢弃
 # ===========================================================================
 def _build_sparse_only_service(
