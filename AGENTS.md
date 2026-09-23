@@ -12,7 +12,7 @@
 
 ```text
 ① 领 1 个任务 ID（T-A* / T-B* / T-C*） → ② 读该任务所属的施工文档
-→ ③ 只改文档写明的落点 → ④ 跑 pytest（不得低于 140 passed）
+→ ③ 只改文档写明的落点 → ④ 跑 pytest（不得低于 390 passed）
 → ⑤ 回填文档里的「实测后回填」表 → ⑥ 汇报：文件清单 + 断言逐条结果 + 回填位置
 ```
 
@@ -165,7 +165,7 @@ scripts/             建库、评测、冒烟脚本（不要放进 packages/）
 | 5 | 契约层判断：是否需要动 `rag_contracts` / `service.py`？文档未授权 → 停手 | 明确写出「不触碰」 |
 | 6 | 实现：最小必要改动，风格对齐 `0.§0.2` | diff 只覆盖落点 |
 | 7 | 单测：新增用例；外部依赖用 `0.§0.6.2` 的统一 skip 写法 | 用例可离线跑 |
-| 8 | 门禁：全量 `pytest`（§4.1）+ 只对**改动文件**跑 ruff | ≥ 140 passed、无新增错误 |
+| 8 | 门禁：全量 `pytest`（§4.1）+ 只对**改动文件**跑 ruff | ≥ 390 passed、无新增错误 |
 | 9 | 跑该文档 `§⑦` 断言，逐条留证据 | 每条给出实际输出摘要 |
 | 10 | **回填** `§⑧ 实测后回填` 表 + 按 §3.4 汇报 | 文档 diff + 结项说明 |
 
@@ -266,10 +266,10 @@ D:\aanacoda1\python.exe -m pytest --basetemp="$bt" -p no:cacheprovider
 
 ### 4.2 静态检查 —— ⚠️ **当前不为零，不要声称「全绿」**
 
-| 命令 | 现状（2026-09-21 实测） |
+| 命令 | 现状（2026-09-23 实测） |
 |---|---|
-| `.\.venv\Scripts\ruff.exe check .`（ruff **0.16.4**） | **53 项**：`I001` 10 / `UP035` 9 / `UP042` 9 / `F841` 8 / `RUF022` 7 / `F401` 6 / `UP017` 3 / `RUF100` 1 |
-| `.\.venv\Scripts\ruff.exe format --check .` | **42 个文件**待格式化 |
+| `.\.venv\Scripts\ruff.exe check .`（ruff **0.16.4**） | **46 项**：`I001` 9 / `UP042` 9 / `RUF022` 7 / `UP035` 7 / `F401` 6 / `F841` 5 / `UP017` 3 |
+| `.\.venv\Scripts\ruff.exe format --check .` | **79 个文件**待格式化 |
 
 ⚠️ **同一份代码换个 ruff 版本数字就不同**（系统的 `D:\aanacoda1\Scripts\ruff.exe` 是 0.12.0，只报 **44 项**）。
 **引用这些数字时必须连版本一起写**，不要跨版本比较「变好了还是变坏了」。
@@ -336,7 +336,7 @@ rag-contracts ──> rag-core ──> ai-engine ──> async-worker
 
 | 事实 | 值 |
 |---|---|
-| 测试基线 | **373 passed / 8 skipped / 0 failed**（2026-09-23，**约 73 秒**，全离线；8 条 skip 逐条见 §4.1） |
+| 测试基线 | **390 passed / 8 skipped / 0 failed**（2026-09-23，**约 73 秒**（空载），全离线；8 条 skip 逐条见 §4.1） |
 | 契约字段 | `ContractChunk` 28 字段；`RagSettings` **35** 字段（T-A7 删除重复声明 `log_level`，原 36） |
 | 条款编号正则 | 唯一处 **`rag_contracts/patterns.py::CLAUSE_HEAD_RE`**（T-C4 从 `simple_chunker.py` 迁移；两处消费方 import 同一对象，由 `test_patterns.py` + `test_extractor.py` 各一条守卫用例锁死） |
 | 端口（Protocol） | 5 个：`VectorStorePort` / `SparseStorePort` / `EmbedderPort` / `RerankerPort` / `TokenCounterPort` |
