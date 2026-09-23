@@ -14,7 +14,7 @@
 from __future__ import annotations
 
 import ast
-import os
+import socket
 from pathlib import Path
 from typing import Any, get_args
 
@@ -42,6 +42,19 @@ def _settings(**overrides: Any) -> RagSettings:
     }
     base.update(overrides)
     return RagSettings(_env_file=None, **base)
+
+
+def _closed_port_uri() -> str:
+    """返回一个**确定无人监听**的本地 URI（向 OS 借一个端口后立即释放）。
+
+    ⚠️ 不能沿用配置默认值 `http://localhost:19530`：T-A3（`0-C2`）的交付物正是让 `19530`
+    上**有** Milvus 服务，沿用默认值会让本用例随「Milvus 起没起」红绿翻转
+    （2026-09-23 实测：起了服务后本用例 `DID NOT RAISE`）。这里改为构造一个必然关闭的
+    端点，断言从此与宿主环境无关，硬过「服务不可达 → `StoreUnavailableError`」这一条。
+    """
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        return f"http://127.0.0.1:{probe.getsockname()[1]}"
 
 
 def _chunk(seq: int = 0) -> ContractChunk:
@@ -276,10 +289,6 @@ def test_milvus_branch_forwards_connection_params(
     assert kwargs["timeout"] == 7.5
 
 
-@pytest.mark.skipif(
-    bool(os.getenv("CG_RAG_TEST_MILVUS_URI")),
-    reason="已配置真实 Milvus 服务（CG_RAG_TEST_MILVUS_URI），本用例只在'无服务'时断言",
-)
 def test_milvus_branch_raises_store_unavailable_without_server() -> None:
     """§⑦-1 的可执行替身：**无假 SDK 且无服务**时，milvus 分支必须走适配器并抛
     `StoreUnavailableError`（而不是 `ValueError` —— 后者说明分支根本没接上）。
@@ -287,11 +296,17 @@ def test_milvus_branch_raises_store_unavailable_without_server() -> None:
     ⚠️ 卡内 §⑦-1 写的是"`type(...) is MilvusVectorStore`（不建连）"；实测
     `MilvusVectorStore.__init__` **构造即建连**（`1-2 §⑪.3-#3`），无服务时必然失败。
     故接线断言改为"假 SDK 验类型（上一条）+ 真路径验异常类型（本条）"两条。
+
+    T-A3（`0-C2`）起服务后，原来的 `CG_RAG_TEST_MILVUS_URI` skip 守卫与 `19530` 默认值
+    都不再成立（服务就在 `19530` 上）→ 改为指向 `_closed_port_uri()` 构造的关闭端口，
+    于是**不再需要 skip**，用例无条件执行且与宿主环境无关。
     """
     from rag_contracts.errors import StoreUnavailableError
 
     with pytest.raises(StoreUnavailableError):
-        build_vector_store(_settings(vector_store="milvus"))
+        build_vector_store(
+            _settings(vector_store="milvus", milvus_uri=_closed_port_uri())
+        )
 
 
 def test_milvus_branch_uses_delayed_import() -> None:
