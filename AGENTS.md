@@ -12,7 +12,7 @@
 
 ```text
 ① 领 1 个任务 ID（T-A* / T-B* / T-C*） → ② 读该任务所属的施工文档
-→ ③ 只改文档写明的落点 → ④ 跑 pytest（不得低于 397 passed）
+→ ③ 只改文档写明的落点 → ④ 跑 pytest（不得低于 398 passed）
 → ⑤ 回填文档里的「实测后回填」表 → ⑥ 汇报：文件清单 + 断言逐条结果 + 回填位置
 ```
 
@@ -166,7 +166,7 @@ scripts/             建库、评测、冒烟脚本（不要放进 packages/）
 | 5 | 契约层判断：是否需要动 `rag_contracts` / `service.py`？文档未授权 → 停手 | 明确写出「不触碰」 |
 | 6 | 实现：最小必要改动，风格对齐 `0.§0.2` | diff 只覆盖落点 |
 | 7 | 单测：新增用例；外部依赖用 `0.§0.6.2` 的统一 skip 写法 | 用例可离线跑 |
-| 8 | 门禁：全量 `pytest`（§4.1）+ 只对**改动文件**跑 ruff | ≥ 397 passed、无新增错误 |
+| 8 | 门禁：全量 `pytest`（§4.1）+ 只对**改动文件**跑 ruff | ≥ 398 passed、无新增错误 |
 | 9 | 跑该文档 `§⑦` 断言，逐条留证据 | 每条给出实际输出摘要 |
 | 10 | **回填** `§⑧ 实测后回填` 表 + 按 §3.4 汇报 | 文档 diff + 结项说明 |
 
@@ -247,12 +247,15 @@ D:\aanacoda1\python.exe -m pytest --basetemp="$bt" -p no:cacheprovider
   （实测一次 32 条）。所以用上面的 `$(Get-Date …)` 生成新目录名；
   旧目录**留给系统回收**，不要用 `cmd /c rd` 之类跨 shell 强删（`AGENTS.md` §8 同款坑）。
 - ⚠️ **不要裸敲 `pytest`**：本机默认 `pytest` 走**系统 Python**（`D:\aanacoda1`），实测会因 `pydantic-core 2.27.2` 与 `pydantic` 不匹配直接 `SystemError`。**必须**先设上面的 `PYTHONPATH`，让 `.venv` 的包优先。
-- **离线基线：397 passed / 8 skipped / 0 failed**（2026-09-23；T-A2 后）。
-  沿革：T-A0 前 `140` → T-C6 后 `317/2` → T-A8 后 `373/8` → T-A9 后 `390/8` → **T-A2 后 `397/8`**。
-  少于 397（且 skip 数没变多）= 你删坏了东西；多于 397 = 你加了测试（好事，但要在汇报里说明）。
-  ⚠️ **读数的前提是"机器别被占满"**：桌面应用（WPS/微信/钉钉等）占满 CPU 时，
-  `doc-processor` 的真实 OCR 用例会从 8 s 涨到 74~94 s → 撞 `timeout_s=60` → 出现 **1 条假红**
-  （2026-09-23 实测两次；同一条用例单独复跑 8.5 s 通过）——**先看负载，别翻业务代码**。
+- **离线基线：398 passed / 8 skipped / 0 failed**（2026-09-23；T-A2 后）。
+  沿革：T-A0 前 `140` → T-C6 后 `317/2` → T-A8 后 `373/8` → T-A9 后 `390/8` → **T-A2 后 `398/8`**。
+  少于 398（且 skip 数没变多）= 你删坏了东西；多于 398 = 你加了测试（好事，但要在汇报里说明）。
+  ⚠️ **读数的前提是"机器别被占满"**：桌面应用（WPS/微信/钉钉/Excel 等）占满 CPU 时，
+  全量耗时会从约 73 s 涨到 **300~815 s**，并出现 **1~2 条"负载假红"**（2026-09-23 实测三条）：
+  ① `doc-processor` 的**真实 OCR** 用例（单条 8 s → 74~94 s，撞 `timeout_s=60`；
+     负载较轻时单独复跑 8.5 s 通过）；② `test_aligner.py::test_locate_is_fast` 的**计时守卫**
+     （`elapsed < 0.5 s`，负载下实测 0.622 s；单独复跑通过）。
+  —— **先看负载，别翻业务代码**；判断方法：`pytest` 自己会打印 10 条最慢用例（§4.1 的 `--durations=10`）。
   ⏱ 总耗时 **约 73 秒**（空载实测 `72.91s`；2026-09-23 有负载时实测 `212.93s`）。跑得慢的都是**真实引擎**用例；
   最慢 10 条由 `pytest.ini` 的 `--durations=10` **自动打印**，用来区分「变慢是新增代码还是机器负载」。
   skip **全部是设计内**（8 条）：① `CG_RAG_TEST_MILVUS_URI` 未设 → 4 条 Milvus 集成；
@@ -327,7 +330,7 @@ rag-contracts ──> rag-core ──> ai-engine ──> async-worker
 每个任务必须逐条满足：
 
 1. 施工文档的「验收标准 / 可执行断言」**逐条通过**
-2. `pytest` **全绿，且不少于基线 397 passed**（允许设计内的 skip；基线数字以 §4.1 为准）
+2. `pytest` **全绿，且不少于基线 398 passed**（允许设计内的 skip；基线数字以 §4.1 为准）
 3. **不新增** ruff 错误
 4. **回填文档**：施工文档里的「实测后回填」表格（如 `1-6` §⑧ 阈值、`1-7` §⑧ 基线登记表）必须回填；**弱标注集与人工标注集分别记录、不得混淆**
 5. 给出改动的文件清单
@@ -340,7 +343,7 @@ rag-contracts ──> rag-core ──> ai-engine ──> async-worker
 
 | 事实 | 值 |
 |---|---|
-| 测试基线 | **397 passed / 8 skipped / 0 failed**（2026-09-23 T-A2 后；**约 73 秒**（空载），全离线；8 条 skip 逐条见 §4.1；负载下会多 1 条 OCR 假红，见 §4.1 的说明） |
+| 测试基线 | **398 passed / 8 skipped / 0 failed**（2026-09-23 T-A2 后；**约 73 秒**（空载），全离线；8 条 skip 逐条见 §4.1；负载下会多 1~2 条假红，见 §4.1 的说明） |
 | 契约字段 | `ContractChunk` 28 字段；`RagSettings` **40** 字段（T-A7 删 `log_level`：36→35；T-A2 加 5 个 `milvus_*`：35→40） |
 | 条款编号正则 | 唯一处 **`rag_contracts/patterns.py::CLAUSE_HEAD_RE`**（T-C4 从 `simple_chunker.py` 迁移；两处消费方 import 同一对象，由 `test_patterns.py` + `test_extractor.py` 各一条守卫用例锁死） |
 | 端口（Protocol） | 5 个：`VectorStorePort` / `SparseStorePort` / `EmbedderPort` / `RerankerPort` / `TokenCounterPort` |
@@ -380,6 +383,7 @@ rag-contracts ──> rag-core ──> ai-engine ──> async-worker
 
 *维护约定*：**本文件只增不删**（例外：§7 事实基线与 §4.1 的基线数字**必须随实测更新**，否则会重蹈"文档落后于代码"）；同类错误出现第三次时才新增规则。
 *最后更新：2026-09-23（**RAG 排期项推进**：T-A2 Milvus 配置接线落地（`0-C1.md`，`RagSettings` 35→40 字段，
-`CG_RAG_VECTOR_STORE` 增 `milvus` 取值、默认仍 `inmemory`）；基线 **397 passed / 8 skipped / 0 failed**（空载约 73 s），
-并记入"桌面应用占满 CPU 时 OCR 真实引擎用例会出现 1 条假红"的读数前提。
-此前三次收尾：A 组+T-A9 全闭合、全仓扫描守卫 58.8 s→0.49 s、OCR 周期性假红的 timeout 对齐）*
+`CG_RAG_VECTOR_STORE` 增 `milvus` 取值、默认仍 `inmemory`）；基线 **398 passed / 8 skipped / 0 failed**（空载约 73 s），
+并记入读数前提："桌面应用占满 CPU 时全量耗时 300~815 s，会出现 1~2 条负载假红
+（真实 OCR 用例超时 + aligner 计时守卫）"。
+此前三次收尾：A 组 + T-A9 全闭合、全仓扫描守卫 58.8 s→0.49 s、OCR 周期性假红的 timeout 对齐）*

@@ -13,7 +13,9 @@
 
 from __future__ import annotations
 
+import ast
 import os
+from pathlib import Path
 from typing import Any, get_args
 
 import pytest
@@ -22,6 +24,7 @@ from rag_contracts.chunk import ContractChunk
 from rag_contracts.enums import ChunkType, RetrieveStrategy, SourceType
 from rag_contracts.ports import VectorRecord
 from rag_contracts.query import RAGQueryRequest
+from rag_core import factory as factory_module
 from rag_core.config import RagSettings
 from rag_core.factory import build_service_from_settings, build_vector_store
 from rag_core.service import RAGService
@@ -289,3 +292,28 @@ def test_milvus_branch_raises_store_unavailable_without_server() -> None:
 
     with pytest.raises(StoreUnavailableError):
         build_vector_store(_settings(vector_store="milvus"))
+
+
+def test_milvus_branch_uses_delayed_import() -> None:
+    """§⑨-2：`factory.py` **顶层**不得急切导入 Milvus 适配器/`pymilvus`。
+
+    否则未装 `pymilvus` 时整个工厂（乃至 `rag_core`）都 import 失败，离线默认路径陪葬。
+    用 AST 只查模块级 import，函数体内的延迟导入不受影响。
+    """
+    assert factory_module.__file__ is not None
+    tree = ast.parse(Path(factory_module.__file__).read_text(encoding="utf-8"))
+    top_level: list[str] = []
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            top_level.extend(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            names = [alias.name for alias in node.names]
+            top_level.extend(names)
+            if node.module:
+                top_level.append(node.module)
+
+    assert "MilvusVectorStore" not in top_level, (
+        "factory.py 顶层 import 了 MilvusVectorStore；应改为 build_vector_store() 函数内延迟导入"
+    )
+    assert "milvus_store" not in top_level
+    assert not [m for m in top_level if m.startswith("pymilvus")]
