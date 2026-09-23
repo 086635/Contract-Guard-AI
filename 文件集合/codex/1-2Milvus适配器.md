@@ -580,6 +580,7 @@ pymilvus 各版本间存在差异，以下 6 点**必须在你的实际版本上
 | 4 | §⑥ `create_collection` 后即返回（`has_collection` 命中则直接 `return`） | 「已存在」分支补 `load_collection()` | 实测**跨进程**集合处于 `released`，`search` 报 `code=101 Collection … is in state 'released'`；`load` 幂等（连调 2 次 OK） |
 | 5 | §⑥ `def _build_expr(self, …)`（实例方法） | 改为 `@staticmethod` | §⑨ 明确要求「`_escape` / `_build_expr` / `_row_of` 做成 `@staticmethod`，测试直接通过类调用、**不实例化**」（骨架自身不符，按 §⑨ 执行） |
 | 6 | §⑥ 无命名字段常量 | 新增 `_PK_FIELD = "chunk_id"` | 实测命中字典的键是**主键字段名**（`search_result.py:151` 用 `pk_name`）而非 `id`：schema 写入与命中读取必须共用同一常量 |
+| 7 | §⑥ `count()` 用 `get_collection_stats()["row_count"]` | 改用 `count(*)` 聚合 + `consistency_level="Strong"`（见 §⑪.6） | 实测 `row_count` 是**物理行数**：含逻辑删除、且未 flush 前恒为 0 —— 与 `QdrantVectorStore.count(exact=True)` 的「存活点数」语义不符 |
 
 ### ⑪.4 §⑧ 断言与 §⑨ 测试要求的落地情况
 
@@ -606,3 +607,42 @@ D:\aanacoda1\python.exe -m pytest packages/rag-core/tests/test_milvus_store.py -
 ```
 
 **未做项**：真机 `server` 模式联调（需 `1-3` 配置接线 + `1-4` 容器编排，属 T-A2 / T-A3 / T-A4）。
+
+### ⑪.6 🔴 真机 server 联调修出的 `count()` 口径缺陷（2026-09-23，由 T-A3 起服务后暴露）
+
+> 背景：§⑪.5 的结论全部建立在 **milvus-lite 3.0 进程内后端**上（当时 Docker daemon 未起）。
+> T-A3（`0-C2`）按本仓 compose 起了**真 server**（`milvusdb/milvus:v2.5.4`）后，
+> 同一份适配器在真服务上暴露出一处 lite 上**测不出**的偏差。
+
+**对照实验**（真 server v2.5.4，同一集合，逐时点）：
+
+| 时点 | `get_collection_stats()["row_count"]`（**§⑥ 骨架 / 原实现**） | `query(filter="", output_fields=["count(*)"], consistency_level="Strong")` |
+|---|---|---|
+| 空集合 | 0 | 0 |
+| `upsert` 3 条后**立刻** | **0** ❌ | **3** ✅ |
+| `flush()` 后 | 3 | 3 |
+| 同主键再 `upsert` 3 条后立刻 | 0 ❌ | **3** ✅（幂等，不增长） |
+| `delete` 全部后立刻 | **0** ❌ | **0** ✅ |
+| `delete` 后 `flush()` | **3** ❌（含**已逻辑删除**的行） | 0 ✅ |
+
+**结论**：`row_count` 是**物理行数**（含逻辑删除）且**未 flush 前为 0** —— 两处都与
+`QdrantVectorStore.count(exact=True)`（存活点数、即时一致）不符，**不是可接受的版本差异**。
+
+**处置**：`count()` 改为 `query(filter="", output_fields=["count(*)"], consistency_level="Strong")`，
+取不到时按原约定返回 0（`1-2 §⑧` 未定义的边界沿用现状）。**刻意不调 `flush()`**：`flush()` 是重操作，
+且会让「同主键重复写入 → `count()` 不增长」这类断言依赖副作用。
+
+**真机复验**（`MilvusVectorStore(uri="http://localhost:19530")`，2026-09-23）：
+
+```text
+空集合 count(): 0
+upsert 3 条后立刻 count(): 3          (期望 3)
+同主键再 upsert 3 条后 count(): 3      (期望 3，幂等)
+delete_by_doc 后立刻 count(): 0        (期望 0)
+```
+
+**下游影响（重要）**：`0-C3`（T-A4）的断言 2「同一 `chunk_id` `upsert` 两次 → `count()` 仍为 1」
+与断言 6「`delete_by_doc()` 后 `count()` 减少」**在真 server 上原本必然失败**；
+而 `0-C3 §④` 明确「不改生产代码」→ 本处修复是 `0-C3` 能全绿的前提。
+集成用例 `test_milvus_store.py::test_upsert_idempotent`（依赖 `count()` 的三段断言）
+在真 server 上随本修复一并转正。

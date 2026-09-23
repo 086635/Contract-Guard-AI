@@ -407,16 +407,38 @@ class MilvusVectorStore:
             return False
 
     def count(self) -> int:
-        """当前集合内实体数（对齐 QdrantVectorStore.count）。
+        """当前集合内**存活**实体数（对齐 `QdrantVectorStore.count` 的 `exact=True` 口径）。
+
+        ⚠️ **实测（2026-09-23，真 Milvus server v2.5.4，见 `1-2 §⑪.6`）**：
+        `get_collection_stats()["row_count"]` **不能用** —— 它是**物理行数**，有两处错：
+          ① 含**逻辑删除**的行（写 3 条 → 删 3 条 → `flush()` 后仍返回 **3**）；
+          ② 未 `flush()` 前恒为 **0**（`upsert` 3 条后立刻查也是 0）。
+        改用 `count(*)` 聚合查询 + `consistency_level="Strong"`：实测
+        「`upsert` 3 → **3**；同主键再 `upsert` → 仍 **3**；`delete` 全部 → **0**」，
+        **无需 flush** 即为正确的存活数。
+
+        ⚠️ 这里刻意**不**调 `flush()`：`flush()` 是重操作（落盘 + 封段），
+        且会让「同一 `chunk_id` 重复写入 → `count()` 不增长」这类断言依赖副作用。
 
         Returns:
-            实体数；集合不存在时返回 0。
+            存活实体数；集合不存在时返回 0。
         """
         try:
-            stats = self._client.get_collection_stats(self._collection)
-            return int(stats.get("row_count", 0))
+            rows = self._client.query(
+                collection_name=self._collection,
+                filter="",
+                output_fields=["count(*)"],
+                consistency_level="Strong",
+            )
         except Exception:  # noqa: BLE001 - 集合不存在时返回 0
             return 0
+        if not rows:
+            return 0
+        first = rows[0]
+        # 聚合结果形如 [{"count(*)": N}]；不同版本可能退化为标量，故两种都兼容
+        if isinstance(first, dict):
+            return int(first.get("count(*)") or 0)
+        return int(first or 0)
 
 
 __all__ = ["MilvusVectorStore"]
