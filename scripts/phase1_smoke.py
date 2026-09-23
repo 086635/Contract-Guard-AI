@@ -63,7 +63,10 @@ from rag_contracts.errors import RagError  # noqa: E402
 from rag_contracts.query import RAGQueryRequest  # noqa: E402
 from rag_core.chunking import SimpleChunker, SourceDoc  # noqa: E402
 from rag_core.config import RagSettings  # noqa: E402
-from rag_core.factory import build_service_from_settings  # noqa: E402
+from rag_core.factory import (  # noqa: E402
+    _resolve_embed_endpoint,
+    build_service_from_settings,
+)
 
 _LOG = get_logger("scripts.phase1_smoke")
 
@@ -257,10 +260,19 @@ def _embed_failure_hint(settings: RagSettings) -> str:
     """
     lines = ["      排查："]
     if settings.embed_mode == "http":
+        # 用 `_resolve_embed_endpoint`（私有名）取**解析后的真实端点**：
+        # 它是唯一真相来源 —— 直接打原始配置会把 `CG_RAG_EMBED_BASE_URL=ollama`
+        # 显示成 `base_url='ollama'`（path/model 还是 TEI 的默认值），把排查方向带偏。
+        resolved = _resolve_embed_endpoint(settings)
         lines.append(
-            f"      1) 当前端点：base_url={settings.embed_base_url!r}  "
-            f"path={settings.embed_path!r}  model={settings.embed_model!r}；"
+            f"      1) 解析后的真实端点："
+            f"{(resolved['base_url'] + resolved['path'])!r}  "
+            f"model={resolved['model']!r}（provider={resolved['provider'] or '自定义'}）；"
             "服务未起 / 路径不对都会走到这里。"
+        )
+        lines.append(
+            f"         原始配置：base_url={settings.embed_base_url!r}  "
+            f"path={settings.embed_path!r}  model={settings.embed_model!r}"
         )
         lines.append(
             "      2) 注意 embed_base_url 的**代码默认值是 TEI 的 :8080**，不是 ollama。"
