@@ -35,17 +35,37 @@ class RagSettings(BaseSettings):
     # ------------------------------------------------------------------
     # 向量库
     # ------------------------------------------------------------------
-    vector_store: Literal["inmemory", "qdrant"] = Field(
+    vector_store: Literal["inmemory", "qdrant", "milvus"] = Field(
         default="inmemory",
-        description="向量库实现。inmemory=纯 Python 零依赖（默认/单测）；qdrant=真实向量库",
+        description="向量库实现。inmemory=零依赖（默认/单测）；qdrant/milvus=真实向量库",
     )
     qdrant_mode: Literal["server", "local_memory", "local_path"] = Field(
         default="local_memory",
         description="Qdrant 运行模式：server=连服务 / local_memory=内存 / local_path=本地磁盘",
     )
-    qdrant_url: str = Field(default="http://localhost:6333", description="Qdrant 服务地址")
-    qdrant_local_path: str = Field(default="./data/qdrant", description="本地磁盘模式的数据目录")
+    qdrant_url: str = Field(
+        default="http://localhost:6333", description="Qdrant 服务地址"
+    )
+    qdrant_local_path: str = Field(
+        default="./data/qdrant", description="本地磁盘模式的数据目录"
+    )
     qdrant_api_key: str | None = Field(default=None, description="Qdrant Cloud API Key")
+    # ---- Milvus（T-A2 新增；备选适配器，见 1-2 / 1.C5）----
+    milvus_mode: Literal["server", "lite"] = Field(
+        default="server",
+        description="server=连服务（推荐，Windows 只能用它）；lite=本地文件（Linux/macOS）",
+    )
+    milvus_uri: str = Field(
+        default="http://localhost:19530",
+        description="server 模式为服务地址；lite 模式为本地 .db 文件路径",
+    )
+    milvus_token: str = Field(
+        default="", description="认证串 user:password 或 API Key；为空表示无认证"
+    )
+    milvus_db_name: str = Field(default="default", description="Milvus 数据库名")
+    milvus_timeout_s: float = Field(
+        default=5.0, ge=0.1, description="Milvus 请求超时（秒）"
+    )
     collection: str = Field(default="contract_clauses", description="集合名")
     vector_dim: int = Field(default=1024, ge=1, description="向量维度（bge-m3 = 1024）")
 
@@ -56,11 +76,15 @@ class RagSettings(BaseSettings):
         default="hash",
         description="hash=离线确定性伪向量（默认，零依赖）；http=TEI / OpenAI 兼容 API",
     )
-    embed_base_url: str = Field(default="http://localhost:8080", description="Embedding 服务地址")
+    embed_base_url: str = Field(
+        default="http://localhost:8080", description="Embedding 服务地址"
+    )
     embed_api_key: str = Field(default="none", description="Embedding API Key")
     embed_model: str = Field(default="BAAI/bge-m3", description="Embedding 模型名")
     embed_batch_size: int = Field(default=32, ge=1, description="批量向量化大小")
-    embed_timeout_ms: int = Field(default=3000, ge=100, description="单次请求超时（毫秒）")
+    embed_timeout_ms: int = Field(
+        default=3000, ge=100, description="单次请求超时（毫秒）"
+    )
     embed_path: str = Field(
         default="/v1/embeddings",
         description="接口路径。TEI 用 /embed，OpenAI 兼容用 /v1/embeddings",
@@ -86,11 +110,17 @@ class RagSettings(BaseSettings):
         default="noop",
         description="noop=恒等透传（默认，Phase 1）；local=本地 CrossEncoder；http=远程服务",
     )
-    rerank_model: str = Field(default="BAAI/bge-reranker-v2-m3", description="重排模型名")
+    rerank_model: str = Field(
+        default="BAAI/bge-reranker-v2-m3", description="重排模型名"
+    )
     rerank_http_url: str = Field(default="", description="HTTP 重排服务地址")
-    rerank_api_key: str = Field(default="none", description="HTTP 重排服务 Bearer Token")
+    rerank_api_key: str = Field(
+        default="none", description="HTTP 重排服务 Bearer Token"
+    )
     rerank_path: str = Field(default="/rerank", description="HTTP 重排接口路径")
-    rerank_timeout_ms: int = Field(default=3000, ge=100, description="重排单次超时（毫秒）")
+    rerank_timeout_ms: int = Field(
+        default=3000, ge=100, description="重排单次超时（毫秒）"
+    )
     rerank_threshold: float = Field(
         default=0.35,
         ge=0.0,
@@ -110,7 +140,9 @@ class RagSettings(BaseSettings):
     # ------------------------------------------------------------------
     # 预算、降级与默认值
     # ------------------------------------------------------------------
-    max_context_tokens: int = Field(default=3000, ge=256, le=32000, description="上下文 Token 预算")
+    max_context_tokens: int = Field(
+        default=3000, ge=256, le=32000, description="上下文 Token 预算"
+    )
     max_query_chars: int = Field(
         default=2000,
         ge=100,

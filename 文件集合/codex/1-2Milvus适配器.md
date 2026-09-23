@@ -555,6 +555,9 @@ pymilvus 各版本间存在差异，以下 6 点**必须在你的实际版本上
 > （`from rag_core.adapters import MilvusVectorStore` 成功 —— PEP 562 对 `from … import …` 同样生效），
 > 且不会在 `pymilvus` 缺包时把整个 `adapters` 包的出口绑死。
 > **`1-3 §⑥` 的片段请在 T-A2 落地时按此修正。**
+> ✅ **已于 2026-09-23（T-A2 / `0-C1`）核销**：`1-3 §⑥` 已追加纠偏块（顶层急切 import 作废），
+> 且 T-A2 **未改** `adapters/__init__.py`（PEP 562 懒导出由 T-A1 落地）；
+> 核销证据：`pytest packages/rag-core/tests/test_milvus_store.py -k "package_export or no_top_level"` → **2 passed**。
 
 ### ⑪.2 §⑦「必须实测确认的 6 个点」逐条结果（pymilvus **3.0.0** + milvus-lite **3.0**）
 

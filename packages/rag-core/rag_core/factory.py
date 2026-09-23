@@ -138,6 +138,17 @@ def build_vector_store(settings: RagSettings) -> VectorStorePort:
             collection=settings.collection,
             timeout_s=settings.timeout_ms / 1000.0,
         )
+    if settings.vector_store == "milvus":
+        from .adapters import MilvusVectorStore  # 延迟导入：与 qdrant 分支风格一致
+
+        return MilvusVectorStore(
+            mode=settings.milvus_mode,
+            uri=settings.milvus_uri,
+            token=settings.milvus_token,
+            db_name=settings.milvus_db_name,
+            collection=settings.collection,  # 复用同一 collection，便于与 Qdrant 双跑对比
+            timeout_s=settings.milvus_timeout_s,
+        )
     raise ValueError(f"不支持的 vector_store：{settings.vector_store}")
 
 

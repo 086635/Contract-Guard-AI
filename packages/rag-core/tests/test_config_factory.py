@@ -7,18 +7,23 @@
 3. `log_level` 的重复声明已删除、`cache_ttl_s` 已显式登记为未实现、
    `max_retries` / `max_query_chars` 已写明消费方归属（Agent 工具层 T-B4）；
 4. `**overrides` 的反射命名（`_<同名>`）对新增字段同样有效。
+5. `vector_store=milvus` 的接线（T-A2 / `0-C1 §⑦-1~§⑦-7`）：三分支类型、Literal 取值、
+   5 个 `milvus_*` 默认值、`collection` 复用、非法取值报错。
 """
 
 from __future__ import annotations
 
-from typing import Any
+import os
+from typing import Any, get_args
+
+import pytest
 
 from rag_contracts.chunk import ContractChunk
 from rag_contracts.enums import ChunkType, RetrieveStrategy, SourceType
 from rag_contracts.ports import VectorRecord
 from rag_contracts.query import RAGQueryRequest
 from rag_core.config import RagSettings
-from rag_core.factory import build_service_from_settings
+from rag_core.factory import build_service_from_settings, build_vector_store
 from rag_core.service import RAGService
 
 _QUERY = "逾期付款违约金"
@@ -27,7 +32,11 @@ _TEXT = "买方逾期付款的，应按日支付合同总价千分之五的违�
 
 def _settings(**overrides: Any) -> RagSettings:
     """构造离线配置（`_env_file=None` 避免 .env 干扰，与既有测试同款用法）。"""
-    base: dict[str, Any] = {"vector_store": "inmemory", "embed_mode": "hash", "rerank_mode": "noop"}
+    base: dict[str, Any] = {
+        "vector_store": "inmemory",
+        "embed_mode": "hash",
+        "rerank_mode": "noop",
+    }
     base.update(overrides)
     return RagSettings(_env_file=None, **base)
 
@@ -49,7 +58,9 @@ def _chunk(seq: int = 0) -> ContractChunk:
     )
 
 
-def _service_with_chunks(cfg: RagSettings, count: int = 1) -> tuple[RAGService, list[ContractChunk]]:
+def _service_with_chunks(
+    cfg: RagSettings, count: int = 1
+) -> tuple[RAGService, list[ContractChunk]]:
     """构造带 N 条切片的离线服务（用于观察阈值/截断是否生效）。"""
     service = build_service_from_settings(cfg)
     chunks = [_chunk(i) for i in range(count)]
@@ -66,11 +77,15 @@ def _service_with_chunks(cfg: RagSettings, count: int = 1) -> tuple[RAGService, 
 # ===========================================================================
 def test_default_strategy_from_settings() -> None:
     """断言 8：`CG_RAG_STRATEGY` 改变服务级默认策略，且请求显式值优先。"""
-    service = build_service_from_settings(_settings(strategy=RetrieveStrategy.HYBRID_RRF))
+    service = build_service_from_settings(
+        _settings(strategy=RetrieveStrategy.HYBRID_RRF)
+    )
     assert service._default_strategy is RetrieveStrategy.HYBRID_RRF
 
     implicit = service.retrieve(RAGQueryRequest(query=_QUERY))
-    assert implicit.strategy is RetrieveStrategy.HYBRID_RRF, "配置值未生效（仍是死配置）"
+    assert implicit.strategy is RetrieveStrategy.HYBRID_RRF, (
+        "配置值未生效（仍是死配置）"
+    )
 
     explicit = service.retrieve(
         RAGQueryRequest(query=_QUERY, strategy=RetrieveStrategy.DENSE_ONLY)
@@ -140,9 +155,13 @@ def test_t_a7_eight_items_have_consumers_or_annotation() -> None:
         assert "T-A7" in (fields[name].description or ""), f"{name} 未标明 T-A7 接线"
 
     for name in ("max_retries", "max_query_chars"):
-        assert "T-B4" in (fields[name].description or ""), f"{name} 未标明消费方归属（T-B4）"
+        assert "T-B4" in (fields[name].description or ""), (
+            f"{name} 未标明消费方归属（T-B4）"
+        )
 
-    assert "未实现" in (fields["cache_ttl_s"].description or ""), "cache_ttl_s 未显式登记未实现"
+    assert "未实现" in (fields["cache_ttl_s"].description or ""), (
+        "cache_ttl_s 未显式登记未实现"
+    )
 
     assert "log_level" not in fields, "log_level 重复声明应已删除"
 
@@ -158,8 +177,115 @@ def test_max_context_tokens_description_mentions_both_consumers() -> None:
 def test_overrides_reflection_naming() -> None:
     """新增可覆盖字段必须命名为 `_<同名>`，否则 overrides 静默失效。"""
     service = build_service_from_settings(_settings())
-    for key in ("default_strategy", "default_score_threshold", "rerank_top_n", "rerank_threshold"):
-        assert hasattr(service, f"_{key}"), f"缺少私有字段 _{key}（overrides 会静默失效）"
+    for key in (
+        "default_strategy",
+        "default_score_threshold",
+        "rerank_top_n",
+        "rerank_threshold",
+    ):
+        assert hasattr(service, f"_{key}"), (
+            f"缺少私有字段 _{key}（overrides 会静默失效）"
+        )
 
     patched = build_service_from_settings(_settings(), default_score_threshold=0.11)
     assert patched._default_score_threshold == 0.11
+
+
+# ===========================================================================
+# 5. T-A2（`0-C1`）：Milvus 配置接线
+# ===========================================================================
+def test_build_vector_store_milvus(fake_pymilvus: dict[str, Any]) -> None:
+    """§⑦-1~3：三分支各返回正确类型（milvus 用假 SDK，**不建连**）。"""
+    from rag_contracts.ports import VectorStorePort
+    from rag_core.adapters import (
+        InMemoryVectorStore,
+        MilvusVectorStore,
+        QdrantVectorStore,
+    )
+
+    milvus = build_vector_store(_settings(vector_store="milvus"))
+    assert isinstance(milvus, MilvusVectorStore)
+    assert isinstance(milvus, VectorStorePort)
+    assert isinstance(build_vector_store(_settings()), InMemoryVectorStore)
+    assert isinstance(
+        build_vector_store(
+            _settings(vector_store="qdrant", qdrant_mode="local_memory")
+        ),
+        QdrantVectorStore,
+    )
+
+
+def test_build_vector_store_invalid_raises() -> None:
+    """§⑦-4：非法取值抛 `ValueError` 且消息含该取值（用 model_copy 绕过 Literal 校验）。"""
+    bogus = RagSettings(_env_file=None).model_copy(update={"vector_store": "bogus"})
+    with pytest.raises(ValueError) as excinfo:
+        build_vector_store(bogus)
+    assert "bogus" in str(excinfo.value)
+
+
+def test_vector_store_literal_values() -> None:
+    """§⑦-5：`Literal` 含 3 个取值、默认仍 `inmemory`（离线默认路径与回退路径都在）。"""
+    field = RagSettings.model_fields["vector_store"]
+    assert set(get_args(field.annotation)) == {"inmemory", "qdrant", "milvus"}
+    assert field.default == "inmemory"
+    assert RagSettings().vector_store == "inmemory"
+
+
+def test_milvus_settings_defaults() -> None:
+    """§⑦-7：5 个 `milvus_*` 字段默认值（与 `0-C1 §⑤` / `1-3 §⑤` 逐字一致）。"""
+    settings = RagSettings()
+    assert settings.milvus_mode == "server"
+    assert settings.milvus_uri == "http://localhost:19530"
+    assert settings.milvus_token == ""
+    assert settings.milvus_db_name == "default"
+    assert settings.milvus_timeout_s == 5.0
+    assert RagSettings.model_fields["milvus_timeout_s"].metadata, "ge=0.1 约束应保留"
+
+
+def test_milvus_branch_reuses_collection(fake_pymilvus: dict[str, Any]) -> None:
+    """§⑥-3 / §⑧-5：Milvus 复用 `settings.collection`，不得另立 collection 配置项。"""
+    settings = _settings(vector_store="milvus", collection="shared_collection")
+    store = build_vector_store(settings)
+
+    assert store._collection == "shared_collection"
+    assert "collection" not in {
+        name for name in RagSettings.model_fields if name.startswith("milvus_")
+    }
+
+
+def test_milvus_branch_forwards_connection_params(
+    fake_pymilvus: dict[str, Any],
+) -> None:
+    """§⑥-5：`milvus_*` 真的透传给适配器/SDK（`timeout_s` 不能是死配置）。"""
+    settings = _settings(
+        vector_store="milvus",
+        milvus_uri="http://milvus-host:19530",
+        milvus_token="user:pwd",
+        milvus_db_name="rag",
+        milvus_timeout_s=7.5,
+    )
+    build_vector_store(settings)
+
+    kwargs = fake_pymilvus["client"].kwargs
+    assert kwargs["uri"] == "http://milvus-host:19530"
+    assert kwargs["db_name"] == "rag"
+    assert kwargs["token"] == "user:pwd"
+    assert kwargs["timeout"] == 7.5
+
+
+@pytest.mark.skipif(
+    bool(os.getenv("CG_RAG_TEST_MILVUS_URI")),
+    reason="已配置真实 Milvus 服务（CG_RAG_TEST_MILVUS_URI），本用例只在'无服务'时断言",
+)
+def test_milvus_branch_raises_store_unavailable_without_server() -> None:
+    """§⑦-1 的可执行替身：**无假 SDK 且无服务**时，milvus 分支必须走适配器并抛
+    `StoreUnavailableError`（而不是 `ValueError` —— 后者说明分支根本没接上）。
+
+    ⚠️ 卡内 §⑦-1 写的是"`type(...) is MilvusVectorStore`（不建连）"；实测
+    `MilvusVectorStore.__init__` **构造即建连**（`1-2 §⑪.3-#3`），无服务时必然失败。
+    故接线断言改为"假 SDK 验类型（上一条）+ 真路径验异常类型（本条）"两条。
+    """
+    from rag_contracts.errors import StoreUnavailableError
+
+    with pytest.raises(StoreUnavailableError):
+        build_vector_store(_settings(vector_store="milvus"))
