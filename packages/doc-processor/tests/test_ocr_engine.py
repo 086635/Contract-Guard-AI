@@ -127,8 +127,20 @@ def test_render_pdf_page_returns_bgr_image() -> None:
 
 
 def test_ocr_pdf_page_uses_render_dpi() -> None:
-    """PDF 页路径的出字坐标应落在 A4 页面范围内（render_dpi=200）。"""
-    engine = LocalOcrEngine(_settings(render_dpi=200))
+    """PDF 页路径的出字坐标应落在 A4 页面范围内（render_dpi=200）。
+
+    ⚠️ `timeout_s` 显式放宽到 **120s**（2026-09-23 修）：
+    `_settings()` 的默认 `timeout_s=30` **低于生产默认值 60**
+    （`OcrSettings.timeout_s`，`doc_processor/config.py`），而真实 RapidOCR 单页
+    A4@200dpi 本机实测 **8 ~ 55s**（随机器负载波动）—— 同文件的
+    `test_ocr_page_returns_boxed_lines` 走生产默认 60s、实测 54.5s。
+    30s 会让本用例**周期性假红**（实测出现过 39.8s 超时 → 该页被判跳过 → `assert results` 失败），
+    导致全量门禁的 "1 failed" 无法区分"改坏了"与"机器慢"。
+
+    放宽超时**不影响本用例的判别力**：这里断言的是**坐标正确性**（DPI 是否被正确传播），
+    超时语义由 `test_timeout_marks_page_skipped`（`timeout_s=1` + 桩引擎）单独覆盖。
+    """
+    engine = LocalOcrEngine(_settings(render_dpi=200, timeout_s=120))
     results = engine.ocr_pdf_page(str(_FIXTURES / "native.pdf"), 0)
     assert results, "数字版 PDF 渲染后也应能 OCR 出字"
     assert all(item.page == 1 for item in results)

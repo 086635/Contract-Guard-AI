@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -22,6 +23,24 @@ from doc_processor.parser.extractor import (
 
 _FIXTURES = Path(__file__).resolve().parent / "fixtures"
 _REPO_ROOT = Path(__file__).resolve().parents[3]
+
+# 全仓扫描要剪枝的目录。`Path.rglob` 会一路走进 `.git` / `.tmp_t` / `.uv-cache`，
+# 本机实测让下面那条「正则唯一性」守卫从 ~1s 膨胀到 **58.8s**（全仓最慢用例）。
+_SKIP_DIRS = frozenset(
+    {
+        ".git",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".ruff_cache",
+        ".tmp_t",
+        ".uv-cache",
+        ".venv",
+        "__pycache__",
+        "build",
+        "dist",
+        "node_modules",
+    }
+)
 
 
 def _line(text: str, *, page: int = 1, char_start: int = 0, char_end: int = 0) -> TextLine:
@@ -43,11 +62,16 @@ def test_pattern_defined_once() -> None:
     # 刻意用拼接：本测试文件自身若含连续字面量，会把自己判成"第二处定义"
     needle = "第" + "[一二三四五六七八九十百千零〇"
     hits: list[str] = []
-    for path in _REPO_ROOT.rglob("*.py"):
-        if set(path.parts) & {".venv", "node_modules", "__pycache__"}:
-            continue
-        if needle in open(path, encoding="utf-8", errors="replace").read():
-            hits.append(path.name)
+    # 用 `os.walk` + 目录剪枝（而非 `rglob`）：剪掉 `.git` / `.tmp_t` / `.uv-cache` 等
+    # 与源码无关的大目录，语义不变（断言仍只认源码里的第二处定义），耗时降到 1s 级。
+    for dirpath, dirnames, filenames in os.walk(_REPO_ROOT):
+        dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
+        for name in filenames:
+            if not name.endswith(".py"):
+                continue
+            path = Path(dirpath) / name
+            if needle in path.read_text(encoding="utf-8", errors="replace"):
+                hits.append(path.name)
     assert hits == ["patterns.py"], f"正则被复制到了别处：{hits}"
 
 
