@@ -949,6 +949,15 @@ graph BT
 > 另：`scripts/phase1_smoke.py` **写死** `strategy=DENSE_ONLY`，其日志不会出现
 > `retrieve.sparse` / `retrieve.fusion`（要看五阶段需用 `HYBRID_RRF` 请求）。
 
+> ⚠️ **T-A9 追加（2026-09-23，实测后纠偏；原文保留）**：`chunking/section_aware.py` 新增
+> **`SectionAwareChunker`**（组件 C2）。它**继承** `SimpleChunker`（分段/超长退化沿用既有唯一处，
+> `SimpleChunker` 一行未改），只覆写 `_build`/`_window_slice`：输出**除
+> `parent_section_id` / `section_path` / `level` 三个层级字段外与 `SimpleChunker` 逐字相同**，
+> 连 `chunk_id` 都一致（`section_id` 仍是稳定锚点）→ 两者可互换、换用不会让既有向量库/gold set 失效。
+> `section_path` 采用**纯层级路径**（`第二章/第一节/第三条`，不带 `doc_id` 前缀，与契约字段描述一致）；
+> 多级阿拉伯编号（`6.2`）按"宁缺勿造"给 `level=0`。**默认切片器仍是 `SimpleChunker`**
+> （`factory.py` 未改）。完整规则与实测数据见 `文件集合/codex/1.C2切片器.md` §⑥/§⑩。
+
 ### 6.2 ★ `BM25Store`（T03 待建 —— 照着就能写）
 
 | 项 | 内容 |
