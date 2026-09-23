@@ -167,6 +167,24 @@ docker compose -f docker/docker-compose.yml ps
 | 3 | `docker compose ps` 中 `qdrant` / `postgres` / `redis` / `minio` 仍为既有状态（**未被破坏**） |
 | 4 | Milvus 重启后数据仍在（`milvusdata` 卷持久化生效） |
 
+### 实测后回填（2026-09-23，真机 Docker 29.7.2 / Linux 容器）
+
+| # | 断言 | 实测结果 |
+|---|---|---|
+| 1 | `/healthz` 健康 | ✅ **HTTP 200 · body=`OK`** |
+| 2 | `list_collections()` 成功返回 | ✅ **`['t_a3_smoke']`**（服务初起为空 `[]`） |
+| 3 | 既有服务未被破坏 | ✅ 本项目仅 etcd/milvus/minio；`qdrant`/`postgres`/`redis` 本卡未启动故状态未变；宿主 Dify 栈 11 容器全程 Up |
+| 4 | 重启后数据仍在 | ✅ `restart milvus` → 10 s `healthy`，重启后集合与切片均在场 |
+
+> 🔴 **本卡实测新增两条硬约束（已写进 `docker/docker-compose.yml` 注释）**：
+> ① **compose 项目名必须显式固定**为 `contract-guard` —— 否则默认项目名 `docker` 与本机
+> Dify（`D:\Dify\dify\docker\docker-compose.yaml`）撞名，`down` 会停掉 Dify 整栈；
+> ② **MinIO 镜像改用 `quay.io/minio/minio:latest`** —— 本机 CN 加速器对 Docker Hub 的
+> `minio/minio` 返回 `denied`（同一官方镜像，行为不变）。
+>
+> 另：本卡联调顺带发现 `MilvusVectorStore.count()` 在真 server 上口径错误（`row_count` 含逻辑删除
+> 且未 flush 前为 0），**归属 T-A1**，已登记于 `0-C2.md §⑩.4`。
+
 ---
 
 ## ⑨ 测试要求
@@ -190,4 +208,3 @@ docker compose -f docker/docker-compose.yml ps
 | 6 | 未挂 `milvusdata` 卷 | 容器重启数据全丢，集成测试无法复现 | **必须挂卷** |
 | 7 | 认为"Milvus 起了就万事大吉" | 首次检索可能仍降级 | 排查时**先看 `fallback_reason`** |
 | 8 | 在 Windows 上试 `mode="lite"` | 大概率失败且报错不直观 | 用 `server` 模式 |
-

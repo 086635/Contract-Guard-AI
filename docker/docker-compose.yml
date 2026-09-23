@@ -1,6 +1,12 @@
 # 一键启动：API / Worker / Postgres / Qdrant / Redis / MinIO / Web
 # 构建上下文为仓库根（context: .），各服务 Dockerfile 位于 docker/。
 # 运行：docker compose -f docker/docker-compose.yml up -d
+#
+# ⚠️ 项目名必须显式固定：compose 默认用**文件所在目录名**作项目名，而本文件在 docker/ 下，
+#    默认项目名就是 "docker" —— 与开发机上其它恰好也放在 docker/ 目录的 compose 项目
+#    （例如 Dify：D:\Dify\dify\docker\docker-compose.yaml）**同处一个命名空间**，
+#    会让 `up` 把对方容器当成 orphan、`down` 直接停掉对方的栈。显式命名即彻底隔离。
+name: contract-guard
 
 services:
   postgres:
@@ -31,8 +37,58 @@ services:
     ports: ["6333:6333", "6334:6334"]
     volumes: ["qdrantdata:/qdrant/storage"]
 
+  # ---------------------------------------------------------------------------
+  # Milvus standalone（T-A3 / `0-C2` 新增；备选向量库，见 `1-2` / `1.C5`）
+  #   ⚠️ 依赖 etcd（元数据）+ minio（对象存储，复用下方已有服务）
+  #   ⚠️ 与 qdrant 并存：qdrant 是默认/回退路径，milvus 是备选；都不改彼此的默认值
+  #   起服务：docker compose -f docker/docker-compose.yml up -d etcd minio milvus
+  #   接进 rag-core：CG_RAG_VECTOR_STORE=milvus + CG_RAG_MILVUS_URI=http://localhost:19530
+  # ---------------------------------------------------------------------------
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.16
+    environment:
+      - ETCD_AUTO_COMPACTION_MODE=revision
+      - ETCD_AUTO_COMPACTION_RETENTION=1000
+      - ETCD_QUOTA_BACKEND_BYTES=4294967296
+      - ETCD_SNAPSHOT_COUNT=50000
+    command: >
+      etcd -advertise-client-urls=http://etcd:2379
+      -listen-client-urls http://0.0.0.0:2379
+      --data-dir /etcd
+    volumes: ["etcddata:/etcd"]
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  milvus:
+    image: milvusdb/milvus:v2.5.4          # ⚠️ 用具体小版本，勿用 latest
+    command: ["milvus", "run", "standalone"]
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000            # 复用 compose 已有的 minio 服务
+      MINIO_ACCESS_KEY_ID: minioadmin
+      MINIO_SECRET_ACCESS_KEY: minioadmin
+    ports:
+      - "19530:19530"                      # gRPC 业务端口（pymilvus 连接用）
+      - "9091:9091"                        # 健康检查 / metrics
+    volumes: ["milvusdata:/var/lib/milvus"]
+    depends_on:
+      etcd: { condition: service_healthy }
+      minio: { condition: service_started }
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 60s                    # Milvus 启动较慢，给足冷启动时间
+
   minio:
-    image: minio/minio:latest
+    # ⚠️ 用 MinIO 官方 Quay 仓库：本机 Docker 走的 CN 加速器（daocloud/163/百度）
+    #    对 Docker Hub 的 `minio/minio` 返回 `denied`（实测 2026-09-23），而 quay.io 直连可用。
+    #    同一个官方镜像、同一条 `server /data` 命令、同样的 MINIO_* 环境变量，行为不变。
+    image: quay.io/minio/minio:latest
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: minioadmin
@@ -98,3 +154,5 @@ volumes:
   pgdata:
   qdrantdata:
   miniodata:
+  etcddata:
+  milvusdata:
