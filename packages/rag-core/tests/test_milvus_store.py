@@ -7,9 +7,18 @@
 4. 纯函数：`_escape` / `_build_expr` / `_row_of` / `_score_from_distance` / 列宽；
 5. 与 Qdrant 侧 6 个标量列字段名不得漂移。
 
-**集成部分（`CG_RAG_TEST_MILVUS_URI` 未设置时 skip，保持离线基线）**：
-6. 与 `InMemoryVectorStore` 的 Top-10 重合度 ≥ 0.8；
-7. 同主键重复 upsert 不产生副本；8. `score` 口径是余弦相似度（自检索 ≈ 1.0）。
+**集成部分（`CG_RAG_TEST_MILVUS_URI` 未设置时 skip，保持离线基线）** ——
+逐条对应 `1-5集成测试与迁移.md` §⑤ 的 7 条断言：
+
+| # | 断言 | 用例 |
+|---|---|---|
+| 1 | `ensure_collection(dim)` 连调 2 次不抛异常（幂等） | `test_ensure_collection_idempotent` |
+| 2 | 同一 `chunk_id` `upsert` 两次 → `count()` 不增长 | `test_upsert_idempotent` |
+| 3 | `search` 的 payload 能 `ContractChunk.from_payload()` 还原且等值 | `test_search_score_is_cosine_similarity` |
+| 4 | 过滤命中；不带过滤时能召回到不同源的其它切片 | `test_search_respects_filters` |
+| 5 | 过滤值含 `"` 时 expr 不报错且结果正确 | `test_search_handles_quoted_filter_value` |
+| 6 | `delete_by_doc()` 后 `count()` 减少且 `search` 不再返回该 doc | `test_delete_by_doc_reduces_count_and_hides_hits` |
+| 7 | 与 `InMemoryVectorStore` 的 Top-10 `chunk_id` 重合度 ≥ 0.8 | `test_milvus_top10_overlap` |
 
 ⚠️ 集成用例用**逐用例** `skipif`，**不用**文件级 `pytestmark` —— 否则离线用例会被一并
 跳过，离线基线表面不退化、实际从未运行（`1-5集成测试与迁移.md` §⑤ 避坑 1）。
@@ -376,6 +385,10 @@ _requires_milvus = pytest.mark.skipif(
 _IT_COLLECTION = "test_contract_clauses"
 _IT_STD_DOC = "MILVUS-IT-STD"
 _IT_LAW_DOC = "MILVUS-IT-LAW"
+# 断言 5 专用：doc_id **故意含双引号**，用于验证 `_build_expr` 的 `_escape` 在真机 expr 上生效
+_IT_QUOTE_DOC = 'MILVUS-IT-QUOTE"D'
+# 集成用例会写到的全部 doc_id —— fixture 前后各清一次，保证用例互不污染
+_IT_DOCS = (_IT_STD_DOC, _IT_LAW_DOC, _IT_QUOTE_DOC)
 # ⚠️ 语料必须**互异**：若各切片措辞雷同，HashEmbedder（伪向量）会产出大量同分候选，
 # 同分顺序由实现自行决定 → 重合度会因「排序抖动」而非「语义不一致」掉下来
 # （实测：100 条雷同语料重合度仅 0.30，24 条互异语料为 1.00）。见 `1.C5` §⑦ 回填表。
@@ -441,11 +454,31 @@ def milvus_store() -> Any:
     """连真 Milvus（URI 来自 `CG_RAG_TEST_MILVUS_URI`），用独立 collection 并清理。"""
     store = MilvusVectorStore(uri=_MILVUS_URI or "", collection=_IT_COLLECTION)
     store.ensure_collection(EMBEDDING_DIM)
-    for doc_id in (_IT_STD_DOC, _IT_LAW_DOC):
+    for doc_id in _IT_DOCS:
         store.delete_by_doc(doc_id)
     yield store
-    for doc_id in (_IT_STD_DOC, _IT_LAW_DOC):
+    for doc_id in _IT_DOCS:
         store.delete_by_doc(doc_id)
+
+
+@_requires_milvus
+def test_ensure_collection_idempotent(milvus_store: MilvusVectorStore) -> None:
+    """§⑤ 断言 1：`ensure_collection(dim)` 连调 2 次不抛异常（幂等）。
+
+    fixture 已建过一次（走 `create_collection` 分支）；此处再连调 2 次，覆盖
+    「已存在 → `load_collection` → 返回」分支 —— 实测跨进程集合可能停在 `released`，
+    `load` 必须幂等（`1-2 §⑪.3-#4`）。幂等重建后集合仍须可用：写 1 条能原样检索到。
+    """
+    milvus_store.ensure_collection(EMBEDDING_DIM)
+    milvus_store.ensure_collection(EMBEDDING_DIM)
+
+    embedder = HashEmbedder(dim=EMBEDDING_DIM)
+    chunk = _corpus()[0]
+    milvus_store.upsert(
+        [VectorRecord(chunk=chunk, vector=embedder.embed_one(chunk.text))]
+    )
+    hits = milvus_store.search(embedder.embed_one(chunk.text), 1)
+    assert hits and hits[0].chunk_id == chunk.chunk_id
 
 
 @_requires_milvus
@@ -532,3 +565,72 @@ def test_search_respects_filters(milvus_store: MilvusVectorStore) -> None:
     assert (
         milvus_store.search(query, 10, RetrievalFilters(doc_ids=["NO-SUCH-DOC"])) == []
     )
+    # 断言 4 后半：**不带过滤**时应能召回到不同源的其它切片（过滤确实在起作用，
+    # 而不是「整个集合本来就只有一种源」）
+    unfiltered = milvus_store.search(query, 10)
+    assert {hit.payload["source_type"] for hit in unfiltered} == {
+        SourceType.STANDARD_CLAUSE.value,
+        SourceType.LAW_ARTICLE.value,
+    }, "不带过滤时应同时召回标准条款与法条"
+
+
+@_requires_milvus
+def test_search_handles_quoted_filter_value(milvus_store: MilvusVectorStore) -> None:
+    """§⑤ 断言 5：过滤值含 `"` 时不报错，且结果正确（`_escape` 在真机 expr 上生效）。
+
+    语料里另有 24 条正常切片：若 `_escape` 缺失，expr 在真机上会直接语法错；
+    若转义后语义错位，过滤结果会多出或漏掉切片 —— 两种错这里都能抓到。
+    """
+    embedder = HashEmbedder(dim=EMBEDDING_DIM)
+    chunks = _corpus()
+    quoted = ContractChunk.from_payload(
+        {
+            **chunks[0].to_payload(),
+            "chunk_id": "MILVUS-IT-QUOTE-0000",
+            "doc_id": _IT_QUOTE_DOC,
+        }
+    )
+    records = [
+        VectorRecord(chunk=chunk, vector=vector)
+        for chunk, vector in zip(chunks, embedder.embed_batch([c.text for c in chunks]))
+    ]
+    records.append(VectorRecord(chunk=quoted, vector=embedder.embed_one(quoted.text)))
+    milvus_store.upsert(records)
+
+    hits = milvus_store.search(
+        embedder.embed_one(quoted.text), 10, RetrievalFilters(doc_ids=[_IT_QUOTE_DOC])
+    )
+    assert [hit.chunk_id for hit in hits] == [quoted.chunk_id]
+    assert hits[0].payload["doc_id"] == _IT_QUOTE_DOC
+
+
+@_requires_milvus
+def test_delete_by_doc_reduces_count_and_hides_hits(
+    milvus_store: MilvusVectorStore,
+) -> None:
+    """§⑤ 断言 6：`delete_by_doc()` 后 `count()` 减少，且 `search` 不再返回该 doc。
+
+    ⚠️ 本断言在真 server 上**原本必然失败**：`count()` 旧实现读
+    `get_collection_stats()["row_count"]`（物理行数、且未 flush 前恒为 0）。
+    改成 `count(*)` 聚合 + `consistency_level="Strong"` 之后才成立（`1-2 §⑪.6`）。
+    """
+    embedder = HashEmbedder(dim=EMBEDDING_DIM)
+    chunks = _corpus()
+    records = [
+        VectorRecord(chunk=chunk, vector=vector)
+        for chunk, vector in zip(chunks, embedder.embed_batch([c.text for c in chunks]))
+    ]
+    milvus_store.upsert(records)
+    before = milvus_store.count()
+    std_count = sum(1 for chunk in chunks if chunk.doc_id == _IT_STD_DOC)
+    assert std_count > 0
+
+    removed = milvus_store.delete_by_doc(_IT_STD_DOC)
+
+    after = milvus_store.count()
+    assert after == before - std_count, (
+        f"count 未按预期减少：{before} → {after}（delete_by_doc 报告的删除数={removed}）"
+    )
+    hits = milvus_store.search(embedder.embed_one(_IT_TEXTS[0]), 10)
+    assert hits, "删掉标准条款后，法条切片仍应被召回"
+    assert all(hit.payload["doc_id"] != _IT_STD_DOC for hit in hits)

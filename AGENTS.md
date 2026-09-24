@@ -91,7 +91,9 @@ C 组 独立优化（可砍）        T-A9(1-8)       已取消：T-A10 数据�
 ✅ **A 组提交链**：T-A0 `87e15d9` → T-A7 `27831e3` → T-A1 `bd1255b` → T-A5 `be669d9` → T-A6 `0e1f4ed` → T-A8 `3592082`。
 ✅ **C 组 T-A9 已闭合**：`6783713`（`SectionAwareChunker`，组件 C2；**未接入默认路径**）。
 ✅ **B 组 T-A2 已闭合**：见 `0-C1.md`（Milvus 配置接线，2026-09-23；执行切面文档为 `0-C1.md`~`0-C4.md`）。
-模块 1 剩余：**T-A3 / T-A4**（Milvus 容器编排与集成测试，P2；不阻塞达标）。
+✅ **B 组 T-A3 已闭合**：`7d012a9`（Milvus 容器编排，`0-C2`）。
+✅ **B 组 T-A4 已闭合**：`0-C3`（Milvus 集成测试：7 条断言真 server 全绿；执行切面文档 `0-C3.md`）。
+模块 1 剩余：**无**（A / B / C 三组全部闭合）。
 
 ⚠️ `1-3配置与工厂接线.md` **同时含 T-A7(P0) 与 T-A2(P2)**；`1-5集成测试与迁移.md` 含**已取消**的 T-A10。
 **动手前先确认任务 ID，不要顺手把 P2 做掉。**
@@ -247,9 +249,9 @@ D:\aanacoda1\python.exe -m pytest --basetemp="$bt" -p no:cacheprovider
   （实测一次 32 条）。所以用上面的 `$(Get-Date …)` 生成新目录名；
   旧目录**留给系统回收**，不要用 `cmd /c rd` 之类跨 shell 强删（`AGENTS.md` §8 同款坑）。
 - ⚠️ **不要裸敲 `pytest`**：本机默认 `pytest` 走**系统 Python**（`D:\aanacoda1`），实测会因 `pydantic-core 2.27.2` 与 `pydantic` 不匹配直接 `SystemError`。**必须**先设上面的 `PYTHONPATH`，让 `.venv` 的包优先。
-- **离线基线：398 passed / 8 skipped / 0 failed**（2026-09-23；T-A2 后）。
-  沿革：T-A0 前 `140` → T-C6 后 `317/2` → T-A8 后 `373/8` → T-A9 后 `390/8` → **T-A2 后 `398/8`**。
-  少于 398（且 skip 数没变多）= 你删坏了东西；多于 398 = 你加了测试（好事，但要在汇报里说明）。
+- **离线基线：398 passed / 11 skipped / 0 failed**（2026-09-24；T-A4 后）。
+  沿革：T-A0 前 `140` → T-C6 后 `317/2` → T-A8 后 `373/8` → T-A9 后 `390/8` → T-A2 后 `398/8` → **T-A4 后 `398/11`**。
+ 少于 398（且 skip 数没变多）= 你删坏了东西；多于 398 = 你加了测试（好事，但要在汇报里说明）。
   ⚠️ **读数的前提是"机器别被占满"**：桌面应用（WPS/微信/钉钉/Excel 等）占满 CPU 时，
   全量耗时会从约 73 s 涨到 **300~815 s**，并出现 **1~2 条"负载假红"**（2026-09-23 实测三条）：
   ① `doc-processor` 的**真实 OCR** 用例（单条 8 s → 74~94 s，撞 `timeout_s=60`；
@@ -258,7 +260,8 @@ D:\aanacoda1\python.exe -m pytest --basetemp="$bt" -p no:cacheprovider
   —— **先看负载，别翻业务代码**；判断方法：`pytest` 自己会打印 10 条最慢用例（§4.1 的 `--durations=10`）。
   ⏱ 总耗时 **约 73 秒**（空载实测 `72.91s`；2026-09-23 有负载时实测 `212.93s`）。跑得慢的都是**真实引擎**用例；
   最慢 10 条由 `pytest.ini` 的 `--durations=10` **自动打印**，用来区分「变慢是新增代码还是机器负载」。
-  skip **全部是设计内**（8 条）：① `CG_RAG_TEST_MILVUS_URI` 未设 → 4 条 Milvus 集成；
+  skip **全部是设计内**（11 条）：① `CG_RAG_TEST_MILVUS_URI` 未设 → **7 条 Milvus 集成**
+  （T-A4 补齐了 `1-5 §⑤` 的 7 条断言，故由 4 条增至 7 条；见 `0-C3 §⑩.4`）；
   ② `CG_RAG_TEST_EMBED_BASE_URL` 未设 → 1 条真实 embedding；③ `CG_RAG_TEST_RERANK_URL` 未设 → 1 条真实精排；
   ④ `CG_OCR_TEST_PADDLE` 未设 → PaddleOCR 路线断言（`0.§0.6.2`）；
   ⑤ `worker/adapters.py`（T-B8）未落盘 → 解析↔审核接缝联测（其余键名断言照跑）。
@@ -343,19 +346,19 @@ rag-contracts ──> rag-core ──> ai-engine ──> async-worker
 
 | 事实 | 值 |
 |---|---|
-| 测试基线 | **398 passed / 8 skipped / 0 failed**（2026-09-23 T-A2 后；**约 73 秒**（空载），全离线；8 条 skip 逐条见 §4.1；负载下会多 1~2 条假红，见 §4.1 的说明） |
+| 测试基线 | **398 passed / 11 skipped / 0 failed**（2026-09-24 T-A4 后；**约 106 秒**（空载），全离线；11 条 skip 逐条见 §4.1；负载下会多 1~2 条假红，见 §4.1 的说明） |
 | 契约字段 | `ContractChunk` 28 字段；`RagSettings` **40** 字段（T-A7 删 `log_level`：36→35；T-A2 加 5 个 `milvus_*`：35→40） |
 | 条款编号正则 | 唯一处 **`rag_contracts/patterns.py::CLAUSE_HEAD_RE`**（T-C4 从 `simple_chunker.py` 迁移；两处消费方 import 同一对象，由 `test_patterns.py` + `test_extractor.py` 各一条守卫用例锁死） |
 | 端口（Protocol） | 5 个：`VectorStorePort` / `SparseStorePort` / `EmbedderPort` / `RerankerPort` / `TokenCounterPort` |
 | `rag_core/adapters/` | **9 个**文件（T-A1 新增 `milvus_store.py`；另有 `qdrant_store` / `inmemory_store` / `bm25_store`） |
-| 向量库 | **Qdrant 主力**（`qdrant_client 1.19.0` 已装）；Milvus 为 **P2 备选**，适配器**已实现并实测**（`pymilvus 3.0.0` + `milvus-lite 3.0`，但**装在系统 Python、不在 `.venv`**，且只以 extra `milvus` 声明 → **离线基线里 4 条集成用例必然 skip，这是设计行为**）。**接线（T-A2）已完成**（`0-C1`，`CG_RAG_VECTOR_STORE=milvus` 可选，默认仍 `inmemory`）；**编排（T-A3 / `0-C2`）未做** |
+| 向量库 | **Qdrant 主力**（`qdrant_client 1.19.0` 已装）；Milvus 为 **P2 备选**，适配器**已实现并真 server 实测**（`pymilvus 3.0.0`；只以 extra `milvus` 声明 → **离线基线里 7 条集成用例必然 skip，这是设计行为**）。**接线（T-A2 / `0-C1`）、编排（T-A3 / `0-C2`）、集成测试（T-A4 / `0-C3`）均已闭合**；`CG_RAG_VECTOR_STORE=milvus` 可选，默认仍 `inmemory` |
 | `.venv` 已装 | `langgraph 1.2.11` / `langchain_core 1.6.0` / `openai 3.3.1` / `rapidocr_onnxruntime` / `pdfplumber` / `pypdfium2` / `opencv` |
 | `.venv` 缺包 | `pymilvus`、`rank_bm25`、`jieba`、`sentence_transformers`、`langchain-openai`、`langgraph-checkpoint-postgres/redis`（**`celery` 已于 T-A0 收口进 `.venv`**；`paddleocr` / `paddlepaddle` 已于 T-C0 移除，OCR 走 RapidOCR） |
 | 依赖判据（**2026-09-21 实测补充**） | 上两行的「已装 / 缺包」一律以 **`.venv\Lib\site-packages`** 为准；系统 Python（`D:\aanacoda1`）里的包在 §4.1 前缀下会**顺带可见**，**不代表已收口**。实测（T-A0 / T-C0 之后）：`pymilvus` / `jieba` / `rank_bm25` / `sentence_transformers` / `langchain_openai` / `langgraph-checkpoint-postgres` / `torch` **仍在系统 Python、不在 `.venv`**；`celery` / `redis` / `qdrant_client` / `rapidocr_onnxruntime` / `onnxruntime` / `pymupdf` / `cv2` / `numpy` / `pypdfium2` **已在 `.venv`**；`redis` / `langgraph` / `langchain_core` / `openai` / `paddleocr` / `pdfplumber` / `python-docx` / `pypdfium2` / `opencv(headless)` / `numpy` / `qdrant_client` / `minio` 在 `.venv` 内 |
 | 语义层 | 🟡 **默认仍是 `HashEmbedder` + `NoopReranker`**（离线红线）；但**真实语义与真实精排已打通并实测**（2026-09-22/23）：embedding 走 ollama `bge-m3`（1024 维，冒烟 3 条查询空召回 **1 → 0**、`top_score` 0.34 → **0.80**）；rerank 走 `scripts/serve_rerank.py`（本地 `/rerank` + `bge-reranker-v2-m3`，实测相关 **0.7569** vs 无关 **0.00007**）。🔴 **ollama 不提供 rerank 端点**（`/rerank`、`/v1/rerank`、`/api/rerank` 三路径实测全 **404**）→ 本地精排用 **TEI** 或 `scripts/serve_rerank.py` |
 | 产品接入 | 🟡 `rag_core` 被 `scripts/phase1_smoke.py`（全链路冒烟，`--strategy` 可选）与 `scripts/eval_recall.py`（Recall@K/MRR + 回归门禁）消费；`api-gateway` 仍是 mock 驱动 |
 | RAG 组件卡 | **10 个组件全部已实现**（C1~C10；C2 = `SectionAwareChunker`，T-A9 已落盘，**未接入默认路径**：默认切片器仍是 `SimpleChunker`）。`C9` 的 Milvus 装配分支**已接线**（T-A2 / `0-C1`，2026-09-23） |
-| 文档 vs 代码 | 模块 1：`1-1`~`1-8` + **5 张组件卡**（`1.C2`/`1.C3`/`1.C4`/`1.C5`/`1.C10`）全部落盘，**A 组 P0 关键路径与 C 组 T-A9 均已闭合**。模块 2 / 3：`2-1`~`2-9` / `3-1`~`3-8` 已落盘；**OCR 8 组件已实现并实测**（124 用例），Agent 仍为骨架（`ai-engine` 仅 2 条用例、`async-worker` 26 条） |
+| 文档 vs 代码 | 模块 1：`1-1`~`1-8` + **5 张组件卡**（`1.C2`/`1.C3`/`1.C4`/`1.C5`/`1.C10`）全部落盘，**A / B / C 三组全部闭合（A0~A9，无剩余任务）**。模块 2 / 3：`2-1`~`2-9` / `3-1`~`3-8` 已落盘；**OCR 8 组件已实现并实测**（124 用例），Agent 仍为骨架（`ai-engine` 仅 2 条用例、`async-worker` 26 条） |
 
 > 要引用「现状」，一律以 **L3 `项目代码深度阅读与分析报告.md`** 为准；不要引用历史档案里的数字。
 
@@ -382,8 +385,8 @@ rag-contracts ──> rag-core ──> ai-engine ──> async-worker
 ---
 
 *维护约定*：**本文件只增不删**（例外：§7 事实基线与 §4.1 的基线数字**必须随实测更新**，否则会重蹈"文档落后于代码"）；同类错误出现第三次时才新增规则。
-*最后更新：2026-09-23（**RAG 排期项推进**：T-A2 Milvus 配置接线落地（`0-C1.md`，`RagSettings` 35→40 字段，
-`CG_RAG_VECTOR_STORE` 增 `milvus` 取值、默认仍 `inmemory`）；基线 **398 passed / 8 skipped / 0 failed**（空载约 73 s），
-并记入读数前提："桌面应用占满 CPU 时全量耗时 300~815 s，会出现 1~2 条负载假红
-（真实 OCR 用例超时 + aligner 计时守卫）"。
-此前三次收尾：A 组 + T-A9 全闭合、全仓扫描守卫 58.8 s→0.49 s、OCR 周期性假红的 timeout 对齐）*
+*最后更新：2026-09-24（**模块 1 全部闭合**：T-A3 Milvus 容器编排（`0-C2`）、T-A4 Milvus 集成测试（`0-C3`）先后落地；
+T-A4 补齐 `1-5 §⑤` 的 7 条断言，并**在真 server 上**修出 2 处 lite 测不出的适配器缺陷
+（`search` 默认一致性 → 静默 0 命中；COSINE `score` 口径两后端相反，见 `1-2 §⑪.7`）。
+基线 **398 passed / 11 skipped / 0 failed**（空载约 106 s；skip 由 8 增至 11 是因 Milvus 集成用例 4→7，属设计内）。
+此前收尾：A 组 + T-A9 全闭合、T-A2 配置接线、全仓扫描守卫 58.8 s→0.49 s、OCR 周期性假红的 timeout 对齐）*
