@@ -274,14 +274,27 @@ def test_row_of_flattens_chunk_and_maps_none_to_empty() -> None:
 
 
 def test_score_from_distance_is_similarity() -> None:
-    """分数口径：Milvus 的 COSINE `distance` 是 1-cos，必须反向映射成相似度。
+    """分数口径：两个后端的 COSINE `distance` 语义**相反**，必须按 `mode` 分派。
 
-    实测（pymilvus 3.0.0 + milvus-lite 3.0）：同向量自检索 distance=0.0、
-    正交=1.0、反向=2.0。契约 `VectorHit.score` 要求「越大越相似」，故取 1-distance。
+    实测（2026-09-24，pymilvus 3.0.0，同一对向量 `cos(v0,v1) = 0.0586883`）：
+      - `milvus-lite 3.0`：自检索 `distance = 0.0`、`cos=0.0587` 时 `distance = 0.9413117`
+        —— 语义是**余弦距离** `1 - cos`
+      - `milvusdb/milvus v2.5.4`：自检索 `distance = 1.0`、`cos=0.0587` 时 `distance = 0.0586883`
+        —— 语义是**余弦相似度** `cos`
+
+    契约 `VectorHit.score` 要求「越大越相似」，故 server 取原值、lite 取 `1 - distance`。
     """
-    assert MilvusVectorStore._score_from_distance(0.0) == pytest.approx(1.0)
-    assert MilvusVectorStore._score_from_distance(1.0) == pytest.approx(0.0)
-    assert MilvusVectorStore._score_from_distance(2.0) == pytest.approx(-1.0)
+    client = _FakeClient()
+
+    server = _store_with(client)
+    server._mode = "server"
+    assert server._score_from_distance(1.0) == pytest.approx(1.0)
+    assert server._score_from_distance(0.0586883) == pytest.approx(0.0586883)
+
+    lite = _store_with(client)
+    lite._mode = "lite"
+    assert lite._score_from_distance(0.0) == pytest.approx(1.0)
+    assert lite._score_from_distance(0.9413117) == pytest.approx(0.0586883)
 
 
 def test_scalar_fields_match_qdrant_keyword_fields() -> None:

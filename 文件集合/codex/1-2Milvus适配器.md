@@ -574,7 +574,7 @@ pymilvus 各版本间存在差异，以下 6 点**必须在你的实际版本上
 
 | # | 原文 | 实测后 | 理由 |
 |---|---|---|---|
-| 1 | §⑤「`distance` 即相似度」 | 见 ⑪.2-#4，反向映射 | 契约 `VectorHit.score`「越大越相似」 |
+| 1 | §⑤「`distance` 即相似度」 | 见 ⑪.2-#4，反向映射 | 契约 `VectorHit.score`「越大越相似」。⚠️ **该结论只对 milvus-lite 成立**；真 server 的 `distance` 本就是相似度，2026-09-24 已改为**按 `mode` 分派**（见 **§⑪.7-2**） |
 | 2 | §⑥ `__init__` 里 `uri: str = "http://localhost:19530"`（卡片 §⑤ 写 `uri=""`） | 采用 §⑥ 的默认值 | 与 `1-3 §⑤` 的 `milvus_uri` 默认值一致；`uri=""` 会构造必败 |
 | 3 | §⑥ 骨架 `self._client = self._build_client(...)` 不包异常 | `_build_client` 内 **try/except → `StoreUnavailableError`** | 实测 `MilvusClient` **构造即建连**，服务不可达会抛裸 `MilvusException`；§⑥ docstring 已承诺 `Raises: StoreUnavailableError` |
 | 4 | §⑥ `create_collection` 后即返回（`has_collection` 命中则直接 `return`） | 「已存在」分支补 `load_collection()` | 实测**跨进程**集合处于 `released`，`search` 报 `code=101 Collection … is in state 'released'`；`load` 幂等（连调 2 次 OK） |
@@ -646,3 +646,53 @@ delete_by_doc 后立刻 count(): 0        (期望 0)
 而 `0-C3 §④` 明确「不改生产代码」→ 本处修复是 `0-C3` 能全绿的前提。
 集成用例 `test_milvus_store.py::test_upsert_idempotent`（依赖 `count()` 的三段断言）
 在真 server 上随本修复一并转正。
+
+### ⑪.7 🔴 真 server 联调又修出 2 处缺陷（2026-09-24，由 T-A4 / `0-C3` 的 7 条断言暴露）
+
+> 承接 §⑪.6：`count()` 修好之后，`0-C3` 的 7 条集成断言在真 server 上**仍不能全绿**。
+> 定位过程与对照实验的完整记录见 `0-C3 §⑩`；此处只登记**结论与处置**。
+
+#### ⑪.7-1 `search` 必须显式 `consistency_level="Strong"`
+
+| 调用（同一进程、同一对向量、`upsert` 之后立刻） | 命中数 |
+|---|---|
+| `search(...)`（原实现，**不传** `consistency_level`） | **0** ❌ |
+| `search(..., consistency_level="Strong")` | **10** ✅ |
+| `count()`（本就是 Strong，先调它再调上面那个 `search`） | 24 / **10** ✅ |
+
+**症状**：`upsert` 之后立刻 `search` **静默返回 0 条**（不抛错、不降级）—— 即"假空召回"，
+而同一时刻 `count()` 已能看到数据。**修复前 `0-C3` 的断言 3/4/5/7 在真 server 上必然失败。**
+
+**排除过的替代解释**：**不是** `load_collection` 未就绪。试过
+①「poll `get_load_state()` 到 `Loaded` 再返回」②「已 `Loaded` 则跳过 `load_collection`」——
+两者都**不能**消除 0 命中（`get_load_state()` 会**抢报 `Loaded`**，实测在 0 命中的同一时刻它已返回 `Loaded`）。
+最终证据是上表第 2/3 行：只要有一次 Strong 读，随后的默认读也就正常了 → 根因是**会话时间戳/一致性**，不是加载状态。
+
+**处置**：`search()` 显式带 `consistency_level="Strong"`，与 `count()` 同口径。
+
+#### ⑪.7-2 COSINE `score` 口径在**两个后端相反**（原 `1 - distance` 按 lite 写的）
+
+同一对向量（Python 自算 `cos(v0, v1) = 0.0586883`）测得的原始 `distance`：
+
+| 后端 | 自检索 | `cos = 0.0587` 时 | `distance` 语义 |
+|---|---|---|---|
+| `milvus-lite 3.0`（`mode="lite"`） | `0.0` | `0.9413117` | 余弦**距离** `1 - cos` |
+| `milvusdb/milvus v2.5.4`（`mode="server"`） | `1.0` | `0.0586883` | 余弦**相似度** `cos` |
+
+两列互为补数 → 确证是同一原始余弦值的两种口径，**不是**测量误差。
+§⑪.2-#4 的「统一反向映射」建立在**只有 lite 的实测**上，故在真 server 上把 `score` **整体反向**：
+
+> `search()` 的 `score` 会变成 `1 - cos`；而 `RAGService.retrieve()` 用
+> `score_threshold`（默认 **0.35**）**直接过滤 `score`** →
+> **真相关切片因"分数高"被当噪声丢掉、无关切片反而保留**。
+> 这是"数值不报错但语义全错"的一类缺陷，离线与 lite 都测不出。
+
+**处置**：`_score_from_distance()` 由 `@staticmethod` 改为**实例方法**，按 `self._mode` 分派 ——
+`server` 取原值、`lite` 取 `1 - distance`。离线守卫用例
+`test_score_from_distance_is_similarity` 同步改为**两个后端各验一次**（不再是单一公式）。
+
+#### ⑪.7-3 与 `0-C3` 的边界
+
+`0-C3 §②` 声明「不改生产代码 / 影响面仅测试文件」。上述两处修复**超出该声明**，但其性质与 §⑪.6 完全相同：
+**不修则 `0-C3` 的验收断言在真 server 上不可能通过**，且都是**只有真实后端才复现**的缺陷。
+故按同一先例落成独立 `fix(T-A1)` 提交，并在 `0-C3 §② / §⑩` 显式登记该范围偏离。

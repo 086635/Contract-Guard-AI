@@ -10,6 +10,9 @@
    据此走降级路径（红线：retrieve 永不抛异常）。
 5. 🔴 **不得成为任何默认值**：本类不出现在 `RagSettings.vector_store` 的默认值与
    `factory.build_vector_store()` 的兜底分支里（默认仍是 `inmemory`，见决策 D1）。
+6. 读路径统一用 **`consistency_level="Strong"`**（`search` 与 `count` 均是）：真 server 上
+   默认一致性会让**刚写入的数据检索不到** —— `search` 静默返回 0 条，而 `count()` 已能看到，
+   是最难排查的一类"假空召回"（见 §⑪.6 / §⑪.7）。
 
 对应：RAG_MODULE_DESIGN.md §1.3.1（MilvusVectorStore 为预留命名）；文件集合/codex/1-2Milvus适配器.md
 """
@@ -214,15 +217,21 @@ class MilvusVectorStore:
             row[field] = getattr(value, "value", value) if value is not None else ""
         return row
 
-    @staticmethod
-    def _score_from_distance(distance: float) -> float:
+    def _score_from_distance(self, distance: float) -> float:
         """把 Milvus 的 `distance` 换算成契约要求的相似度（越大越相似）。
 
-        ⚠️ **实测（2026-09-22，pymilvus 3.0.0 + milvus-lite 3.0）**：`metric_type=COSINE`
-        时 Milvus 返回的是**余弦距离** `1 - cos`（同向量自检索 = 0.0、正交 = 1.0、
-        反向 = 2.0，结果按该值**升序**返回），与 `1-2 §⑤` 的预期（distance 即相似度）
-        相反。契约 `VectorHit.score` 的定义是「相似度得分（COSINE，越大越相似）」，
-        故此处统一反向映射，保证与 `QdrantVectorStore` / `InMemoryVectorStore` 同口径。
+        ⚠️ **两个后端返回的 `distance` 语义相反**（2026-09-24 实测，pymilvus 3.0.0；
+        同一对向量 `cos(v0, v1) = 0.0586883`）：
+
+        | 后端 | `distance` 语义 | 自检索 | `cos = 0.0587` 时 |
+        |---|---|---|---|
+        | `mode="lite"`（milvus-lite 3.0） | 余弦**距离** `1 - cos` | `0.0` | `0.9413117` |
+        | `mode="server"`（milvusdb/milvus v2.5.4） | 余弦**相似度** `cos` | `1.0` | `0.0586883` |
+
+        两行互为补数，确证是同一原始余弦值的两种口径，故**必须按 `mode` 分派**。
+        契约 `VectorHit.score` 是「越大越相似」，而 `RAGService.score_threshold`
+        （默认 0.35）**直接作用在 `score` 上** —— 口径反了会让某一侧后端
+        **整体误判召回**（真正相关的切片因"分数高"被当噪声丢掉）。
 
         Args:
             distance: Milvus 命中里的 `distance` 字段。
@@ -230,7 +239,9 @@ class MilvusVectorStore:
         Returns:
             余弦相似度，落在 [-1, 1]。
         """
-        return 1.0 - float(distance)
+        value = float(distance)
+        # server 返回 cos（相似度）→ 原值即契约口径；lite 返回 1-cos（距离）→ 需反向
+        return value if self._mode == "server" else 1.0 - value
 
     # ---------------- VectorStorePort 实现 ----------------
     def ensure_collection(self, dim: int) -> None:
@@ -342,6 +353,10 @@ class MilvusVectorStore:
                 limit=max(1, int(top_k)),
                 filter=self._build_expr(filters),
                 output_fields=["payload"],
+                # ⚠️ 必须显式 Strong：用集合默认一致性时，`upsert` 之后**立刻**检索会
+                # 静默返回 0 条（而 `count()` 已能看到数据）—— 与 `count()` 同一口径，
+                # 见 1-2 §⑪.6 / §⑪.7。实测 pymilvus 3.0.0 + milvusdb/milvus:v2.5.4。
+                consistency_level="Strong",
                 search_params={"metric_type": "COSINE", "params": {"ef": _SEARCH_EF}},
             )
         except Exception as exc:
