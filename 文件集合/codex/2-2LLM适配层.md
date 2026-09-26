@@ -57,7 +57,7 @@
 
 | 文件 | 动作 | 职责 |
 |---|---|---|
-| `packages/ai-engine/ai_engine/llm/__init__.py` | **新建** | 导出 5 个公开符号 + `__all__`（字母序） |
+| `packages/ai-engine/ai_engine/llm/__init__.py` | **新建** | 导出 7 个公开符号 + `__all__`（字母序） |
 | `packages/ai-engine/ai_engine/llm/settings.py` | **新建** | `LlmSettings`（`BaseSettings`，`env_prefix="CG_LLM_"`） |
 | `packages/ai-engine/ai_engine/llm/factory.py` | **新建** | `build_chat_model` / `get_chat_model` / `clear_llm_cache`（进程内缓存） |
 | `packages/ai-engine/ai_engine/llm/structured.py` | **新建** | `invoke_structured`（结构化输出 + 降级） |
@@ -179,6 +179,7 @@ __all__ = [
     "build_chat_model",
     "clear_llm_cache",
     "get_chat_model",
+    "get_llm_settings",
     "invoke_structured",
 ]
 ```
@@ -201,9 +202,9 @@ __all__ = [
 
 | 项 | 实测值（落地时填写） |
 |---|---|
-| D2-d 最终模型名 | ⬜ 待回填 |
-| 结构化输出成功率（同一 schema 连调 10 次） | ⬜ 待回填 |
-| 单次 `invoke_structured` 平均耗时 | ⬜ 待回填 |
+| D2-d 最终模型名 | **`deepseek-flash`**（`https://api.deepseek.com/v1`） |
+| 结构化输出成功率（同一 schema 连调 10 次） | **10/10 最终成功**；其中首选 `function_calling` **0/10**（当前 thinking mode 返回 400 `does not support this tool_choice`），全部由第二级 `json_object + 手工校验` 接住；另跑 1 次独立最小请求仍成功命中第二级 |
+| 单次 `invoke_structured` 平均耗时 | **777.87 ms**（10 次端到端；min 654.53 ms / max 872.07 ms；含首选 function calling 失败再降级） |
 
 ---
 
