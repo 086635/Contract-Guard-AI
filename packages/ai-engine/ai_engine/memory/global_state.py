@@ -8,6 +8,13 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from .store import (
+    InMemoryMemoryStore,
+    MemoryStorePort,
+    decode_model,
+    encode_model,
+)
+
 
 class Money(BaseModel):
     amount: str
@@ -38,11 +45,27 @@ class GlobalContractState(BaseModel):
 class GlobalStateManager:
     """全局状态读写（可后端接 Redis / Postgres）。"""
 
-    def __init__(self) -> None:
-        self._store: dict[str, GlobalContractState] = {}
+    def __init__(
+        self,
+        store: MemoryStorePort | None = None,
+        *,
+        key_prefix: str = "cg:mem",
+        ttl_s: int | None = None,
+    ) -> None:
+        self._store = store or InMemoryMemoryStore()
+        self._namespace = f"{key_prefix}:global"
+        self._ttl_s = ttl_s
 
     def save(self, state: GlobalContractState) -> None:
-        self._store[state.contractId] = state
+        self._store.set(
+            self._namespace,
+            state.contractId,
+            encode_model(state),
+            self._ttl_s,
+        )
 
     def load(self, contract_id: str) -> GlobalContractState | None:
-        return self._store.get(contract_id)
+        return decode_model(
+            self._store.get(self._namespace, contract_id),
+            GlobalContractState,
+        )

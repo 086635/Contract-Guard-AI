@@ -7,11 +7,15 @@ dependencies = [
     "pydantic>=2.7",
     "langgraph>=1.2,<2.0",      # AI Agent 编排（T-A0-3 收紧：原 ">=0.2" 与实测 1.2.11 脱节）
     "langchain-core>=1.6,<2.0", # 消息 / 工具抽象
-    "openai>=3.3",              # LLM 调用
+    "langchain-openai>=1.1,<2.0", # ChatOpenAI 适配（D2-a）
+    "openai>=3.3,<4.0",         # DeepSeek OpenAI 兼容端点走同一 SDK
     "rag-contracts",            # workspace：契约层
     "rag-core",                 # workspace：检索内核（薄桥接）
     "cg-observability",         # workspace：日志 / 埋点
 ]
+
+[dependency-groups]
+dev = ["pytest>=8.0"]
 
 [build-system]
 requires = ["hatchling"]

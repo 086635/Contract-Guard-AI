@@ -9,27 +9,32 @@ from .auditor import (
     RiskLevel,
     audit_clause,
 )
-from .conflict import CrossClauseConflict, ConflictType, analyze_conflicts
+from .conflict import ConflictType, CrossClauseConflict, analyze_conflicts
+from .errors import RewriteUnavailableError
 from .rewriter import (
     AgentRewriteRequest,
     RewriteResponse,
     ScopedClauseMemory,
     rewrite_clause,
 )
+from .tools import RagTool, build_rag_tool
 
 __all__ = [
+    "AgentRewriteRequest",
     "AuditContext",
+    "ConflictType",
+    "CrossClauseConflict",
     "EnhancedRiskItem",
     "PreciseCitation",
+    "RagTool",
     "ReasoningStep",
+    "RewriteResponse",
+    "RewriteUnavailableError",
     "RiskCategory",
     "RiskLevel",
-    "audit_clause",
-    "CrossClauseConflict",
-    "ConflictType",
-    "analyze_conflicts",
-    "AgentRewriteRequest",
-    "RewriteResponse",
     "ScopedClauseMemory",
+    "analyze_conflicts",
+    "audit_clause",
+    "build_rag_tool",
     "rewrite_clause",
 ]

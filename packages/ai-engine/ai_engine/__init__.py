@@ -8,3 +8,5 @@ ReasoningStep / PreciseCitation，禁止返回未声明字段。
 """
 
 __version__ = "1.1.0"
+
+# `ai_engine.llm` 保持显式导入，不在包根 re-export，避免导入期构造模型或读配置。
