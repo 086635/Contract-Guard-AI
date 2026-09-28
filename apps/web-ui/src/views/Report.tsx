@@ -1,9 +1,31 @@
-/** 报告页：审核报告预览与导出（§5.1 报告预览 - 生成中 spinner / 导出失败 toast）。 */
+import { useEffect, useRef, useState } from "react";
+import { useParams } from "react-router-dom";
+import Badge from "@/components/ui/Badge";
+import Button from "@/components/ui/Button";
+import Icon from "@/components/ui/Icon";
+import SectionHeader from "@/components/ui/SectionHeader";
+import { contractApi, reportApi, taskApi } from "@/api/services";
+import type { components } from "@/api/generated/types";
+
+type Schemas = components["schemas"];
 export default function Report() {
-  return (
-    <section>
-      <h2>报告</h2>
-      <p>报告预览与导出占位。GET /report/{"{contractId}"} 拉取 downloadUrl。</p>
-    </section>
-  );
+  const { contractId } = useParams();
+  const selectedId = contractId ?? "00000000-0000-0000-0000-000000000001";
+  const [contract, setContract] = useState<Schemas["Contract"] | null>(null);
+  const [report, setReport] = useState<Schemas["ReportData"] | null>(null);
+  const [task, setTask] = useState<Schemas["TaskProgress"] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [activeSection, setActiveSection] = useState("overview");
+  const [message, setMessage] = useState<string | null>(null);
+  const sectionRefs = { overview: useRef<HTMLDivElement>(null), risks: useRef<HTMLDivElement>(null), missing: useRef<HTMLDivElement>(null), seals: useRef<HTMLDivElement>(null) };
+  const load = () => { setError(null); return Promise.all([contractApi.detail(selectedId), reportApi.get(selectedId)]).then(([detail, data]) => { setContract(detail); setReport(data); }).catch((reason) => setError(reason instanceof Error ? reason.message : "报告数据加载失败，请重试。")); };
+  useEffect(() => { void load(); }, [selectedId]);
+  const goTo = (key: keyof typeof sectionRefs) => { setActiveSection(key); sectionRefs[key].current?.scrollIntoView({ behavior: "smooth", block: "start" }); };
+  const regenerate = async () => {
+    setMessage(null); setError(null);
+    try { const next = await reportApi.generate(selectedId); setTask(next); taskApi.subscribe(next.taskId, (progress) => { setTask(progress); if (progress.status === "DONE") { setMessage("新报告已生成，页面数据已刷新。"); void load(); } }, () => setMessage("实时进度已中断，可稍后刷新查看报告。")); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "报告生成失败，请稍后重试。"); }
+  };
+  const openDownload = () => { if (!report?.downloadUrl) return; const url = new URL(report.downloadUrl); if (url.hostname.endsWith(".local")) { setMessage("当前为本地 Mock 下载地址，已改用浏览器打印预览。"); window.print(); } else window.open(report.downloadUrl, "_blank", "noopener,noreferrer"); };
+  return <div className="report-page">{error && <div className="audit-data-error"><Icon name="activity" size={17} /><span>{error}</span><Button size="sm" variant="secondary" onClick={() => void load()}>重新加载</Button></div>}{message && <div className="settings-message">{message}<button onClick={() => setMessage(null)}><Icon name="x" size={14} /></button></div>}<SectionHeader eyebrow={`REPORT CENTER · ${report?.status ?? "LOADING"}`} title="审核报告与导出中心" description={`${contract?.fileName ?? "正在读取合同"} · ${report?.generatedAt ? new Date(report.generatedAt).toLocaleString("zh-CN") : "等待报告数据"}`} actions={<><Button variant="secondary" icon={<Icon name="refresh" size={16} />} onClick={() => void regenerate()} disabled={task?.status === "RUNNING"}>{task?.status === "RUNNING" ? `生成中 ${Math.round(task.percent * 100)}%` : "重新生成"}</Button><Button variant="secondary" icon={<Icon name="download" size={16} />} onClick={() => window.print()}>打印 / PDF</Button><Button icon={<Icon name="download" size={16} />} onClick={openDownload} disabled={!report?.downloadUrl}>下载报告</Button></>} />{task?.status === "RUNNING" && <div className="report-progress"><span><i style={{ width: `${task.percent * 100}%` }} /></span><b>{task.stage}</b><em>{Math.round(task.percent * 100)}%</em></div>}<div className="report-layout"><aside className="report-sidebar panel"><div className="report-side-title">报告目录</div><button className={activeSection === "overview" ? "active" : ""} onClick={() => goTo("overview")}>风险概览 <span>01</span></button><button className={activeSection === "risks" ? "active" : ""} onClick={() => goTo("risks")}>重点风险 <span>02</span></button><button className={activeSection === "missing" ? "active" : ""} onClick={() => goTo("missing")}>缺失条款 <span>03</span></button><button className={activeSection === "seals" ? "active" : ""} onClick={() => goTo("seals")}>签署校验 <span>04</span></button><div className="report-version"><small>报告版本</small><b>v{contract?.version ?? 1}.0 · 当前版本</b><span>{report?.generatedAt ? new Date(report.generatedAt).toLocaleString("zh-CN") : "读取中…"}</span><button onClick={() => setMessage("当前 Mock 服务仅返回最新版本；版本历史接口已预留。")}>查看历史版本 <Icon name="chevron-right" size={14} /></button></div></aside><article className="report-paper panel"><div className="report-cover"><div className="report-logo"><span><Icon name="shield" size={20} /></span>CONTRACTGUARD <small>AI LEGAL WORKSPACE</small></div><Badge tone={report?.status === "DONE" ? "success" : "info"} dot>{report?.status === "DONE" ? "审核已完成" : "报告生成中"}</Badge><h2>合同智能审核报告</h2><p>{contract?.fileName ?? "合同文件"}</p><div className="cover-meta"><span>合同类型<b>{contract?.contractType ?? "—"}</b></span><span>审核版本<b>v{contract?.version ?? 1}.0</b></span><span>报告日期<b>{report?.generatedAt ? new Date(report.generatedAt).toLocaleDateString("zh-CN") : "—"}</b></span></div></div><div className="report-section" ref={sectionRefs.overview}><div className="report-section-heading"><span>01</span><div><h3>风险概览</h3><p>基于合同文本、法条知识库及规则引擎综合评估</p></div></div><div className="report-score-grid"><div className="big-score"><div className="score-ring large">{contract?.healthScore.overall ?? "—"}<small>/100</small></div><div><b>综合健康分</b><span>优先处理高风险项，再完成条款一致性复核</span></div></div>{(["HIGH","MEDIUM","LOW"] as const).map((level) => <div className={`report-stat ${level.toLowerCase()}`} key={level}><b>{contract?.risks.filter((item) => item.level === level).length ?? 0}</b><span>{level === "HIGH" ? "高风险" : level === "MEDIUM" ? "中风险" : "低风险"}</span></div>)}</div></div><div className="report-section" ref={sectionRefs.risks}><div className="report-section-heading"><span>02</span><div><h3>重点风险清单</h3><p>共 {contract?.risks.length ?? 0} 个风险条款需要人工确认</p></div></div>{contract?.risks.length ? contract.risks.map((risk) => <div className="report-risk-line" key={risk.id}><Badge tone={risk.level === "HIGH" ? "high" : risk.level === "MEDIUM" ? "medium" : "low"} dot>{risk.level === "HIGH" ? "高风险" : risk.level === "MEDIUM" ? "中风险" : "低风险"}</Badge><div><b>{risk.title}</b><p>{risk.suggestion}</p><small>{risk.legalBasis}</small></div><span>待确认</span></div>) : <div className="compact-empty">未发现需要列示的风险</div>}</div><div className="report-section" ref={sectionRefs.missing}><div className="report-section-heading"><span>03</span><div><h3>缺失条款提醒</h3><p>与标准合同模板对比后的缺口</p></div></div>{contract?.missingClauses.length ? contract.missingClauses.map((item) => <div className="report-detail-card" key={item.id}><b>{item.title}</b><p>{item.reason}</p><span>{item.suggestion}</span></div>) : <div className="compact-empty">未发现关键条款缺失</div>}</div><div className="report-section" ref={sectionRefs.seals}><div className="report-section-heading"><span>04</span><div><h3>签署合规校验</h3><p>印章、签名与合同主体一致性检查</p></div></div>{contract?.seals.map((seal) => <div className="report-detail-card" key={seal.id}><div><Badge tone={seal.status === "VALID" ? "success" : "high"} dot>{seal.status}</Badge><b>{seal.extractedText ?? "未识别签章"}</b></div><p>{seal.complianceNote}</p><span>第 {seal.page} 页 · 置信度 {Math.round(seal.confidence * 100)}%</span></div>)}</div></article></div></div>;
 }

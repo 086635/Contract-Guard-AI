@@ -25,7 +25,7 @@ function makeRequestId(): string {
 }
 
 export const httpClient: AxiosInstance = axios.create({
-  baseURL: "/api/v1",
+  baseURL: import.meta.env.VITE_API_BASE_URL || "/api/v1",
   timeout: 30_000,
   headers: { "Content-Type": "application/json" },
 });
@@ -48,7 +48,13 @@ httpClient.interceptors.response.use(
     //   }
     return response;
   },
-  (error) => Promise.reject(error),
+  (error) => {
+    // 网关错误统一保留面向用户的 message，同时把 traceId 带到开发日志。
+    const payload = error?.response?.data as { message?: string; detail?: string; traceId?: string } | undefined;
+    if (payload?.traceId && import.meta.env.DEV) console.warn(`[api] ${payload.traceId}`, payload.detail ?? payload.message);
+    if (payload?.message) error.message = payload.message;
+    return Promise.reject(error);
+  },
 );
 
 export default httpClient;

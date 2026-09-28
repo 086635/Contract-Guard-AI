@@ -1,9 +1,32 @@
-/** 配置页：系统级规则与 Prompt 角色（§8.3 SystemAuditConfiguration）。 */
+import { useEffect, useState } from "react";
+import Badge from "@/components/ui/Badge";
+import Button from "@/components/ui/Button";
+import Icon from "@/components/ui/Icon";
+import SectionHeader from "@/components/ui/SectionHeader";
+import { settingsApi } from "@/api/services";
+import type { components } from "@/api/generated/types";
+
+type Rule = components["schemas"]["SystemAuditConfiguration"];
+type Tab = "basic" | "prompt" | "threshold" | "library";
+const contractNames: Record<string, string> = { PURCHASE: "采购合同", SALES: "销售合同", NDA: "保密协议", OUTSOURCING: "服务合同", LABOR: "劳动合同", OTHER: "其他合同" };
+
 export default function Settings() {
-  return (
-    <section>
-      <h2>配置</h2>
-      <p>规则与模板配置占位。GET/PUT /settings/rules（需 version 乐观锁）。</p>
-    </section>
-  );
+  const [rules, setRules] = useState<Rule[]>([]);
+  const [rule, setRule] = useState<Rule | null>(null);
+  const [tab, setTab] = useState<Tab>("basic");
+  const [enabled, setEnabled] = useState(true);
+  const [thresholds, setThresholds] = useState({ high: 85, medium: 65, low: 40 });
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => { let mounted = true; settingsApi.list().then((items) => { if (mounted) { setRules(items); setRule(items[0] ?? null); } }).catch(() => { if (mounted) setMessage("规则配置暂时无法加载，请确认 API 网关已启动。"); }).finally(() => { if (mounted) setLoading(false); }); return () => { mounted = false; }; }, []);
+  const updatePrompt = (patch: Partial<Rule["promptConfig"]>) => setRule((current) => current ? { ...current, promptConfig: { ...current.promptConfig, ...patch } } : current);
+  const toggleRule = (name: string) => setRule((current) => current ? { ...current, enabledRules: current.enabledRules.includes(name) ? current.enabledRules.filter((item) => item !== name) : [...current.enabledRules, name] } : current);
+  const save = async () => {
+    if (!rule || saving) return; setSaving(true); setMessage(null);
+    try { const updated = await settingsApi.update(rule.id, rule); setRule(updated); setRules((current) => current.map((item) => item.id === updated.id ? updated : item)); setMessage("规则配置已保存并生成新版本。"); }
+    catch (reason) { setMessage(reason instanceof Error ? reason.message : "保存失败，请稍后重试。"); }
+    finally { setSaving(false); }
+  };
+  return <div className="settings-page"><SectionHeader eyebrow="RULE ENGINE" title="规则引擎与配置中心" description="按合同类型管理审查规则、Agent 角色与人工复核阈值。" actions={<Button icon={<Icon name={saving ? "clock" : "check"} size={16} />} onClick={() => void save()} disabled={saving || !rule}>{saving ? "保存中…" : "保存全部修改"}</Button>} />{message && <div className={`settings-message ${message.includes("失败") || message.includes("无法") ? "error" : ""}`}>{message}<button onClick={() => setMessage(null)}><Icon name="x" size={14} /></button></div>}<div className="settings-layout"><aside className="panel rules-tree"><div className="panel-heading"><div><h2>规则库</h2><p>{loading ? "正在读取…" : `${rules.length} 套规则配置`}</p></div><button className="icon-button" aria-label="新建规则"><Icon name="plus" size={17} /></button></div><div className="tree-group"><div className="tree-parent"><Icon name="chevron-down" size={14} /><Icon name="briefcase" size={16} /><b>合同类型</b><span>{rules.length}</span></div>{rules.map((item) => <button key={item.id} className={`tree-rule ${rule?.id === item.id ? "active" : ""}`} onClick={() => setRule(item)}><i />{contractNames[item.contractType]}审查规则 <Badge tone="success">启用</Badge></button>)}{!loading && !rules.length && <div className="compact-empty">暂无规则配置</div>}</div><div className="tree-footer"><Icon name="help" size={16} />规则保存采用版本号防止覆盖</div></aside><section className="panel rule-editor">{rule ? <><div className="editor-heading"><div><div className="eyebrow">{rule.contractType} · {rule.id.slice(0, 8)}</div><h2>{contractNames[rule.contractType]}审查标准 <Badge tone={enabled ? "success" : "neutral"} dot>{enabled ? "已启用" : "已停用"}</Badge></h2><p>更新于 {new Date(rule.updatedAt).toLocaleString("zh-CN")} · 版本 v{rule.version}</p></div><label className="toggle-label"><span>规则启用</span><button className={`toggle ${enabled ? "on" : ""}`} onClick={() => setEnabled(!enabled)} aria-pressed={enabled}><i /></button></label></div><div className="editor-tabs"><button className={tab === "basic" ? "active" : ""} onClick={() => setTab("basic")}>基本信息</button><button className={tab === "prompt" ? "active" : ""} onClick={() => setTab("prompt")}>Prompt 与角色</button><button className={tab === "threshold" ? "active" : ""} onClick={() => setTab("threshold")}>风险阈值</button><button className={tab === "library" ? "active" : ""} onClick={() => setTab("library")}>标准条款库</button></div>{tab === "basic" && <div className="editor-section"><div className="editor-form"><label>规则名称<input value={`${contractNames[rule.contractType]}审查标准`} readOnly /></label><label>适用合同类型<div className="fake-select">{contractNames[rule.contractType]} <Icon name="chevron-down" size={15} /></div></label><label className="full">规则说明<textarea value={rule.promptConfig.systemPrompt} onChange={(event) => updatePrompt({ systemPrompt: event.target.value })} /></label></div><div className="required-clauses"><h3>启用的检查规则</h3><div>{["penalty_too_high","unlimited_liability","missing_dispute_clause","payment_term_risk","ip_ownership_risk"].map((name) => <button key={name} className={`rule-chip ${rule.enabledRules.includes(name) ? "selected" : ""}`} onClick={() => toggleRule(name)}>{rule.enabledRules.includes(name) && <Icon name="check" size={13} />}{name}</button>)}</div></div></div>}{tab === "prompt" && <div className="editor-section prompt-editor"><label>Agent 角色名称<input value={rule.promptConfig.roleName} onChange={(event) => updatePrompt({ roleName: event.target.value })} /></label><label>系统 Prompt<textarea rows={10} value={rule.promptConfig.systemPrompt} onChange={(event) => updatePrompt({ systemPrompt: event.target.value })} /></label><div className="inline-controls"><label>随机性 <input type="range" min="0" max="1" step="0.1" value={rule.promptConfig.temperature} onChange={(event) => updatePrompt({ temperature: Number(event.target.value) })} /><b>{rule.promptConfig.temperature.toFixed(1)}</b></label><label>风险偏好<select value={rule.promptConfig.riskToleranceLevel} onChange={(event) => updatePrompt({ riskToleranceLevel: event.target.value as Rule["promptConfig"]["riskToleranceLevel"] })}><option value="STRICT">严格</option><option value="BALANCED">均衡</option><option value="LOOSE">宽松</option></select></label></div></div>}{tab === "threshold" && <div className="editor-section threshold-block"><div><h3>人工复核阈值</h3><p>拖动滑块调整各等级进入人工复核队列的置信度。</p></div>{([['high','高风险'],['medium','中风险'],['low','低风险']] as const).map(([key, label]) => <div className="threshold-row" key={key}><span><i className={`risk-dot ${key}`} />{label}</span><input type="range" min="0" max="100" value={thresholds[key]} onChange={(event) => setThresholds((current) => ({ ...current, [key]: Number(event.target.value) }))} /><b>{(thresholds[key] / 100).toFixed(2)}</b></div>)}</div>}{tab === "library" && <div className="editor-section library-panel"><div className="library-card"><span><Icon name="book" size={18} /></span><div><b>采购合同标准条款库</b><p>Qdrant · 238 条标准条款 · 最近同步于今天 09:30</p></div><Badge tone="success" dot>已连接</Badge></div><div className="library-card"><span><Icon name="shield" size={18} /></span><div><b>现行法律法规知识库</b><p>1,284 个法条切片 · 自动更新</p></div><Badge tone="success" dot>已连接</Badge></div></div>}</> : <div className="data-state">请选择一套规则进行配置</div>}</section></div></div>;
 }
