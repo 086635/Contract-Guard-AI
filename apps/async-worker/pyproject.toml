@@ -7,6 +7,8 @@ dependencies = [
     "celery>=5.3,<6.0",         # T-A0-1：运行期必需（此前 .venv 内缺失，靠系统 Python 兜底）
     "redis>=5.0",
     "pydantic>=2.7",
+    "python-docx>=1.1",
+    "minio>=7.2",
     "cg-observability",          # 日志 / 埋点唯一通道（直接 import，故显式声明）
     "ai-engine",
     "doc-processor",

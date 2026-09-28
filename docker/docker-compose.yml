@@ -36,6 +36,20 @@ services:
     image: qdrant/qdrant:latest
     ports: ["6333:6333", "6334:6334"]
     volumes: ["qdrantdata:/qdrant/storage"]
+    healthcheck:
+      # qdrant 镜像内无 curl/wget，只有 bash + grep（实测）；用 /dev/tcp 打 /readyz 取 200
+      test:
+        - CMD
+        - bash
+        - -c
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/6333;
+          printf 'GET /readyz HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3;
+          grep -q '200' <&3
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
 
   # ---------------------------------------------------------------------------
   # Milvus standalone（T-A3 / `0-C2` 新增；备选向量库，见 `1-2` / `1.C5`）
@@ -95,10 +109,33 @@ services:
       MINIO_ROOT_PASSWORD: minioadmin
     ports: ["9000:9000", "9001:9001"]
     volumes: ["miniodata:/data"]
+    healthcheck:
+      # minio 镜像内有 curl（实测）；打 /minio/health/live
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  # ---------------------------------------------------------------------------
+  # 一次性数据库迁移（C24 新增；见 `4.C24Compose全栈与健康检查.md`）
+  #   - 复用 api 镜像；启动前执行 `alembic upgrade head`
+  #   - api / worker 依赖其 `service_completed_successfully`
+  # ---------------------------------------------------------------------------
+  migrate:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api
+    environment:
+      CG_POSTGRES_DSN: postgresql+asyncpg://cg:cg@postgres:5432/cg
+    command: ["uv", "run", "--package", "api-gateway", "alembic", "-c", "apps/api-gateway/alembic.ini", "upgrade", "head"]
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: "no"
 
   api:
     build:
-      context: .
+      context: ..
       dockerfile: docker/Dockerfile.api
     environment:
       CG_POSTGRES_DSN: postgresql+asyncpg://cg:cg@postgres:5432/cg
@@ -111,14 +148,26 @@ services:
       CG_CELERY_BACKEND: redis://redis:6379/2
     ports: ["8000:8000"]
     depends_on:
+      migrate: { condition: service_completed_successfully }
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
-      qdrant: { condition: service_started }
-      minio: { condition: service_started }
+      qdrant: { condition: service_healthy }
+      minio: { condition: service_healthy }
+    healthcheck:
+      # api 镜像内无 curl；用自带 python 打 /health（实测 200）
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=3).status == 200 else 1)
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
 
   worker:
     build:
-      context: .
+      context: ..
       dockerfile: docker/Dockerfile.worker
     environment:
       CG_POSTGRES_DSN: postgresql+asyncpg://cg:cg@postgres:5432/cg
@@ -129,12 +178,26 @@ services:
       CG_MINIO_SECRET_KEY: minioadmin
       CG_CELERY_BROKER: redis://redis:6379/1
       CG_CELERY_BACKEND: redis://redis:6379/2
+      # RAG 检索层（rag_core）：显式指向 compose 内 Qdrant（默认值是 inmemory）
+      CG_RAG_VECTOR_STORE: qdrant
+      CG_RAG_QDRANT_MODE: server
+      CG_RAG_QDRANT_URL: http://qdrant:6333
+      # LLM：默认离线档（接真实模型改 .env）
+      CG_LLM_PROVIDER: offline
     depends_on:
-      redis: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
       postgres: { condition: service_healthy }
-      qdrant: { condition: service_started }
-      minio: { condition: service_started }
+      redis: { condition: service_healthy }
+      qdrant: { condition: service_healthy }
+      minio: { condition: service_healthy }
     command: ["uv", "run", "--package", "async-worker", "celery", "-A", "worker.main", "worker", "--loglevel=info"]
+    healthcheck:
+      # 用 venv 内的 celery 直接 inspect ping（实测 pong）；C25 再补结果后端就绪验证
+      test: ["CMD", "/app/.venv/bin/celery", "-A", "worker.main", "inspect", "ping", "--timeout", "3"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
 
   web:
     build:

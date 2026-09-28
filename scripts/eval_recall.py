@@ -45,6 +45,7 @@ import argparse
 import hashlib
 import json
 import logging
+import shutil
 import sys
 import tempfile
 import time
@@ -71,7 +72,7 @@ from rag_core.config import RagSettings  # noqa: E402
 from rag_core.factory import build_service_from_settings  # noqa: E402
 
 DEFAULT_CORPUS = _REPO_ROOT / "scripts" / "data" / "eval_corpus.jsonl"
-DEFAULT_OUT_DIR = _REPO_ROOT / "data" / "reports"
+DEFAULT_OUT_DIR = _REPO_ROOT / ".tmp_t" / "eval_bm25"
 DEFAULT_CUTOFFS: tuple[int, ...] = (1, 3, 5, 10)
 GATE_TOLERANCE = 0.05  # recall@5 允许波动（1-7 §7.4）
 
@@ -409,7 +410,6 @@ def evaluate(args: argparse.Namespace) -> dict[str, Any]:
     Raises:
         InputError: 输入或配置错误。
     """
-    settings = RagSettings()
     # BM25 索引是**落盘**的：用配置里的固定目录（默认 ./data/bm25）会让本次语料污染上一次的索引
     # （实测：评测语料覆盖了冒烟/单测留下的索引，融合候选串味 → 单测与演示都受影响）。
     # 评测语义上要求"每次对本语料重建"，故默认给一次性临时目录；要复用请显式 --bm25-dir。
@@ -418,6 +418,18 @@ def evaluate(args: argparse.Namespace) -> dict[str, Any]:
         bm25_dir = Path(tempfile.mkdtemp(prefix="eval_bm25_", dir=str(DEFAULT_OUT_DIR)))
     else:
         bm25_dir = args.bm25_dir
+    try:
+        return _evaluate_impl(args, bm25_dir)
+    finally:
+        # temp dir must be removed, otherwise data/reports accumulates eval_bm25_* (912 leaked once).
+        # Do not remove when --bm25-dir is given explicitly.
+        if args.bm25_dir is None:
+            shutil.rmtree(bm25_dir, ignore_errors=True)
+
+
+def _evaluate_impl(args: argparse.Namespace, bm25_dir: Path) -> dict[str, Any]:
+    """Implementation of evaluate; temp dir lifecycle is owned by the wrapper."""
+    settings = RagSettings()
     settings = settings.model_copy(update={"bm25_dir": str(bm25_dir)})
     docs = load_corpus(args.corpus)
     gold = load_gold(args.gold)

@@ -1,16 +1,15 @@
 """Contracts 路由（合同上传 / 解析 / 要素 / 风险 / 矛盾 / 印章）。
 
 对应 data_scheme.md §5.2 级联时序、§7.3 端点清单、§8.1/§8.2/§8.4。
-
-NOTE：Walking Skeleton：返回 MockDataFactory 统一包络数据。
 """
 
 from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 
+from app.api.deps import get_service_context
 from app.generated.schemas import (
     CommitBody,
     CommitResultResponse,
@@ -18,6 +17,7 @@ from app.generated.schemas import (
     ContractDetailResponse,
     ContractListResponse,
     ContractUploadResponse,
+    Data,
     ElementListResponse,
     ParseStatusResponse,
     PresignResponse,
@@ -25,7 +25,16 @@ from app.generated.schemas import (
     SealListResponse,
     UploadBody,
 )
-from app.services.mock_factory import MockDataFactory
+from app.services.commit_service import (
+    CommitService,
+    CommitValidationError,
+    CommitVersionConflictError,
+    ContractNotFoundError,
+)
+from app.services.context import ServiceContext
+from app.services.contract_service import ContractService, PresignRequest
+from app.services.envelope import build_success_response
+from app.services.result_service import ResultService
 
 router = APIRouter(prefix="/contracts", tags=["Contracts"])
 
@@ -36,17 +45,39 @@ async def list_contracts(
     page_size: int = Query(20, ge=1, le=100),
     contract_type: str | None = None,
     status: str | None = None,
+    context: ServiceContext = Depends(get_service_context),
 ) -> ContractListResponse:
     """合同列表（工作台历史，§5.1）。"""
-    return MockDataFactory.list_contracts(page, page_size)
+    try:
+        items, total = await ContractService(context).list(
+            page,
+            page_size,
+            contract_type=contract_type,
+            status=status,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+    data = Data(
+        items=items,
+        total=total,
+        page=page,
+        pageSize=page_size,
+        hasMore=page * page_size < total,
+    )
+    return build_success_response(ContractListResponse, data)
 
 
-@router.post(
-    "/presign", response_model=PresignResponse, status_code=status.HTTP_200_OK
-)
-async def presign_upload(body: dict) -> PresignResponse:
+@router.post("/presign", response_model=PresignResponse, status_code=status.HTTP_200_OK)
+async def presign_upload(
+    body: PresignRequest,
+    context: ServiceContext = Depends(get_service_context),
+) -> PresignResponse:
     """获取直传凭证（上传三步法 步骤1，§5.3）。"""
-    return MockDataFactory.presign_upload()
+    data = await ContractService(context).presign_upload(body)
+    return build_success_response(PresignResponse, data)
 
 
 @router.post(
@@ -54,9 +85,13 @@ async def presign_upload(body: dict) -> PresignResponse:
     response_model=ContractUploadResponse,
     status_code=status.HTTP_202_ACCEPTED,
 )
-async def upload_contract(body: UploadBody) -> ContractUploadResponse:
+async def upload_contract(
+    body: UploadBody,
+    context: ServiceContext = Depends(get_service_context),
+) -> ContractUploadResponse:
     """触发解析任务（上传三步法 步骤3，§5.3）。需 X-Request-ID 幂等。"""
-    return MockDataFactory.upload_contract(body)
+    data = await ContractService(context).upload(body)
+    return build_success_response(ContractUploadResponse, data)
 
 
 @router.get(
@@ -64,9 +99,18 @@ async def upload_contract(body: UploadBody) -> ContractUploadResponse:
     response_model=ContractDetailResponse,
     status_code=status.HTTP_200_OK,
 )
-async def get_contract(contract_id: UUID) -> ContractDetailResponse:
+async def get_contract(
+    contract_id: UUID,
+    context: ServiceContext = Depends(get_service_context),
+) -> ContractDetailResponse:
     """合同详情。"""
-    return MockDataFactory.get_contract(contract_id)
+    contract = await ContractService(context).get(contract_id)
+    if contract is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="contract not found",
+        )
+    return build_success_response(ContractDetailResponse, contract)
 
 
 @router.get(
@@ -74,9 +118,24 @@ async def get_contract(contract_id: UUID) -> ContractDetailResponse:
     response_model=ParseStatusResponse,
     status_code=status.HTTP_200_OK,
 )
-async def get_parse_status(contract_id: UUID) -> ParseStatusResponse:
+async def get_parse_status(
+    contract_id: UUID,
+    context: ServiceContext = Depends(get_service_context),
+) -> ParseStatusResponse:
     """解析状态轮询（§5.2-B）。"""
-    return MockDataFactory.get_parse_status(contract_id)
+    try:
+        progress = await ResultService(context).parse_status(contract_id)
+    except ContractNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="contract not found",
+        ) from exc
+    if progress is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="parse task not found",
+        )
+    return build_success_response(ParseStatusResponse, progress)
 
 
 @router.get(
@@ -84,9 +143,19 @@ async def get_parse_status(contract_id: UUID) -> ParseStatusResponse:
     response_model=ElementListResponse,
     status_code=status.HTTP_200_OK,
 )
-async def get_elements(contract_id: UUID) -> ElementListResponse:
+async def get_elements(
+    contract_id: UUID,
+    context: ServiceContext = Depends(get_service_context),
+) -> ElementListResponse:
     """要素抽取（§5.2-C）。"""
-    return MockDataFactory.get_elements(contract_id)
+    try:
+        elements = await ResultService(context).elements(contract_id)
+    except ContractNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="contract not found",
+        ) from exc
+    return build_success_response(ElementListResponse, elements)
 
 
 @router.get(
@@ -95,10 +164,24 @@ async def get_elements(contract_id: UUID) -> ElementListResponse:
     status_code=status.HTTP_200_OK,
 )
 async def get_risks(
-    contract_id: UUID, level: str | None = None
+    contract_id: UUID,
+    level: str | None = None,
+    context: ServiceContext = Depends(get_service_context),
 ) -> RiskListResponse:
     """风险列表（§5.2-D / §8.4 EnhancedRiskItem）。"""
-    return MockDataFactory.get_risks(contract_id, level)
+    try:
+        risks = await ResultService(context).risks(contract_id, level)
+    except ContractNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="contract not found",
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+    return build_success_response(RiskListResponse, risks)
 
 
 @router.get(
@@ -106,9 +189,19 @@ async def get_risks(
     response_model=ConflictListResponse,
     status_code=status.HTTP_200_OK,
 )
-async def get_conflicts(contract_id: UUID) -> ConflictListResponse:
+async def get_conflicts(
+    contract_id: UUID,
+    context: ServiceContext = Depends(get_service_context),
+) -> ConflictListResponse:
     """跨条款矛盾（§5.2-E / §8.2）。"""
-    return MockDataFactory.get_conflicts(contract_id)
+    try:
+        conflicts = await ResultService(context).conflicts(contract_id)
+    except ContractNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="contract not found",
+        ) from exc
+    return build_success_response(ConflictListResponse, conflicts)
 
 
 @router.get(
@@ -116,9 +209,19 @@ async def get_conflicts(contract_id: UUID) -> ConflictListResponse:
     response_model=SealListResponse,
     status_code=status.HTTP_200_OK,
 )
-async def get_seals(contract_id: UUID) -> SealListResponse:
+async def get_seals(
+    contract_id: UUID,
+    context: ServiceContext = Depends(get_service_context),
+) -> SealListResponse:
     """印章签名合规（§5.2-F / §8.1）。"""
-    return MockDataFactory.get_seals(contract_id)
+    try:
+        seals = await ResultService(context).seals(contract_id)
+    except ContractNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="contract not found",
+        ) from exc
+    return build_success_response(SealListResponse, seals)
 
 
 @router.post(
@@ -126,6 +229,32 @@ async def get_seals(contract_id: UUID) -> SealListResponse:
     response_model=CommitResultResponse,
     status_code=status.HTTP_200_OK,
 )
-async def commit_contract(contract_id: UUID, body: CommitBody) -> CommitResultResponse:
+async def commit_contract(
+    contract_id: UUID,
+    body: CommitBody,
+    x_request_id: str = Header(..., alias="X-Request-ID"),
+    context: ServiceContext = Depends(get_service_context),
+) -> CommitResultResponse:
     """采纳修改 / 新版本（§5.2 收尾，需 version 乐观锁）。"""
-    return MockDataFactory.commit_contract(contract_id, body)
+    try:
+        result = await CommitService(context).commit(
+            contract_id,
+            body,
+            x_request_id,
+        )
+    except ContractNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="contract not found",
+        ) from exc
+    except CommitVersionConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="version conflict",
+        ) from exc
+    except CommitValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+    return build_success_response(CommitResultResponse, result)

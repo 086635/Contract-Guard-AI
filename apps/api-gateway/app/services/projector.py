@@ -1,0 +1,136 @@
+"""OpenAPI 合同 DTO 投影器。
+
+设计要点：
+1. 所有表级 DTO → API DTO 的缺失字段规则集中在本文件。
+2. 健康分只由风险/矛盾数据确定，不使用随机值。
+3. 路由和业务 Service 不直接拼装 Contract/ContractSummary。
+
+对应：`文件集合/codex/4.C12合同摘要与详情服务.md`。
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from app.db.repository.contract import ContractDetail
+from app.db.repository.result import ReportRecord
+from app.generated import schemas as s
+from rag_contracts.chunk import ContractChunk
+
+_RISK_PENALTY = {
+    s.RiskLevel.high: 15,
+    s.RiskLevel.medium: 8,
+    s.RiskLevel.low: 3,
+}
+
+
+class ContractProjector:
+    """合同持久化 DTO 到 OpenAPI DTO 的唯一投影器。"""
+
+    @staticmethod
+    def summary(
+        detail: ContractDetail,
+        risks: list[s.EnhancedRiskItem],
+        conflicts: list[s.CrossClauseConflict],
+    ) -> s.ContractSummary:
+        """构造合同列表摘要。"""
+        health = ContractProjector._health_score(risks, conflicts)
+        return s.ContractSummary(
+            id=str(detail.id),
+            fileName=detail.filename,
+            contractType=detail.contract_type.value,
+            status=detail.status,
+            healthScore=health,
+            riskCount=len(risks),
+            createdAt=detail.created_at,
+        )
+
+    @staticmethod
+    def contract(
+        detail: ContractDetail,
+        *,
+        elements: list[ContractChunk],
+        risks: list[s.EnhancedRiskItem],
+        conflicts: list[s.CrossClauseConflict],
+        seals: list[s.SealSignatureDetection],
+        report: ReportRecord | None,
+    ) -> s.Contract:
+        """构造完整合同详情。"""
+        return s.Contract(
+            id=str(detail.id),
+            fileName=detail.filename,
+            fileKey=detail.storage_path,
+            fileType=ContractProjector._file_type(detail.filename),
+            contractType=detail.contract_type.value,
+            typeConfidence=1.0,
+            status=detail.status,
+            version=detail.version,
+            currentVersionId=str(detail.id),
+            elements=ContractProjector.elements(elements),
+            risks=risks,
+            conflicts=conflicts,
+            seals=seals,
+            missingClauses=[],
+            healthScore=ContractProjector._health_score(risks, conflicts),
+            reportId=str(report.id) if report is not None else None,
+            createdAt=detail.created_at,
+            updatedAt=detail.updated_at,
+        )
+
+    @staticmethod
+    def elements(
+        elements: list[ContractChunk],
+    ) -> list[s.ContractElement]:
+        """批量投影合同切片。"""
+        return [ContractProjector._element(element) for element in elements]
+
+    @staticmethod
+    def _element(chunk: ContractChunk) -> s.ContractElement:
+        bbox = None
+        if chunk.bbox is not None:
+            bbox = s.BBox(
+                page=chunk.bbox.page,
+                x=chunk.bbox.x,
+                y=chunk.bbox.y,
+                width=chunk.bbox.width,
+                height=chunk.bbox.height,
+                coordinateSystem=s.CoordinateSystem.pdf_points,
+            )
+        return s.ContractElement(
+            key=chunk.section_id,
+            label=chunk.title or chunk.category,
+            value=chunk.text,
+            confidence=1.0,
+            bbox=bbox,
+            isCustom=False,
+        )
+
+    @staticmethod
+    def _health_score(
+        risks: list[s.EnhancedRiskItem],
+        conflicts: list[s.CrossClauseConflict],
+    ) -> s.HealthScore:
+        total_penalty = sum([_RISK_PENALTY.get(risk.level, 3) for risk in risks]) + sum(
+            [_RISK_PENALTY.get(conflict.level, 3) for conflict in conflicts]
+        )
+        overall = max(0, 100 - total_penalty)
+        return s.HealthScore(
+            overall=overall,
+            dimensions=s.Dimensions(
+                compliance=float(overall),
+                performanceRisk=float(100 - overall),
+                clauseCompleteness=100.0,
+            ),
+        )
+
+    @staticmethod
+    def _file_type(filename: str) -> s.FileType:
+        suffix = Path(filename).suffix.lower()
+        if suffix == ".docx":
+            return s.FileType.docx
+        if suffix in {".png", ".jpg", ".jpeg", ".tif", ".tiff"}:
+            return s.FileType.image
+        return s.FileType.pdf_native
+
+
+__all__ = ["ContractProjector"]

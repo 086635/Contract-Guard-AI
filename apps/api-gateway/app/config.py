@@ -28,11 +28,14 @@ class Settings(BaseSettings):
     # ---- 基础设施 ----
     postgres_dsn: str = "postgresql+asyncpg://cg:cg@localhost:5432/cg"
     redis_url: str = "redis://localhost:6379/0"
+    celery_broker: str = "redis://localhost:6379/1"
+    celery_backend: str = "redis://localhost:6379/2"
     qdrant_url: str = "http://localhost:6333"
     minio_endpoint: str = "localhost:9000"
     minio_access_key: str = "minioadmin"
     minio_secret_key: str = "minioadmin"
     minio_bucket: str = "contracts"
+    minio_secure: bool = False
 
     # ---- CORS ----
     cors_origins: list[str] = ["http://localhost:5173"]

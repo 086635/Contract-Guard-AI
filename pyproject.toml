@@ -32,7 +32,7 @@ package = false
 # ---------------------------------------------------------------------------
 [tool.uv.workspace]
 members = ["packages/*", "apps/*"]
-exclude = ["packages/schema", "apps/web-ui"] # 显式排除纯 Node/TS 模块
+exclude = ["packages/schema", "apps/web-ui", "apps/web-ui__demo"] # 显式排除纯 Node/TS 模块
 
 # 工作区内包互相引用（editable）
 [tool.uv.sources]
