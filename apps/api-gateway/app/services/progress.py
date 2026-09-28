@@ -1,7 +1,7 @@
 """Redis Pub/Sub 任务进度适配器。
 
 设计要点：
-1. channel 名固定为 `task_progress:{task_id}`，worker 与网关共用。
+1. channel 名唯一处：`cg_observability.task_progress_channel`；worker publish 与网关 subscribe 共用。
 2. 订阅只转发 JSON 对象；收到 DONE/FAILED 后自然结束。
 3. Redis/JSON 异常只记录并退出，不忙循环。
 
@@ -18,15 +18,11 @@ from redis.asyncio import Redis
 from redis.exceptions import RedisError
 
 from app.config import settings
-from cg_observability import get_logger, log_event
+
+# channel 命名唯一处已上移到 cg_observability（worker 不能 import app.*）
+from cg_observability import get_logger, log_event, task_progress_channel
 
 _LOG = get_logger("api_gateway.services.progress")
-_CHANNEL_PREFIX = "task_progress"
-
-
-def task_progress_channel(task_id: str) -> str:
-    """生成任务进度 channel 名。"""
-    return f"{_CHANNEL_PREFIX}:{task_id}"
 
 
 class RedisProgressBroker:

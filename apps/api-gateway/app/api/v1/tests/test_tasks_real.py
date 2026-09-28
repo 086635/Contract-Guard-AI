@@ -120,7 +120,8 @@ async def _exercise_tasks(dsn: str) -> None:
             )
             await session.commit()
 
-            dispatcher = FakeDispatcher(str(task.id))
+            # Celery 查询键应为任务行登记的 celery_task_id（TaskService 修复后）
+            dispatcher = FakeDispatcher(task.celery_task_id or str(task.id))
             context = service_context(
                 session,
                 task_dispatcher=dispatcher,

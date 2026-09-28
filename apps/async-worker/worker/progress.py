@@ -12,12 +12,65 @@ meta 结构统一对齐 openapi `TaskProgress`：`{taskId, stage, percent, statu
 
 from __future__ import annotations
 
+import json
+import os
 from typing import Any
 
 from ai_engine.graphs.state import AUDIT_STAGES
-from cg_observability import get_logger, log_event
+from cg_observability import get_logger, log_event, task_progress_channel
 
 _LOG = get_logger("worker.progress")
+
+_PROGRESS_REDIS_URL = os.getenv("CG_REDIS_URL", "redis://localhost:6379/0")
+_redis_client: Any = None
+_redis_ready = False
+_publish_disabled = False
+
+
+def _progress_redis() -> Any:
+    """惰性构造进度发布用 redis 客户端；构造失败置 None。"""
+    global _redis_client, _redis_ready
+    if not _redis_ready:
+        _redis_ready = True
+        try:
+            import redis
+
+            _redis_client = redis.Redis.from_url(
+                _PROGRESS_REDIS_URL,
+                socket_connect_timeout=0.5,
+                socket_timeout=0.5,
+            )
+        except Exception:  # noqa: BLE001 - 无 redis 依赖时静默降级
+            _redis_client = None
+    return _redis_client
+
+
+def _publish_progress(task: Any, meta: dict[str, Any], trace_id: str) -> None:
+    """把进度 meta publish 到 `task_progress:{celery_task_id}`（失败只告警、不阻断任务）。"""
+    global _publish_disabled
+    if _publish_disabled:
+        return
+    task_id = getattr(getattr(task, "request", None), "id", None)
+    if not task_id:
+        return
+    client = _progress_redis()
+    if client is None:
+        _publish_disabled = True
+        return
+    try:
+        client.publish(
+            task_progress_channel(str(task_id)), json.dumps(meta, ensure_ascii=False)
+        )
+    except Exception as exc:  # noqa: BLE001 - 进度发布失败不影响任务本身
+        _publish_disabled = True
+        log_event(
+            _LOG,
+            "progress.publish_failed",
+            level="WARNING",
+            trace_id=trace_id,
+            error=repr(exc),
+        )
+
 
 #: 解析链路阶段（顺序即执行顺序；`3-6 §5.5`）
 PARSE_STAGES: tuple[str, ...] = (
@@ -138,6 +191,7 @@ class ParseProgressReporter:
                 task_stage=stage,
                 error=repr(exc),
             )
+        _publish_progress(self._task, meta, self._trace_id)
 
 
 class AuditProgressReporter:
@@ -195,6 +249,7 @@ class AuditProgressReporter:
                 task_stage=stage,
                 error=repr(exc),
             )
+        _publish_progress(self._task, meta, self._trace_id)
 
 
 class ReportProgressReporter:
@@ -252,6 +307,7 @@ class ReportProgressReporter:
                 task_stage=stage,
                 error=repr(exc),
             )
+        _publish_progress(self._task, meta, self._trace_id)
 
 
 __all__ = [

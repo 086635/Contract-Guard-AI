@@ -25,6 +25,13 @@ _LOG = get_logger("api_gateway.services.task")
 _TERMINAL_STATUSES = {Status.done, Status.failed}
 
 
+def _celery_lookup_id(record: TaskRecord | None, task_id: UUID) -> str:
+    """Celery 状态 / 进度 channel 的查询键：优先该任务行登记的 `celery_task_id`。"""
+    if record is not None and record.celery_task_id:
+        return record.celery_task_id
+    return str(task_id)
+
+
 class TaskNotFoundError(LookupError):
     """任务不存在。"""
 
@@ -39,7 +46,9 @@ class TaskService:
     async def get(self, task_id: UUID) -> TaskProgress | None:
         """读取任务当前快照。"""
         record = await self._tasks.get(task_id)
-        snapshot = self._context.task_dispatcher.get_status(str(task_id))
+        snapshot = self._context.task_dispatcher.get_status(
+            _celery_lookup_id(record, task_id)
+        )
         if record is None and snapshot is None:
             return None
 
@@ -75,9 +84,14 @@ class TaskService:
         if current.status in _TERMINAL_STATUSES:
             return
 
-        async for raw_event in self._context.progress_broker.subscribe(str(task_id)):
+        record = await self._tasks.get(task_id)
+        async for raw_event in self._context.progress_broker.subscribe(
+            _celery_lookup_id(record, task_id)
+        ):
             try:
-                event = TaskProgress.model_validate(raw_event)
+                event = TaskProgress.model_validate(raw_event).model_copy(
+                    update={"task_id": str(task_id)}
+                )
             except ValidationError as exc:
                 log_event(
                     _LOG,
