@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import Button from "@/components/ui/Button";
 import Icon from "@/components/ui/Icon";
@@ -7,19 +7,19 @@ import PdfStage from "@/components/audit/PdfStage";
 import RiskPanel from "@/components/audit/RiskPanel";
 import FeedbackDialog from "@/components/audit/FeedbackDialog";
 import AgentChat from "@/components/chat/AgentChat";
-import { contractApi, reportApi } from "@/api/services";
+import { contractApi, reportApi, taskApi } from "@/api/services";
 import type { components } from "@/api/generated/types";
 
 type Schemas = components["schemas"];
 type Risk = Schemas["EnhancedRiskItem"];
 type Element = Schemas["ContractElement"];
 type RiskFilter = "ALL" | Schemas["RiskLevel"] | "CONFLICT" | "SEAL";
-const DEFAULT_CONTRACT_ID = "00000000-0000-0000-0000-000000000001";
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export default function Audit() {
   const { contractId } = useParams();
   const navigate = useNavigate();
-  const selectedId = contractId ?? DEFAULT_CONTRACT_ID;
+  const selectedId = contractId ?? "";
   const [contract, setContract] = useState<Schemas["Contract"] | null>(null);
   const [elements, setElements] = useState<Element[]>([]);
   const [risks, setRisks] = useState<Risk[]>([]);
@@ -36,15 +36,73 @@ export default function Audit() {
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [rewriteRisk, setRewriteRisk] = useState<Risk | null>(null);
   const [feedbackRisk, setFeedbackRisk] = useState<Risk | null>(null);
+  const reportUnsubscribeRef = useRef<(() => void) | null>(null);
 
-  const loadAudit = () => {
-    setLoading(true); setError(null);
-    return Promise.all([contractApi.detail(selectedId), contractApi.elements(selectedId), contractApi.risks(selectedId), contractApi.conflicts(selectedId), contractApi.seals(selectedId), contractApi.parseStatus(selectedId)])
-      .then(([detail, extracted, riskItems, conflictItems, sealItems, status]) => { setContract(detail); setElements(extracted); setRisks(riskItems); setConflicts(conflictItems); setSeals(sealItems); setParseStatus(status); setSelectedRiskId((current) => current ?? riskItems[0]?.id); })
-      .catch((reason) => setError(reason instanceof Error ? reason.message : "审核数据加载失败，请重试。"))
-      .finally(() => setLoading(false));
+  const loadAudit = async () => {
+    setLoading(true);
+    setError(null);
+    if (!selectedId || !UUID_RE.test(selectedId)) {
+      setContract(null);
+      setElements([]);
+      setRisks([]);
+      setConflicts([]);
+      setSeals([]);
+      setParseStatus(null);
+      setSelectedRiskId(undefined);
+      setSelectedElement(null);
+      setError("合同 ID 无效，请从合同中心选择合同。");
+      setLoading(false);
+      return;
+    }
+
+    const results = await Promise.allSettled([
+      contractApi.detail(selectedId),
+      contractApi.elements(selectedId),
+      contractApi.risks(selectedId),
+      contractApi.conflicts(selectedId),
+      contractApi.seals(selectedId),
+      contractApi.parseStatus(selectedId),
+    ]);
+    const [detail, extracted, riskItems, conflictItems, sealItems, status] = results;
+    if (detail.status === "fulfilled") setContract(detail.value);
+    if (extracted.status === "fulfilled") setElements(extracted.value);
+    if (riskItems.status === "fulfilled") {
+      setRisks(riskItems.value);
+      setSelectedRiskId(riskItems.value[0]?.id);
+    }
+    if (conflictItems.status === "fulfilled") setConflicts(conflictItems.value);
+    if (sealItems.status === "fulfilled") setSeals(sealItems.value);
+    if (status.status === "fulfilled") setParseStatus(status.value);
+
+    const failures: unknown[] = [];
+    results.forEach((result) => {
+      if (result.status === "rejected") failures.push(result.reason);
+    });
+    if (failures.length > 0) {
+      const first = failures[0];
+      setError(`${failures.length} 个审核数据接口加载失败：${first instanceof Error ? first.message : "请重试"}`);
+    }
+    setLoading(false);
   };
-  useEffect(() => { void loadAudit(); }, [selectedId]);
+
+  const clearReportSubscription = () => {
+    reportUnsubscribeRef.current?.();
+    reportUnsubscribeRef.current = null;
+  };
+
+  useEffect(() => () => clearReportSubscription(), []);
+
+  useEffect(() => {
+    setContract(null);
+    setElements([]);
+    setRisks([]);
+    setConflicts([]);
+    setSeals([]);
+    setParseStatus(null);
+    setSelectedRiskId(undefined);
+    setSelectedElement(null);
+    void loadAudit();
+  }, [selectedId]);
 
   const selectedRisk = risks.find((risk) => risk.id === selectedRiskId);
   const highlight = useMemo(() => selectedElement?.bbox ? { label: selectedElement.label, kind: "element" as const, bbox: selectedElement.bbox } : selectedRisk ? { label: selectedRisk.title, kind: "risk" as const, bbox: selectedRisk.bbox } : null, [selectedElement, selectedRisk]);
@@ -58,9 +116,40 @@ export default function Audit() {
   };
   const generateReport = async () => {
     if (actionLoading) return;
-    setActionLoading(true); setActionMessage(null);
-    try { await reportApi.generate(selectedId); navigate(`/contracts/${selectedId}/report`); }
-    catch (reason) { setActionMessage(reason instanceof Error ? reason.message : "报告任务创建失败，请稍后重试。"); setActionLoading(false); }
+    clearReportSubscription();
+    setActionLoading(true);
+    setActionMessage("报告生成任务已提交，正在等待渲染完成…");
+    try {
+      const task = await reportApi.generate(selectedId);
+      if (task.status === "DONE") {
+        setActionLoading(false);
+        navigate(`/contracts/${selectedId}/report`);
+        return;
+      }
+      if (task.status === "FAILED") {
+        setActionLoading(false);
+        setActionMessage("报告生成失败，请重试。");
+        return;
+      }
+      reportUnsubscribeRef.current = taskApi.subscribe(task.taskId, (progress) => {
+        if (progress.status === "DONE") {
+          clearReportSubscription();
+          setActionLoading(false);
+          setActionMessage("报告已生成，正在打开报告中心…");
+          navigate(`/contracts/${selectedId}/report`);
+        } else if (progress.status === "FAILED") {
+          clearReportSubscription();
+          setActionLoading(false);
+          setActionMessage("报告生成失败，请重试。");
+        } else {
+          setActionMessage(`报告生成中：${progress.stage} ${Math.round(progress.percent * 100)}%`);
+        }
+      });
+    } catch (reason) {
+      clearReportSubscription();
+      setActionLoading(false);
+      setActionMessage(reason instanceof Error ? reason.message : "报告任务创建失败，请稍后重试。");
+    }
   };
   const chooseRisk = (risk: Risk) => { setSelectedElement(null); setSelectedRiskId(risk.id); };
   const chooseElement = (element: Element) => { setSelectedElement(element); setSelectedRiskId(undefined); };
@@ -68,6 +157,7 @@ export default function Audit() {
   const highCount = risks.filter((item) => item.level === "HIGH").length;
   const mediumCount = risks.filter((item) => item.level === "MEDIUM").length;
   const lowCount = risks.filter((item) => item.level === "LOW").length;
+  const hasAuditData = Boolean(contract || elements.length || risks.length || conflicts.length || seals.length || parseStatus);
 
-  return <div className="audit-page"><div className="audit-topbar"><div><div className="eyebrow">CONTRACT REVIEW · {contract?.id ?? selectedId}</div><h1>{contract?.fileName ?? (loading ? "正在加载合同…" : "采购合同")} <span className="inline-status"><i />{contract?.status === "FINALIZED" ? "已定稿" : "审核中"}</span></h1></div><div className="audit-top-actions"><span className="save-state"><i />{loading ? "正在同步" : parseStatus?.status === "DONE" ? `解析完成 · ${seals.length} 处签署已校验` : "自动保存已开启"}</span><Button variant="secondary" size="sm" icon={<Icon name="refresh" size={16} />} onClick={() => void loadAudit()} disabled={loading}>刷新</Button></div></div>{error ? <div className="audit-data-error"><Icon name="activity" size={17} /><span>{error}</span><Button size="sm" variant="secondary" onClick={() => void loadAudit()}>重新加载</Button></div> : loading ? <div className="audit-loading"><div className="state-spinner" /><span>正在装载合同、风险和坐标图层…</span></div> : <div className="audit-workspace"><ElementsPanel extractedElements={elements} selectedElementKey={selectedElement?.key} onSelectElement={chooseElement} riskCounts={{ high: highCount, medium: mediumCount, low: lowCount, conflicts: conflicts.length, seals: seals.length }} riskFilter={filter} onRiskFilter={applyFilter} healthScore={contract?.healthScore.overall} /><PdfStage fileName={contract?.fileName ?? "合同文件"} highlight={highlight} onFeedback={() => selectedRisk && setFeedbackRisk(selectedRisk)} /><RiskPanel healthScore={contract?.healthScore.overall} risks={risks} conflicts={conflicts} seals={seals} filter={filter} selectedRiskId={selectedRiskId} accepted={accepted} onFilter={applyFilter} onSelectRisk={chooseRisk} onToggleAccepted={(riskId) => setAccepted((current) => ({ ...current, [riskId]: !current[riskId] }))} onCommit={() => void commit()} onGenerateReport={() => void generateReport()} onRewrite={setRewriteRisk} onFeedback={setFeedbackRisk} actionLoading={actionLoading} /></div>}{actionMessage && <div className={`audit-toast ${actionMessage.includes("失败") ? "error" : ""}`} onClick={() => setActionMessage(null)}>{actionMessage}</div>}{rewriteRisk && <AgentChat contractId={selectedId} clauseId={rewriteRisk.clauseId} originalText={rewriteRisk.originalText} onClose={() => setRewriteRisk(null)} onApplied={() => { setAccepted((current) => ({ ...current, [rewriteRisk.id]: true })); setActionMessage("AI 改写建议已加入提交清单。"); }} />}{feedbackRisk && <FeedbackDialog contractId={selectedId} targetId={feedbackRisk.id} targetLabel={feedbackRisk.title} onClose={() => setFeedbackRisk(null)} onSubmitted={setActionMessage} />}</div>;
+  return <div className="audit-page"><div className="audit-topbar"><div><div className="eyebrow">CONTRACT REVIEW · {contract?.id ?? selectedId}</div><h1>{contract?.fileName ?? (loading ? "正在加载合同…" : "合同详情")} <span className="inline-status"><i />{contract?.status === "FINALIZED" ? "已定稿" : "审核中"}</span></h1></div><div className="audit-top-actions"><span className="save-state"><i />{loading ? "正在同步" : parseStatus?.status === "DONE" ? `解析完成 · ${seals.length} 处签署已校验` : "自动保存已开启"}</span><Button variant="secondary" size="sm" icon={<Icon name="refresh" size={16} />} onClick={() => void loadAudit()} disabled={loading}>刷新</Button></div></div>{error && <div className="audit-data-error"><Icon name="activity" size={17} /><span>{error}</span><Button size="sm" variant="secondary" onClick={() => void loadAudit()}>重新加载</Button></div>}{loading ? <div className="audit-loading"><div className="state-spinner" /><span>正在装载合同、风险和坐标图层…</span></div> : !hasAuditData ? <div className="data-state error"><div><p>{error ?? "未找到该合同的审核数据。"}</p><Button size="sm" variant="secondary" onClick={() => void loadAudit()}>重新加载</Button></div></div> : <div className="audit-workspace"><ElementsPanel extractedElements={elements} selectedElementKey={selectedElement?.key} onSelectElement={chooseElement} riskCounts={{ high: highCount, medium: mediumCount, low: lowCount, conflicts: conflicts.length, seals: seals.length }} riskFilter={filter} onRiskFilter={applyFilter} healthScore={contract?.healthScore.overall} /><PdfStage fileName={contract?.fileName ?? "合同文件"} highlight={highlight} onFeedback={() => selectedRisk && setFeedbackRisk(selectedRisk)} /><RiskPanel healthScore={contract?.healthScore.overall} risks={risks} conflicts={conflicts} seals={seals} filter={filter} selectedRiskId={selectedRiskId} accepted={accepted} onFilter={applyFilter} onSelectRisk={chooseRisk} onToggleAccepted={(riskId) => setAccepted((current) => ({ ...current, [riskId]: !current[riskId] }))} onCommit={() => void commit()} onGenerateReport={() => void generateReport()} onRewrite={setRewriteRisk} onFeedback={setFeedbackRisk} actionLoading={actionLoading} /></div>}{actionMessage && <div className={`audit-toast ${actionMessage.includes("失败") ? "error" : ""}`} onClick={() => setActionMessage(null)}>{actionMessage}</div>}{rewriteRisk && <AgentChat contractId={selectedId} clauseId={rewriteRisk.clauseId} originalText={rewriteRisk.originalText} onClose={() => setRewriteRisk(null)} onApplied={() => { setAccepted((current) => ({ ...current, [rewriteRisk.id]: true })); setActionMessage("AI 改写建议已加入提交清单。"); }} />}{feedbackRisk && <FeedbackDialog contractId={selectedId} targetId={feedbackRisk.id} targetLabel={feedbackRisk.title} onClose={() => setFeedbackRisk(null)} onSubmitted={setActionMessage} />}</div>;
 }

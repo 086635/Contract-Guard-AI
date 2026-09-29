@@ -29,7 +29,8 @@ uvx datamodel-codegen \
   --use-schema-description \
   --field-constraints \
   --snake-case-field \
-  --wrap-string-literal
+  --wrap-string-literal \
+  --disable-timestamp
 
 # 注入文件头警告（即便生成器未加）
 TMP="$(mktemp)"

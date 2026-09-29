@@ -14,7 +14,7 @@ console.log(`[gen-py] openapi -> ${openapiPath}`);
 console.log(`[gen-py] out     -> ${outputPath}`);
 
 // 关键修复：使用 --from 指定正确的 PyPI 包名 datamodel-code-generator
-const cmd = `uvx --from datamodel-code-generator datamodel-codegen --input "${openapiPath}" --input-file-type openapi --output "${outputPath}" --output-model-type pydantic_v2.BaseModel --target-python-version 3.11 --use-standard-collections --use-schema-description --field-constraints --snake-case-field --wrap-string-literal`;
+const cmd = `uvx --from datamodel-code-generator datamodel-codegen --input "${openapiPath}" --input-file-type openapi --output "${outputPath}" --output-model-type pydantic_v2.BaseModel --target-python-version 3.11 --use-standard-collections --use-schema-description --field-constraints --snake-case-field --wrap-string-literal --disable-timestamp`;
 
 execSync(cmd, { stdio: 'inherit' });
 

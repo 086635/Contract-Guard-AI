@@ -81,6 +81,10 @@ components:
       type: string
       enum: [CORRECT, FALSE_POSITIVE, MISSING]   # 正确 / 误报 / 漏报
 
+    TargetType:
+      type: string
+      enum: [RISK, CONFLICT, SEAL, ELEMENT]
+
     SealType:
       type: string
       enum:
@@ -415,9 +419,16 @@ components:
         description: { type: string }
         isRequired: { type: boolean }
 
+    ReviewThresholds:
+      type: object
+      required: [high, medium, low]
+      properties:
+        high: { type: number, minimum: 0, maximum: 1 }
+        medium: { type: number, minimum: 0, maximum: 1 }
+        low: { type: number, minimum: 0, maximum: 1 }
     SystemAuditConfiguration:
       type: object
-      required: [id, contractType, promptConfig, enabledRules, customEntities, updatedAt, version]
+      required: [id, contractType, promptConfig, enabledRules, enabled, reviewThresholds, customEntities, updatedAt, version]
       properties:
         id: { type: string }
         contractType: { $ref: "#/components/schemas/ContractType" }
@@ -425,6 +436,8 @@ components:
         enabledRules:
           type: array
           items: { type: string }   # 激活规则 ID 列表，空则 []
+        enabled: { type: boolean }
+        reviewThresholds: { $ref: "#/components/schemas/ReviewThresholds" }
         customEntities:
           type: array
           items: { $ref: "#/components/schemas/DynamicExtractionEntityConfig" } # 空则 []
@@ -600,7 +613,7 @@ components:
       required: [contractId, targetType, targetId, verdict]
       properties:
         contractId: { type: string }
-        targetType: { type: string, enum: [RISK, CONFLICT, SEAL, ELEMENT] }
+        targetType: { $ref: "#/components/schemas/TargetType" }
         targetId: { type: string }
         verdict: { $ref: "#/components/schemas/FeedbackVerdict" }
         userCorrection:
@@ -614,7 +627,7 @@ components:
       properties:
         id: { type: string }
         contractId: { type: string }
-        targetType: { type: string, enum: [RISK, CONFLICT, SEAL, ELEMENT] }
+        targetType: { $ref: "#/components/schemas/TargetType" }
         targetId: { type: string }
         verdict: { $ref: "#/components/schemas/FeedbackVerdict" }
         userCorrection: { type: ["string", "null"] }
@@ -622,6 +635,18 @@ components:
         isIncorporated: { type: boolean }
         createdAt: { type: string, format: date-time }
 
+    FeedbackListData:
+      type: object
+      description: 反馈列表分页数据
+      required: [items, total, page, pageSize, hasMore]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/FeedbackItem" }
+        total: { type: integer, minimum: 0 }
+        page: { type: integer, minimum: 1 }
+        pageSize: { type: integer, minimum: 1, maximum: 100 }
+        hasMore: { type: boolean }
     TaskProgress:
       type: object
       description: 长耗时任务进度（§5.4）
@@ -814,6 +839,13 @@ components:
           properties:
             data: { $ref: "#/components/schemas/FeedbackItem" }
 
+    FeedbackListResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiEnvelopeBase"
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: "#/components/schemas/FeedbackListData" }
     RewriteResponse:
       allOf:
         - $ref: "#/components/schemas/ApiEnvelopeBase"
@@ -1154,6 +1186,25 @@ paths:
         "500": { $ref: "#/components/responses/Internal" }
 
   /feedback:
+    get:
+      tags: [Feedback]
+      summary: 反馈列表（分页与过滤）
+      description: 按合同、目标类型和人工判定分页读取反馈记录。
+      operationId: listFeedback
+      parameters:
+        - { name: contractId, in: query, required: false, description: 按合同过滤, schema: { type: string } }
+        - { name: targetType, in: query, required: false, description: 按反馈目标类型过滤, schema: { $ref: "#/components/schemas/TargetType" } }
+        - { name: verdict, in: query, required: false, description: 按人工判定过滤, schema: { $ref: "#/components/schemas/FeedbackVerdict" } }
+        - { name: page, in: query, required: false, description: 页码, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: pageSize, in: query, required: false, description: 每页数量, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FeedbackListResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "500": { $ref: "#/components/responses/Internal" }
     post:
       tags: [Feedback]
       summary: 标注反馈（数据飞轮）

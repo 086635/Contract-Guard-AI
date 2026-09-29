@@ -1,9 +1,9 @@
 """MinIO 对象存储预签名适配器。
 
 设计要点：
-1. 只生成预签名 URL，不在网关中转文件内容。
+1. 内部 client 只做服务端对象操作，public client 只生成浏览器预签名 URL。
 2. bucket 与连接参数统一来自 `app.config.settings`。
-3. 测试可注入 MinIO client，避免依赖真实对象存储。
+3. 测试可注入 internal/public client，避免依赖真实对象存储。
 
 对应：`文件集合/codex/4.C8外部依赖适配器.md`。
 """
@@ -25,15 +25,27 @@ class MinioObjectStorage:
         self,
         client: Minio | None = None,
         *,
+        public_client: Minio | None = None,
         bucket: str | None = None,
     ) -> None:
-        self._client = client or Minio(
-            endpoint=settings.minio_endpoint,
+        self._internal_client = client or self._build_client(
+            settings.minio_endpoint
+        )
+        self._public_client = public_client or self._build_client(
+            settings.resolved_minio_public_endpoint
+        )
+        self._bucket = bucket or settings.minio_bucket
+
+    @staticmethod
+    def _build_client(endpoint: str) -> Minio:
+        """按 endpoint 构建独立签名的 MinIO client。"""
+        return Minio(
+            endpoint=endpoint,
             access_key=settings.minio_access_key,
             secret_key=settings.minio_secret_key,
             secure=settings.minio_secure,
+            region=settings.minio_region,
         )
-        self._bucket = bucket or settings.minio_bucket
 
     @property
     def bucket(self) -> str:
@@ -43,7 +55,7 @@ class MinioObjectStorage:
     def presign_put(self, file_key: str, expires_s: int = 600) -> str:
         """生成 PUT 预签名 URL。"""
         self._validate_expiry(expires_s)
-        return self._client.presigned_put_object(
+        return self._public_client.presigned_put_object(
             self._bucket,
             file_key,
             expires=timedelta(seconds=expires_s),
@@ -52,7 +64,7 @@ class MinioObjectStorage:
     def presign_get(self, file_key: str, expires_s: int = 900) -> str:
         """生成 GET 预签名 URL。"""
         self._validate_expiry(expires_s)
-        return self._client.presigned_get_object(
+        return self._public_client.presigned_get_object(
             self._bucket,
             file_key,
             expires=timedelta(seconds=expires_s),
@@ -60,7 +72,7 @@ class MinioObjectStorage:
 
     def stat_object(self, file_key: str) -> StoredObjectInfo:
         """读取对象大小与 ETag。"""
-        stat = self._client.stat_object(self._bucket, file_key)
+        stat = self._internal_client.stat_object(self._bucket, file_key)
         etag = str(getattr(stat, "etag", "")).strip('"')
         if not etag:
             raise ValueError(f"对象缺少 ETag: {file_key}")

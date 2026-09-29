@@ -146,6 +146,228 @@ def _docx_headings(data: bytes) -> list[str]:
     ]
 
 
+
+def _check_cors_preflight(
+    client: httpx.Client,
+    url: str,
+    origin: str,
+    method: str,
+    checks: _Tracker,
+    label: str,
+) -> bool:
+    """检查浏览器预检与允许来源头。"""
+    try:
+        response = client.request(
+            "OPTIONS",
+            url,
+            headers={
+                "Origin": origin,
+                "Access-Control-Request-Method": method,
+            },
+        )
+        allow_origin = response.headers.get("access-control-allow-origin")
+        ok = response.status_code in (200, 204) and allow_origin == origin
+        checks.add(
+            f"CORS 预检 {label}",
+            "PASS" if ok else "FAIL",
+            f"HTTP {response.status_code}，ACAO={allow_origin}",
+        )
+        return ok
+    except Exception as exc:  # noqa: BLE001
+        checks.add(f"CORS 预检 {label}", "FAIL", f"{type(exc).__name__}: {exc}")
+        return False
+
+
+def _check_elements_extra(elements: list[Any], checks: _Tracker) -> None:
+    """确认 ContractElement value/confidence/isCustom 契约形状。"""
+    if not elements:
+        checks.add("elements extra 投影", "FAIL", "elements 为空")
+        return
+    bad: list[str] = []
+    non_null = 0
+    for index, item in enumerate(elements):
+        value = item.get("value")
+        confidence = item.get("confidence")
+        is_custom = item.get("isCustom")
+        if value is not None:
+            non_null += 1
+            if not isinstance(value, str):
+                bad.append(f"#{index}.value")
+        if not isinstance(confidence, (int, float)) or isinstance(confidence, bool):
+            bad.append(f"#{index}.confidence")
+        elif confidence < 0 or confidence > 1:
+            bad.append(f"#{index}.confidence-range")
+        if not isinstance(is_custom, bool):
+            bad.append(f"#{index}.isCustom")
+    checks.add(
+        "elements extra 投影",
+        "PASS" if not bad else "FAIL",
+        f"elements={len(elements)}，nonNullValue={non_null}，bad={bad[:3]}",
+    )
+
+
+def _check_feedback_roundtrip(
+    client: httpx.Client,
+    base: str,
+    contract_id: str,
+    checks: _Tracker,
+) -> None:
+    """POST 反馈后按合同 GET 重读，证明持久化与列表契约。"""
+    target_id = f"e2e-feedback-{uuid.uuid4().hex[:8]}"
+    try:
+        created = client.post(
+            f"{base}/feedback",
+            json={
+                "contractId": contract_id,
+                "targetType": "RISK",
+                "targetId": target_id,
+                "verdict": "CORRECT",
+                "userCorrection": "端到端 C43 反馈持久化探针",
+                "reviewer": "e2e_smoke",
+            },
+        )
+        created_data = _data(created) or {}
+        listed = client.get(
+            f"{base}/feedback",
+            params={"contractId": contract_id, "pageSize": 100},
+        )
+        listed_data = _data(listed) or {}
+        items = listed_data.get("items") or []
+        found = any(
+            str(item.get("id")) == str(created_data.get("id"))
+            and str(item.get("contractId")) == str(contract_id)
+            and item.get("reviewer") == "e2e_smoke"
+            for item in items
+        )
+        ok = (
+            created.status_code == 201
+            and listed.status_code == 200
+            and found
+            and int(listed_data.get("total") or 0) >= 1
+        )
+        checks.add(
+            "反馈 POST→GET 持久化",
+            "PASS" if ok else "FAIL",
+            f"POST={created.status_code}，GET={listed.status_code}，"
+            f"target={target_id}，found={found}",
+        )
+    except Exception as exc:  # noqa: BLE001
+        checks.add("反馈 POST→GET 持久化", "FAIL", f"{type(exc).__name__}: {exc}")
+
+
+def _check_settings_roundtrip(
+    client: httpx.Client,
+    base: str,
+    checks: _Tracker,
+) -> None:
+    """GET 规则后 PUT 测试值，再 GET 重读并恢复原值。"""
+    try:
+        listed = client.get(f"{base}/settings/rules")
+        rules = _data(listed) or []
+        if listed.status_code != 200:
+            checks.add("设置 GET→PUT→GET 持久化", "FAIL", f"GET HTTP {listed.status_code}")
+            return
+        if not rules:
+            checks.add(
+                "设置 GET→PUT→GET 持久化",
+                "DEGRADED",
+                "当前 e2e 库无 settings_rules，需运行前预置一条规则",
+            )
+            return
+
+        rule = rules[0]
+        rule_id = rule["id"]
+        original_enabled = rule.get("enabled")
+        original_thresholds = rule.get("reviewThresholds")
+        test_thresholds = {"high": 0.80, "medium": 0.60, "low": 0.30}
+        updated = {
+            **rule,
+            "enabled": not bool(original_enabled),
+            "reviewThresholds": test_thresholds,
+        }
+        put = client.put(f"{base}/settings/rules/{rule_id}", json=updated)
+        reread = client.get(f"{base}/settings/rules/{rule_id}")
+        reread_data = _data(reread) or {}
+        roundtrip_ok = (
+            put.status_code == 200
+            and reread.status_code == 200
+            and reread_data.get("enabled") is updated["enabled"]
+            and reread_data.get("reviewThresholds") == test_thresholds
+        )
+        restore = client.put(
+            f"{base}/settings/rules/{rule_id}",
+            json={
+                **updated,
+                "enabled": original_enabled,
+                "reviewThresholds": original_thresholds,
+            },
+        )
+        restore_ok = restore.status_code == 200
+        checks.add(
+            "设置 GET→PUT→GET 持久化",
+            "PASS" if roundtrip_ok and restore_ok else "FAIL",
+            f"PUT={put.status_code}，GET={reread.status_code}，"
+            f"roundtrip={roundtrip_ok}，restore={restore_ok}",
+        )
+    except Exception as exc:  # noqa: BLE001
+        checks.add("设置 GET→PUT→GET 持久化", "FAIL", f"{type(exc).__name__}: {exc}")
+
+
+def _check_rewrite(
+    client: httpx.Client,
+    base: str,
+    contract_id: str,
+    timeout: float,
+    *,
+    allow_offline: bool,
+    checks: _Tracker,
+) -> None:
+    """调用真实 rewrite Worker 并检查 RewriteData 或显式失败。"""
+    request_id = uuid.uuid4().hex
+    try:
+        response = client.post(
+            f"{base}/agent/rewrite",
+            json={
+                "contractId": contract_id,
+                "clauseId": "1",
+                "instruction": "改成对等解约",
+                "scopedMemory": {
+                    "targetClauseId": "1",
+                    "recentDialog": [],
+                    "draftAfter": None,
+                },
+                "xRequestId": request_id,
+            },
+            timeout=timeout,
+        )
+        data = _data(response) or {}
+        ok = (
+            response.status_code == 200
+            and data.get("taskId") == request_id
+            and isinstance(data.get("diff"), dict)
+            and isinstance(data.get("after"), str)
+        )
+        detail = str(response.text or "")
+        if ok:
+            status = "PASS"
+        elif allow_offline and response.status_code == 502:
+            status = "DEGRADED"
+            detail = "Worker 已注册并返回显式 502；当前 offline 模型无真实改写输出"
+        else:
+            status = "FAIL"
+        checks.add(
+            "POST /agent/rewrite Worker 链",
+            status,
+            f"HTTP {response.status_code}，taskId={data.get('taskId')}，{detail}",
+        )
+    except Exception as exc:  # noqa: BLE001
+        checks.add(
+            "POST /agent/rewrite 真实结果",
+            "FAIL",
+            f"{type(exc).__name__}: {exc}",
+        )
+
+
 # ---------------------------------------------------------------------------
 # 主流程
 # ---------------------------------------------------------------------------
@@ -187,14 +409,30 @@ def run(args: argparse.Namespace) -> int:
         return _finish(checks, started)
     presign = _data(response) or {}
     file_key = presign["fileKey"]
+    _check_cors_preflight(
+        client,
+        presign["presignedUrl"],
+        "http://localhost:5173",
+        "PUT",
+        checks,
+        "上传 PUT",
+    )
 
-    # 2) MinIO 直传（先试预签名 PUT，host 不可达时回退 SDK）
+    # 2) MinIO 浏览器直传：必须走可访问的 presign URL；SDK 仅作诊断回退。
     uploaded_via = "presigned-put"
+    direct_error: Exception | None = None
     try:
-        put = client.put(presign["presignedUrl"], content=fixture, timeout=args.timeout)
-        if put.status_code not in (200, 204):
-            raise RuntimeError(f"HTTP {put.status_code}")
-    except Exception:  # noqa: BLE001 - 容器内 host 不可达时回退 SDK
+        put = client.put(
+            presign["presignedUrl"],
+            content=fixture,
+            headers={"Origin": "http://localhost:5173"},
+            timeout=args.timeout,
+        )
+        allow_origin = put.headers.get("access-control-allow-origin")
+        if put.status_code not in (200, 204) or allow_origin != "http://localhost:5173":
+            raise RuntimeError(f"HTTP {put.status_code}，ACAO={allow_origin}")
+    except Exception as exc:  # noqa: BLE001
+        direct_error = exc
         storage.put_object(
             args.bucket,
             file_key,
@@ -203,7 +441,14 @@ def run(args: argparse.Namespace) -> int:
             content_type=_DOCX_MIME,
         )
         uploaded_via = "minio-sdk"
-    checks.add("MinIO 直传", "PASS", f"{uploaded_via} -> {file_key}")
+    direct_detail = f"{uploaded_via} -> {file_key}"
+    if direct_error is not None:
+        direct_detail += f"；{type(direct_error).__name__}: {direct_error}"
+    checks.add(
+        "MinIO 浏览器直传",
+        "PASS" if direct_error is None else "FAIL",
+        direct_detail,
+    )
 
     # 3) upload -> 建合同 + 派发 parse_doc
     response = client.post(
@@ -270,6 +515,7 @@ def run(args: argparse.Namespace) -> int:
         "PASS" if response.status_code == 200 and len(elements) > 0 else "FAIL",
         f"HTTP {response.status_code}，elements={len(elements)}",
     )
+    _check_elements_extra(elements, checks)
 
     # 7) risks / conflicts（触发 C23 finalize_audit）
     risks: list[Any] = []
@@ -315,9 +561,40 @@ def run(args: argparse.Namespace) -> int:
         f"downloadUrl={'yes' if report else 'no'}",
     )
 
-    # 9) 下载 DOCX + 回读章节
+    # 9) 浏览器 presign GET + 下载 DOCX + 回读章节
     if report and report.get("downloadUrl"):
-        docx_bytes = _download_docx(args, report["downloadUrl"])
+        download_url = report["downloadUrl"]
+        _check_cors_preflight(
+            client,
+            download_url,
+            "http://localhost:8080",
+            "GET",
+            checks,
+            "报告 GET",
+        )
+        try:
+            download = client.get(
+                download_url,
+                headers={"Origin": "http://localhost:8080"},
+                timeout=args.timeout,
+            )
+            download.raise_for_status()
+            allow_origin = download.headers.get("access-control-allow-origin")
+            if allow_origin != "http://localhost:8080":
+                raise RuntimeError(f"ACAO={allow_origin}")
+            docx_bytes = download.content
+            checks.add(
+                "报告 presign 浏览器 GET",
+                "PASS",
+                f"HTTP {download.status_code}，bytes={len(docx_bytes)}",
+            )
+        except Exception as exc:  # noqa: BLE001
+            checks.add(
+                "报告 presign 浏览器 GET",
+                "FAIL",
+                f"{type(exc).__name__}: {exc}",
+            )
+            docx_bytes = _download_docx(args, download_url)
         headings = _docx_headings(docx_bytes)
         checks.add(
             "报告 DOCX 含「风险清单 / 矛盾清单」章节",
@@ -338,7 +615,14 @@ def run(args: argparse.Namespace) -> int:
             )
 
     # 10) 其余端点（软判定，不误伤核心链）
-    _cover_extra_endpoints(client, base, contract_id, checks)
+    _cover_extra_endpoints(
+        client,
+        base,
+        contract_id,
+        args.timeout,
+        allow_offline_rewrite=args.allow_offline_rewrite,
+        checks=checks,
+    )
 
     # 11) 回归脚本
     _regression(checks)
@@ -347,57 +631,36 @@ def run(args: argparse.Namespace) -> int:
 
 
 def _cover_extra_endpoints(
-    client: httpx.Client, base: str, contract_id: str, checks: _Tracker
+    client: httpx.Client,
+    base: str,
+    contract_id: str,
+    timeout: float,
+    *,
+    allow_offline_rewrite: bool,
+    checks: _Tracker,
 ) -> None:
-    for method, path, payload in (
-        ("GET", "/contracts?page=1&pageSize=5", None),
-        ("GET", f"/contracts/{contract_id}", None),
-        ("GET", "/settings/rules", None),
-        (
-            "POST",
-            "/feedback",
-            {
-                "contractId": contract_id,
-                "targetType": "RISK",
-                "targetId": "e2e-probe",
-                "verdict": "CORRECT",
-                "userCorrection": "端到端冒烟占位反馈",
-                "reviewer": "e2e_smoke",
-            },
-        ),
+    """覆盖 T-D6 新增契约，不再把关键链路降级为软通过。"""
+    for method, path in (
+        ("GET", "/contracts?page=1&pageSize=5"),
+        ("GET", f"/contracts/{contract_id}"),
     ):
         try:
-            response = client.request(method, f"{base}{path}", json=payload)
-            status = "PASS" if 200 <= response.status_code < 300 else "DEGRADED"
+            response = client.request(method, f"{base}{path}")
+            status = "PASS" if 200 <= response.status_code < 300 else "FAIL"
             checks.add(f"{method} {path}", status, f"HTTP {response.status_code}")
         except Exception as exc:  # noqa: BLE001
-            checks.add(f"{method} {path}", "DEGRADED", f"{type(exc).__name__}")
+            checks.add(f"{method} {path}", "FAIL", f"{type(exc).__name__}")
 
-    try:
-        response = client.post(
-            f"{base}/agent/rewrite",
-            json={
-                "contractId": contract_id,
-                "clauseId": "1",
-                "instruction": "改成对等解约",
-                "scopedMemory": {
-                    "targetClauseId": "1",
-                    "recentDialog": [],
-                    "draftAfter": None,
-                },
-                "xRequestId": uuid.uuid4().hex,
-            },
-            timeout=5,
-        )
-        status = "PASS" if 200 <= response.status_code < 300 else "DEGRADED"
-        checks.add("POST /agent/rewrite", status, f"HTTP {response.status_code}")
-    except Exception as exc:  # noqa: BLE001
-        checks.add(
-            "POST /agent/rewrite",
-            "DEGRADED",
-            f"{type(exc).__name__}（rewrite 任务未注册 worker）",
-        )
-
+    _check_feedback_roundtrip(client, base, contract_id, checks)
+    _check_settings_roundtrip(client, base, checks)
+    _check_rewrite(
+        client,
+        base,
+        contract_id,
+        timeout,
+        allow_offline=allow_offline_rewrite,
+        checks=checks,
+    )
 
 def _regression(checks: _Tracker) -> None:
     for script in ("scripts/phase1_smoke.py", "scripts/eval_recall.py"):
@@ -446,6 +709,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--require-risks",
         action="store_true",
         help="真实语义档：风险>=1 且 citations 非空",
+    )
+    parser.add_argument(
+        "--allow-offline-rewrite",
+        action="store_true",
+        help="离线档允许 rewrite 显式 502 记为 DEGRADED；不得伪造 RewriteData",
     )
     parser.add_argument("--timeout", type=float, default=120.0)
     parser.add_argument("--sse-timeout", type=float, default=5.0)

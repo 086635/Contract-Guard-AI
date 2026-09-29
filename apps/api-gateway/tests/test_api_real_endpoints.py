@@ -1,4 +1,4 @@
-"""C17 OpenAPI operation 与生产路由矩阵守卫。"""
+"""C17/C38 OpenAPI operation 与生产路由矩阵守卫。"""
 
 from __future__ import annotations
 
@@ -79,7 +79,7 @@ def test_openapi_operation_inventory_matches_production_app() -> None:
     expected = _openapi_operations()
     actual = _production_operations()
 
-    assert len(expected) == 19
+    assert len(expected) == 20
     assert actual == expected
 
 

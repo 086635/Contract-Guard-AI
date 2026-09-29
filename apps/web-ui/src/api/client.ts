@@ -24,6 +24,43 @@ function makeRequestId(): string {
   });
 }
 
+type ErrorPayload = {
+  code?: string;
+  traceId?: string;
+  serverTime?: string;
+  message?: string;
+  detail?: string;
+};
+
+function nonEmptyString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function normalizeErrorPayload(data: unknown): ErrorPayload | null {
+  if (typeof data !== "object" || data === null) return null;
+  const record = data as Record<string, unknown>;
+  return {
+    code: nonEmptyString(record.code),
+    traceId: nonEmptyString(record.traceId),
+    serverTime: nonEmptyString(record.serverTime),
+    message: nonEmptyString(record.message),
+    detail: nonEmptyString(record.detail),
+  };
+}
+
+/**
+ * 将 traceId 挂到 Axios error 上，供开发日志和调用方诊断使用。
+ * 不改变 HTTP 状态码，也不把 traceId 拼进用户可见 message。
+ */
+function attachTraceId(error: unknown, traceId: string): void {
+  if (typeof error !== "object" || error === null) return;
+  Object.defineProperty(error, "traceId", {
+    value: traceId,
+    configurable: true,
+    enumerable: false,
+  });
+}
+
 export const httpClient: AxiosInstance = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || "/api/v1",
   timeout: 30_000,
@@ -49,10 +86,21 @@ httpClient.interceptors.response.use(
     return response;
   },
   (error) => {
-    // 网关错误统一保留面向用户的 message，同时把 traceId 带到开发日志。
-    const payload = error?.response?.data as { message?: string; detail?: string; traceId?: string } | undefined;
-    if (payload?.traceId && import.meta.env.DEV) console.warn(`[api] ${payload.traceId}`, payload.detail ?? payload.message);
-    if (payload?.message) error.message = payload.message;
+    // 网络错误/超时没有 response：保留 Axios 原始错误，不伪造业务错误。
+    if (!error?.response) return Promise.reject(error);
+
+    const payload = normalizeErrorPayload(error.response.data);
+    const traceId = payload?.traceId;
+    if (traceId) attachTraceId(error, traceId);
+
+    const logDetail = payload?.message ?? payload?.detail ?? error.message;
+    if (traceId && import.meta.env.DEV) {
+      console.warn(`[api] ${traceId}`, logDetail);
+    }
+
+    // message 优先；仅当 message 缺失时使用 detail。原始 HTTP status 保持在 error.response.status。
+    const userMessage = payload?.message ?? payload?.detail;
+    if (userMessage) error.message = userMessage;
     return Promise.reject(error);
   },
 );

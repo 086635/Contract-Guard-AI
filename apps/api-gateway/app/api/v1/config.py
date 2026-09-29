@@ -7,12 +7,17 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.api.deps import get_service_context
-from app.generated.schemas import SettingsRuleResponse, SettingsRulesResponse
+from app.generated.schemas import (
+    SettingsRuleResponse,
+    SettingsRulesResponse,
+    SystemAuditConfiguration,
+)
 from app.services.context import ServiceContext
 from app.services.envelope import build_success_response
 from app.services.rule_service import (
     RuleNotFoundError,
     RuleService,
+    RuleThresholdValidationError,
     RuleVersionConflictError,
 )
 
@@ -48,7 +53,7 @@ async def get_rule(
 @router.put("/rules/{config_id}", response_model=SettingsRuleResponse, status_code=200)
 async def update_rule(
     config_id: UUID,
-    body: dict,
+    body: SystemAuditConfiguration,
     context: ServiceContext = Depends(get_service_context),
 ) -> SettingsRuleResponse:
     """更新规则配置（需带 version 乐观锁，冲突返 ERR_DATA_CONFLICT）。"""
@@ -58,6 +63,11 @@ async def update_rule(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="config not found",
+        ) from exc
+    except RuleThresholdValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
         ) from exc
     except RuleVersionConflictError as exc:
         raise HTTPException(

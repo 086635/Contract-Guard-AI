@@ -53,6 +53,10 @@ from rag_contracts.chunk import EMBEDDING_DIM, SCHEMA_VERSION
 from rag_contracts.enums import ChunkType, ContractType, SourceType
 
 
+def _default_review_thresholds() -> dict[str, float]:
+    """返回设置页默认人工复核阈值。"""
+    return {"high": 0.85, "medium": 0.65, "low": 0.40}
+
 def _utc_now() -> datetime:
     """返回带 UTC 时区的当前时间。"""
     return datetime.now(UTC)
@@ -347,6 +351,9 @@ class SettingsRule(Base):
     prompt_template: Mapped[str] = mapped_column(Text)
     threshold: Mapped[float | None] = mapped_column(Float, nullable=True)
     is_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    review_thresholds: Mapped[dict[str, float]] = mapped_column(
+        JSON, default=_default_review_thresholds, nullable=False
+    )
 
 
 class AuditReport(Base):
@@ -393,10 +400,18 @@ class UserFeedback(Base):
             "target_type",
             "target_id",
         ),
+        Index(
+            "ix_user_feedbacks_contract_created",
+            "contract_id",
+            "created_at",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True), primary_key=True, default=uuid4
+    )
+    contract_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("contracts.id"), nullable=False
     )
     target_type: Mapped[TargetType] = mapped_column(
         _enum_type(TargetType, "feedback_target_type")
@@ -406,6 +421,7 @@ class UserFeedback(Base):
         _enum_type(FeedbackVerdict, "feedback_verdict")
     )
     user_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reviewer: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utc_now
     )

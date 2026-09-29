@@ -2,7 +2,7 @@
 
 > 文档用途：为后续开发者、联调人员和项目维护者提供一份可直接交接的前端状态总览。本文档记录当前 `apps/web-ui` 的页面架构、API 接入情况、已完成能力、验证结果、已知限制和后续建议。
 >
-> 最近更新：2026-08-29
+> 最近更新：2026-09-29
 
 ## 1. 项目当前结论
 
@@ -19,7 +19,7 @@
 - 前端保持浅色法务工作台视觉方向；
 - 生产构建和 TypeScript 类型检查均已通过。
 
-当前仍属于“前端 + FastAPI Mock 网关联调阶段”，还不是完整生产环境联调。后端目前使用 `MockDataFactory` 内存数据，真实数据库、MinIO、OCR、LLM 和异步 Worker 尚未接入本次前端验证范围。
+当前 T-D4/T-D6 的真实数据库、Redis、MinIO、Celery、API 和 Worker 链路已完成；T-D5 C28~C36 的前端适配与构建验收已通过。仍待真实 LLM 环境复验 rewrite 成功 Diff，浏览器自动点击与 PDF.js 文本层不属于本阶段。
 
 ## 2. 前端技术基座
 
@@ -175,7 +175,7 @@ GET /tasks/{taskId}/stream
 
 SSE 服务层同时兼容两种事件格式：
 
-1. 当前 Mock 后端使用的裸 `TaskProgress`；
+1. 当前真实网关使用的裸 `TaskProgress`；
 2. 后续网关可能使用的统一 `data` 包络格式。
 
 ### 5.3 报告域
@@ -349,9 +349,10 @@ PUT  /api/v1/settings/rules/{configId}            200 SUCCESS
 
 ```text
 http://127.0.0.1:5173/
-http://127.0.0.1:5173/audit/00000000-0000-0000-0000-000000000001
-http://127.0.0.1:5173/report/00000000-0000-0000-0000-000000000001
-http://127.0.0.1:5173/settings
+http://127.0.0.1:5173/contracts
+http://127.0.0.1:5173/contracts/{contractId}/audit
+http://127.0.0.1:5173/contracts/{contractId}/report
+http://127.0.0.1:5173/settings/rules
 http://127.0.0.1:5173/feedback
 ```
 
@@ -359,29 +360,25 @@ http://127.0.0.1:5173/feedback
 
 ## 8. 当前已知限制
 
-### 8.1 Mock 后端不是真实生产服务
+### 8.1 真实运行时限制
 
-当前后端由 `MockDataFactory` 提供静态内存数据，数据不会持久化，也不会真实调用：
+当前后端已接入真实 PostgreSQL、Redis、MinIO、Celery、RAG 和异步 Worker；`MockDataFactory` 只保留在测试/兼容代码中，不作为页面成功路径。
 
-- 数据库；
-- Redis；
-- MinIO；
-- OCR；
-- LLM；
-- RAG；
-- 异步 Worker。
+仍待：
 
-因此当前验证重点是前端接口路径、参数和状态流转，而不是生产数据准确性。
+- 配置真实 `CG_LLM_*` 后复验 rewrite 成功 Diff；
+- 使用浏览器自动化或人工浏览器完成最终页面点击验收；
+- PDF.js 文本层和真实 PDF 渲染仍属于后续增强范围。
 
-### 8.2 MinIO 预签名地址不可访问
+### 8.2 MinIO 公网预签名
 
-Mock 后端返回的示例地址类似：
+当前网关已分离：
 
-```text
-https://minio.contract-guard.local/...
-```
+- internal endpoint：`minio:9000`
+- public endpoint：`localhost:9000`
+- CORS：`http://localhost:5173`、`http://localhost:8080`
 
-当前本机无法解析这个域名，所以真实点击上传时，预签名请求和任务创建可以成功，但文件直传可能失败。
+预签名 URL 不再使用 `.local` 静默跳过，连接/CORS/非 2xx 失败都会显示在页面上。
 
 生产环境需要由后端返回真实可访问的 MinIO / S3 预签名地址，并配置对应的 CORS、权限和过期时间。
 
@@ -458,34 +455,33 @@ uv run --package api-gateway uvicorn app.main:app --reload --port 8000
 Vite 开发代理位于 [vite.config.ts](./vite.config.ts)：
 
 ```text
-/api/* → http://localhost:8008
+/api/* → http://localhost:8000
 ```
 
 如果前端和后端分开部署，可以在 `.env` 中设置：
 
 ```env
-VITE_API_BASE_URL=http://localhost:8008/api/v1
+VITE_API_BASE_URL=http://localhost:8000/api/v1
 ```
 
 ## 10. 后续开发建议
 
-### 优先级 P0：完成真实文件链路
+### 已完成的关键链路
 
-1. 接入真实 MinIO / S3；
-2. 确认预签名 PUT 所需的请求头；
-3. 配置 MinIO CORS；
-4. 增加真实文件上传进度；
-5. 验证解析失败和任务重试；
-6. 解析完成后返回真实 `contractId`，不要继续依赖固定 Mock ID。
+- 真实 MinIO public presign、CORS、PUT/GET；
+- `presign → PUT → upload → SSE` 上传闭环；
+- 命名 `progress` 事件、2 秒轮询兜底和终态清理；
+- 真实 `contractId` 动态路由与六路审核数据装配；
+- 报告任务等待、DONE 后导航和真实 DOCX 下载；
+- 真实反馈列表/CSV、真实设置持久化与阈值转换；
+- 真实 rewrite 请求、失败态和采纳边界。
 
-### 优先级 P0：完善真实任务状态机
+### 仍需后续环境验证
 
-1. 明确 `PENDING`、`RUNNING`、`DONE`、`FAILED` 状态；
-2. 统一 SSE 事件格式；
-3. 增加任务断线重连；
-4. 增加任务超时提示；
-5. 页面离开后恢复任务状态；
-6. 把上传任务、报告任务和 AI 改写任务区分开。
+1. 配置真实 `CG_LLM_*` 后复验 rewrite 成功 Diff；
+2. 使用 Playwright/真实浏览器完成最终页面点击验收；
+3. 接入 PDF.js 文本层、真实 PDF 渲染和多租户鉴权；
+4. 在 C37 持续执行深链接、`/api` 反代和 Docker 交付回归。
 
 ### 优先级 P1：补齐审核操作的数据闭环
 

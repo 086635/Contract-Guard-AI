@@ -72,6 +72,7 @@ async def _exercise_config_routes(dsn: str) -> None:
                         prompt_template="检查付款与违约金条款。",
                         threshold=0.5,
                         is_enabled=True,
+                        review_thresholds={"high": 0.85, "medium": 0.65, "low": 0.40},
                     )
                 )
                 await session.commit()
@@ -84,6 +85,12 @@ async def _exercise_config_routes(dsn: str) -> None:
                 created_data = created.json()["data"]
                 assert created_data["id"] == str(rule_id)
                 assert created_data["promptConfig"]["roleName"] == "采购合同审查员"
+                assert created_data["enabled"] is True
+                assert created_data["reviewThresholds"] == {
+                    "high": 0.85,
+                    "medium": 0.65,
+                    "low": 0.40,
+                }
 
                 listed = await client.get(
                     "/api/v1/settings/rules",
@@ -98,6 +105,39 @@ async def _exercise_config_routes(dsn: str) -> None:
 
                 missing = await client.get(f"/api/v1/settings/rules/{uuid4()}")
                 assert missing.status_code == 404
+
+                invalid = await client.put(
+                    f"/api/v1/settings/rules/{rule_id}",
+                    json={
+                        **payload,
+                        "reviewThresholds": {
+                            "high": 0.50,
+                            "medium": 0.80,
+                            "low": 0.40,
+                        },
+                    },
+                )
+                assert invalid.status_code == 422
+
+                disabled = await client.put(
+                    f"/api/v1/settings/rules/{rule_id}",
+                    json={
+                        **payload,
+                        "enabled": False,
+                        "reviewThresholds": {
+                            "high": 0.80,
+                            "medium": 0.60,
+                            "low": 0.30,
+                        },
+                    },
+                )
+                assert disabled.status_code == 200
+                assert disabled.json()["data"]["enabled"] is False
+                assert disabled.json()["data"]["reviewThresholds"] == {
+                    "high": 0.80,
+                    "medium": 0.60,
+                    "low": 0.30,
+                }
 
                 conflict = await client.put(
                     f"/api/v1/settings/rules/{rule_id}",

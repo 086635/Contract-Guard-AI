@@ -96,6 +96,23 @@ class ContractProjector:
                 height=chunk.bbox.height,
                 coordinateSystem=s.CoordinateSystem.pdf_points,
             )
+
+        if chunk.category == "CONTRACT_ELEMENT":
+            extra = chunk.extra or {}
+            value = extra["value"] if "value" in extra else chunk.text
+            confidence = float(extra.get("confidence", 1.0))
+            is_custom = extra.get("isCustom", False)
+            if not isinstance(is_custom, bool):
+                raise ValueError(f"要素 {chunk.section_id} 的 isCustom 非法")
+            return s.ContractElement(
+                key=chunk.section_id,
+                label=chunk.title or chunk.section_id,
+                value=value,
+                confidence=confidence,
+                bbox=bbox,
+                isCustom=is_custom,
+            )
+
         return s.ContractElement(
             key=chunk.section_id,
             label=chunk.title or chunk.category,
@@ -104,7 +121,6 @@ class ContractProjector:
             bbox=bbox,
             isCustom=False,
         )
-
     @staticmethod
     def _health_score(
         risks: list[s.EnhancedRiskItem],

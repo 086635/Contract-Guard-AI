@@ -1,16 +1,52 @@
-"""Feedback 路由（标注反馈，数据飞轮，§9 FeedbackItem）。"""
+"""Feedback 路由（标注反馈与列表，数据飞轮，§9 FeedbackItem）。"""
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.api.deps import get_service_context
-from app.generated.schemas import FeedbackCreateBody, FeedbackResponse
+from app.generated.schemas import (
+    FeedbackCreateBody,
+    FeedbackListData,
+    FeedbackListResponse,
+    FeedbackResponse,
+    FeedbackVerdict,
+    TargetType,
+)
 from app.services.context import ServiceContext
 from app.services.envelope import build_success_response
 from app.services.feedback_service import FeedbackService, FeedbackValidationError
 
 router = APIRouter(prefix="/feedback", tags=["Feedback"])
+
+
+@router.get("", response_model=FeedbackListResponse, status_code=status.HTTP_200_OK)
+async def list_feedback(
+    contract_id: UUID | None = Query(None, alias="contractId"),
+    target_type: TargetType | None = Query(None, alias="targetType"),
+    verdict: FeedbackVerdict | None = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100, alias="pageSize"),
+    context: ServiceContext = Depends(get_service_context),
+) -> FeedbackListResponse:
+    """分页查询反馈，支持合同、目标类型和判定过滤。"""
+    items, total = await FeedbackService(context).list(
+        contract_id=contract_id,
+        target_type=target_type,
+        verdict=verdict,
+        page=page,
+        page_size=page_size,
+    )
+    data = FeedbackListData(
+        items=items,
+        total=total,
+        page=page,
+        pageSize=page_size,
+        hasMore=page * page_size < total,
+    )
+    return build_success_response(FeedbackListResponse, data)
 
 
 @router.post("", response_model=FeedbackResponse, status_code=status.HTTP_201_CREATED)

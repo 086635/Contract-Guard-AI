@@ -20,6 +20,7 @@ celery_app = Celery(
         "worker.tasks.parse_doc",
         "worker.tasks.run_audit",
         "worker.tasks.gen_report",
+        "worker.tasks.rewrite",
     ],
 )
 

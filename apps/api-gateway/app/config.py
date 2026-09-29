@@ -32,6 +32,8 @@ class Settings(BaseSettings):
     celery_backend: str = "redis://localhost:6379/2"
     qdrant_url: str = "http://localhost:6333"
     minio_endpoint: str = "localhost:9000"
+    minio_public_endpoint: str | None = None
+    minio_region: str = "us-east-1"
     minio_access_key: str = "minioadmin"
     minio_secret_key: str = "minioadmin"
     minio_bucket: str = "contracts"
@@ -39,6 +41,11 @@ class Settings(BaseSettings):
 
     # ---- CORS ----
     cors_origins: list[str] = ["http://localhost:5173"]
+
+    @property
+    def resolved_minio_public_endpoint(self) -> str:
+        """返回浏览器可访问的 MinIO endpoint，未配置时回退内部 endpoint。"""
+        return self.minio_public_endpoint or self.minio_endpoint
 
 
 @lru_cache

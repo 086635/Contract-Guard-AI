@@ -134,6 +134,8 @@ def rule_body(*, version: int = 1) -> dict[str, Any]:
             "riskToleranceLevel": "BALANCED",
         },
         "enabledRules": ["PENALTY_TOO_HIGH"],
+        "enabled": True,
+        "reviewThresholds": {"high": 0.85, "medium": 0.65, "low": 0.40},
         "customEntities": [],
         "updatedAt": "2026-09-27T00:00:00Z",
         "version": version,

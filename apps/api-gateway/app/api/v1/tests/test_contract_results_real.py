@@ -31,6 +31,8 @@ from app.db.repository.result import (
     SealRepository,
 )
 from app.generated import schemas as s
+from app.services.ingestion import element_payload_to_chunk
+from app.services.projector import ContractProjector
 from rag_contracts.chunk import BBox as ChunkBBox
 from rag_contracts.chunk import ContractChunk
 from rag_contracts.enums import ChunkType, ContractType, SourceType
@@ -75,6 +77,68 @@ def _chunk(section_id: str, text: str) -> ContractChunk:
     )
 
 
+def _element_chunk(
+    key: str,
+    value: str | None,
+    label: str,
+    confidence: float,
+    is_custom: bool,
+) -> ContractChunk:
+    bbox = None
+    if value is not None:
+        bbox = {
+            "page": 1,
+            "x": 72.0,
+            "y": 720.0,
+            "width": 300.0,
+            "height": 40.0,
+        }
+    return element_payload_to_chunk(
+        "contract-c13",
+        {
+            "key": key,
+            "label": label,
+            "value": value,
+            "confidence": confidence,
+            "bbox": bbox,
+            "isCustom": is_custom,
+        },
+    )
+
+
+def test_element_extra_projection_roundtrip() -> None:
+    chunk = _element_chunk(
+        key="partyA",
+        value="北京示例科技有限公司",
+        label="甲方",
+        confidence=0.93,
+        is_custom=False,
+    )
+    assert chunk.category == "CONTRACT_ELEMENT"
+    assert chunk.extra == {
+        "value": "北京示例科技有限公司",
+        "confidence": 0.93,
+        "isCustom": False,
+    }
+    projected = ContractProjector.elements([chunk])[0]
+    assert projected.key == "partyA"
+    assert projected.label == "甲方"
+    assert projected.value == "北京示例科技有限公司"
+    assert projected.confidence == 0.93
+    assert projected.is_custom is False
+
+    null_chunk = _element_chunk(
+        key="guaranteePeriod",
+        value=None,
+        label="质保期",
+        confidence=0.4,
+        is_custom=True,
+    )
+    null_projected = ContractProjector.elements([null_chunk])[0]
+    assert null_projected.value is None
+    assert null_projected.label == "质保期"
+    assert null_projected.is_custom is True
+
 def _risk(risk_id: str, level: s.RiskLevel) -> s.EnhancedRiskItem:
     return s.EnhancedRiskItem(
         id=risk_id,
@@ -117,6 +181,20 @@ def _seal() -> s.SealSignatureDetection:
         confidence=0.99,
     )
 
+
+def test_element_projection_rejects_invalid_payload() -> None:
+    with pytest.raises(ValueError, match="key"):
+        element_payload_to_chunk(
+            "contract-c13",
+            {"key": "", "label": "甲方", "value": "x", "confidence": 0.9,
+             "bbox": None, "isCustom": False},
+        )
+    with pytest.raises(ValueError, match="confidence"):
+        element_payload_to_chunk(
+            "contract-c13",
+            {"key": "partyA", "label": "甲方", "value": "x", "confidence": 1.2,
+             "bbox": None, "isCustom": False},
+        )
 
 def test_result_route_blocks_have_no_mock() -> None:
     path = Path(__file__).resolve().parents[1] / "contracts.py"
@@ -163,7 +241,24 @@ async def _exercise_contract_results(dsn: str) -> None:
             )
             await ElementRepository(session).bulk_upsert(
                 contract_id,
-                [_chunk("3.1", "第一条正文。"), _chunk("3.2", "第二条正文。")],
+                [
+                    _chunk("3.1", "第一条正文。"),
+                    _chunk("3.2", "第二条正文。"),
+                    _element_chunk(
+                        key="partyA",
+                        value="北京示例科技有限公司",
+                        label="甲方",
+                        confidence=0.93,
+                        is_custom=False,
+                    ),
+                    _element_chunk(
+                        key="guaranteePeriod",
+                        value=None,
+                        label="质保期",
+                        confidence=0.40,
+                        is_custom=True,
+                    ),
+                ],
             )
             await RiskRepository(session).bulk_upsert(
                 contract_id,
@@ -216,10 +311,26 @@ async def _exercise_contract_results(dsn: str) -> None:
 
                 elements = await client.get(f"/api/v1/contracts/{contract_id}/elements")
                 assert elements.status_code == 200
-                assert [item["key"] for item in elements.json()["data"]] == [
+                element_items = {
+                    item["key"]: item for item in elements.json()["data"]
+                }
+                assert set(element_items) == {
                     "3.1",
                     "3.2",
-                ]
+                    "partyA",
+                    "guaranteePeriod",
+                }
+                assert element_items["partyA"] == {
+                    "key": "partyA",
+                    "label": "甲方",
+                    "value": "北京示例科技有限公司",
+                    "confidence": 0.93,
+                    "bbox": element_items["partyA"]["bbox"],
+                    "isCustom": False,
+                }
+                assert element_items["guaranteePeriod"]["value"] is None
+                assert element_items["guaranteePeriod"]["label"] == "质保期"
+                assert element_items["guaranteePeriod"]["isCustom"] is True
 
                 risks = await client.get(
                     f"/api/v1/contracts/{contract_id}/risks",

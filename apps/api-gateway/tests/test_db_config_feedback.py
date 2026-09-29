@@ -21,6 +21,7 @@ from app.db.repository.config_feedback import (
     RuleRepository,
     RuleUpsert,
 )
+from app.db.repository.contract import ContractCreate, ContractRepository
 from app.generated.schemas import FeedbackVerdict, TargetType
 
 POSTGRES_DSN = os.getenv("CG_POSTGRES_DSN")
@@ -88,11 +89,13 @@ async def _exercise_config_feedback_repositories(dsn: str, schema: str) -> None:
                     prompt_template="检查违约金是否超过上限。",
                     threshold=0.5,
                     is_enabled=True,
+                    review_thresholds={"high": 0.85, "medium": 0.65, "low": 0.40},
                 )
             )
             await session.commit()
 
             assert created_rule.id == rule_id
+            assert created_rule.review_thresholds == {"high": 0.85, "medium": 0.65, "low": 0.40}
             assert await rules.get(rule_id) == created_rule
             assert await rules.list(category="PURCHASE") == [created_rule]
             assert await rules.list(category="NDA") == []
@@ -105,6 +108,7 @@ async def _exercise_config_feedback_repositories(dsn: str, schema: str) -> None:
                     prompt_template="更新后的规则模板。",
                     threshold=None,
                     is_enabled=False,
+                    review_thresholds={"high": 0.85, "medium": 0.65, "low": 0.40},
                 )
             )
             await session.commit()
@@ -113,20 +117,36 @@ async def _exercise_config_feedback_repositories(dsn: str, schema: str) -> None:
             assert updated_rule.prompt_template == "更新后的规则模板。"
             assert updated_rule.threshold is None
             assert updated_rule.is_enabled is False
+            assert updated_rule.review_thresholds == {"high": 0.85, "medium": 0.65, "low": 0.40}
             assert await rules.list() == [updated_rule]
 
+            contract_id = uuid4()
+            await ContractRepository(session).create(
+                ContractCreate(
+                    id=contract_id,
+                    filename="feedback.docx",
+                    file_size=128,
+                    file_hash=uuid4().hex,
+                    storage_path="feedback/feedback.docx",
+                )
+            )
             feedbacks = FeedbackRepository(session)
             feedback = await feedbacks.create(
                 TargetType.risk,
                 "risk-c6-1",
                 FeedbackVerdict.correct,
                 "风险判断正确。",
+                contract_id=contract_id,
+                reviewer="法务主管",
             )
             await session.commit()
 
-            assert await feedbacks.list() == [feedback]
-            assert await feedbacks.list(TargetType.risk) == [feedback]
-            assert await feedbacks.list(TargetType.seal) == []
+            records, total = await feedbacks.list()
+            assert records == [feedback] and total == 1
+            records, total = await feedbacks.list(TargetType.risk)
+            assert records == [feedback] and total == 1
+            records, total = await feedbacks.list(TargetType.seal)
+            assert records == [] and total == 0
 
             with pytest.raises(ValueError, match="verdict"):
                 await feedbacks.create(
@@ -134,6 +154,7 @@ async def _exercise_config_feedback_repositories(dsn: str, schema: str) -> None:
                     "risk-c6-2",
                     "INVALID_VERDICT",
                     None,
+                    contract_id=contract_id,
                 )
             with pytest.raises(ValueError, match="target_type"):
                 await feedbacks.create(
@@ -141,6 +162,7 @@ async def _exercise_config_feedback_repositories(dsn: str, schema: str) -> None:
                     "target-c6-1",
                     FeedbackVerdict.correct,
                     None,
+                    contract_id=contract_id,
                 )
     finally:
         await engine.dispose()
