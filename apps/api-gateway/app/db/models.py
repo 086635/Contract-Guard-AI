@@ -1,7 +1,7 @@
 """交付模块 C1：PostgreSQL 表模型与契约枚举映射。
 
 设计要点：
-1. 八张 ORM 表是 PostgreSQL 持久化的唯一定义处，字段来源于冻结契约。
+1. ORM 表是 PostgreSQL 持久化的唯一定义处，字段来源于冻结契约。
 2. 枚举直接复用 OpenAPI 生成物与 `rag_contracts`，避免第二套状态/类型定义。
 3. `ContractElement` 完整投影 `ContractChunk` 28 字段，并补充合同外键与向量 ID。
 4. 通用 SQLAlchemy 类型保持离线模型测试可运行，同时兼容 PostgreSQL。
@@ -386,6 +386,47 @@ class User(Base):
     )
 
 
+class AuthSession(Base):
+    """refresh 会话表；只持久化 refresh token 哈希，不保存明文。"""
+
+    __tablename__ = "auth_sessions"
+    __table_args__ = (
+        UniqueConstraint(
+            "refresh_token_hash",
+            name="uq_auth_sessions_refresh_token_hash",
+        ),
+        Index("ix_auth_sessions_user_id", "user_id"),
+        Index("ix_auth_sessions_expires_at", "expires_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid4
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    refresh_token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    replaced_by_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("auth_sessions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utc_now
+    )
+    last_used_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
 class AuditReport(Base):
     """审核报告元数据表。"""
 
@@ -461,6 +502,7 @@ __all__ = [
     "AuditReport",
     "AuditRisk",
     "AuditTask",
+    "AuthSession",
     "Base",
     "Contract",
     "ContractCommit",

@@ -43,6 +43,19 @@ from app.services.rule_service import (
     RuleService,
     RuleVersionConflictError,
 )
+from app.services.security import (
+    AuthSecurityError,
+    JwtService,
+    PasswordHashError,
+    PasswordService,
+    RefreshTokenError,
+    TokenClaims,
+    TokenValidationError,
+    generate_refresh_token,
+    hash_password,
+    hash_refresh_token,
+    verify_password,
+)
 from app.services.storage import MinioObjectStorage
 from app.services.task_service import TaskNotFoundError, TaskService
 
@@ -51,6 +64,7 @@ __all__ = [
     "AgentRewriteFailedError",
     "AgentRewriteTimeoutError",
     "AgentService",
+    "AuthSecurityError",
     "CeleryTaskDispatcher",
     "CommitService",
     "CommitValidationError",
@@ -60,11 +74,15 @@ __all__ = [
     "FeedbackService",
     "FeedbackValidationError",
     "IngestionService",
+    "JwtService",
     "MinioObjectStorage",
     "ObjectStoragePort",
+    "PasswordHashError",
+    "PasswordService",
     "PresignRequest",
     "ProgressBrokerPort",
     "RedisProgressBroker",
+    "RefreshTokenError",
     "ReportNotFoundError",
     "ReportService",
     "ReportUnavailableError",
@@ -79,8 +97,14 @@ __all__ = [
     "TaskNotFoundError",
     "TaskService",
     "TaskStatusSnapshot",
+    "TokenClaims",
+    "TokenValidationError",
     "build_success_response",
     "clause_payload_to_chunk",
     "generate_file_key",
+    "generate_refresh_token",
+    "hash_password",
+    "hash_refresh_token",
     "task_progress_channel",
+    "verify_password",
 ]

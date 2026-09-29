@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     # ---- 安全 ----
     jwt_secret: str = "change-me-in-prod"
     jwt_algorithm: str = "HS256"
+    jwt_issuer: str = "contract-guard"
+    jwt_audience: str = "contract-guard-api"
+    jwt_access_ttl_seconds: int = 900
+    jwt_refresh_ttl_seconds: int = 604800
 
     # ---- 基础设施 ----
     postgres_dsn: str = "postgresql+asyncpg://cg:cg@localhost:5432/cg"

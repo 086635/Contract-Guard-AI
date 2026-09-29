@@ -12,11 +12,11 @@ from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import User
+from app.db.models import AuthSession, User
 from app.generated.schemas import Role
 
 
@@ -165,8 +165,172 @@ class UserRepository:
         await self._session.flush()
         return UserRecord.model_validate(record)
 
+class SessionRepositoryError(ValueError):
+    """会话持久化领域错误。"""
+
+
+class SessionNotFoundError(SessionRepositoryError):
+    """refresh 会话不存在。"""
+
+
+class SessionExpiredError(SessionRepositoryError):
+    """refresh 会话已过期。"""
+
+
+class SessionRevokedError(SessionRepositoryError):
+    """refresh 会话已撤销。"""
+
+
+class RefreshTokenReusedError(SessionRevokedError):
+    """已轮换或已登出的 refresh token 被重放。"""
+
+
+def _as_utc(value: datetime) -> datetime:
+    """把时间统一为 UTC，拒绝无时区输入。"""
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError("时间必须带时区")
+    return value.astimezone(UTC)
+
+
+class SessionRecord(_PersistenceDto):
+    """refresh 会话安全投影；不包含 refresh token 哈希。"""
+
+    id: UUID
+    user_id: UUID
+    expires_at: datetime
+    revoked_at: datetime | None
+    replaced_by_id: UUID | None
+    created_at: datetime
+    last_used_at: datetime | None
+
+
+class SessionRepository:
+    """refresh 会话仓储；轮换、撤销和重放检测的唯一实现处。"""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def create(
+        self,
+        user_id: UUID,
+        refresh_token_hash: str,
+        expires_at: datetime,
+    ) -> SessionRecord:
+        """创建 refresh 会话并 flush；调用方负责事务提交。"""
+        record = AuthSession(
+            id=uuid4(),
+            user_id=user_id,
+            refresh_token_hash=refresh_token_hash.strip().lower(),
+            expires_at=_as_utc(expires_at),
+        )
+        self._session.add(record)
+        await self._session.flush()
+        return SessionRecord.model_validate(record)
+
+    async def get_by_hash(self, refresh_token_hash: str) -> SessionRecord | None:
+        """按 refresh token 哈希读取会话；保留撤销记录用于重放检测。"""
+        statement = select(AuthSession).where(
+            AuthSession.refresh_token_hash == refresh_token_hash.strip().lower()
+        )
+        record = await self._session.scalar(statement)
+        if record is None:
+            return None
+        return SessionRecord.model_validate(record)
+
+    async def rotate(
+        self,
+        refresh_token_hash: str,
+        new_refresh_token_hash: str,
+        new_expires_at: datetime,
+        *,
+        now: datetime | None = None,
+    ) -> SessionRecord:
+        """单次轮换 refresh token；旧 token 重放会撤销该用户全部活动会话。"""
+        current_time = _as_utc(now or datetime.now(UTC))
+        statement = (
+            select(AuthSession)
+            .where(
+                AuthSession.refresh_token_hash == refresh_token_hash.strip().lower()
+            )
+            .with_for_update()
+        )
+        current = await self._session.scalar(statement)
+        if current is None:
+            raise SessionNotFoundError("refresh session not found")
+
+        if current.revoked_at is not None or current.replaced_by_id is not None:
+            await self._revoke_all_for_user(current.user_id, current_time)
+            raise RefreshTokenReusedError("refresh token reused")
+
+        if current.expires_at <= current_time:
+            current.revoked_at = current_time
+            await self._session.flush()
+            raise SessionExpiredError("refresh session expired")
+
+        new_session = AuthSession(
+            id=uuid4(),
+            user_id=current.user_id,
+            refresh_token_hash=new_refresh_token_hash.strip().lower(),
+            expires_at=_as_utc(new_expires_at),
+            created_at=current_time,
+        )
+        self._session.add(new_session)
+        await self._session.flush()
+        current.revoked_at = current_time
+        current.replaced_by_id = new_session.id
+        current.last_used_at = current_time
+        await self._session.flush()
+        return SessionRecord.model_validate(new_session)
+
+    async def revoke(
+        self,
+        session_id: UUID,
+        *,
+        now: datetime | None = None,
+    ) -> bool:
+        """撤销指定会话；重复撤销保持幂等。"""
+        record = await self._session.get(AuthSession, session_id)
+        if record is None:
+            return False
+        if record.revoked_at is None:
+            record.revoked_at = _as_utc(now or datetime.now(UTC))
+            await self._session.flush()
+        return True
+
+    async def revoke_by_hash(
+        self,
+        refresh_token_hash: str,
+        *,
+        now: datetime | None = None,
+    ) -> bool:
+        """按 refresh token 哈希撤销会话；不存在时返回 False。"""
+        statement = select(AuthSession).where(
+            AuthSession.refresh_token_hash == refresh_token_hash.strip().lower()
+        )
+        record = await self._session.scalar(statement)
+        if record is None:
+            return False
+        return await self.revoke(record.id, now=now)
+
+    async def _revoke_all_for_user(self, user_id: UUID, now: datetime) -> None:
+        """重放检测命中时撤销该用户全部未撤销会话。"""
+        await self._session.execute(
+            update(AuthSession)
+            .where(
+                AuthSession.user_id == user_id,
+                AuthSession.revoked_at.is_(None),
+            )
+            .values(revoked_at=now)
+        )
 
 __all__ = [
+    "RefreshTokenReusedError",
+    "SessionExpiredError",
+    "SessionNotFoundError",
+    "SessionRecord",
+    "SessionRepository",
+    "SessionRepositoryError",
+    "SessionRevokedError",
     "UserAlreadyExistsError",
     "UserCreate",
     "UserRecord",

@@ -26,6 +26,7 @@ EXPECTED_TABLES = {
     "audit_reports",
     "audit_risks",
     "audit_tasks",
+    "auth_sessions",
     "contract_elements",
     "contract_commits",
     "contracts",
