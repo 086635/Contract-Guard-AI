@@ -46,6 +46,15 @@ def _optional_str(value: Any) -> str | None:
     return str(value)
 
 
+def _optional_float(value: Any) -> float | None:
+    """宽松转 float，非法或缺省返回 None。"""
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
 def _clause_bbox(clause: dict[str, Any]) -> BBox | None:
     """把 clause 的 `page_no + bbox` 合并为 `ContractChunk.BBox`（缺几何返回 None）。"""
     raw = clause.get("bbox")
@@ -117,6 +126,48 @@ def clause_payload_to_chunk(
     )
 
 
+def element_payload_to_chunk(contract_id: str, element: dict[str, Any]) -> ContractChunk:
+    """把解析层 element dict 投影为带 extra 的 ContractChunk。"""
+    key = str(element.get("key") or "").strip()
+    if not key:
+        raise ValueError("element.key 缺失")
+    label = str(element.get("label") or key).strip()
+    raw_value = element.get("value")
+    if raw_value is not None and not isinstance(raw_value, str):
+        raise ValueError(f"element {key} 的 value 必须是 string 或 null")
+    confidence = _optional_float(element.get("confidence"))
+    if confidence is None or confidence < 0.0 or confidence > 1.0:
+        raise ValueError(f"element {key} 的 confidence 非法")
+    is_custom = element.get("isCustom", False)
+    if not isinstance(is_custom, bool):
+        raise ValueError(f"element {key} 的 isCustom 必须是 boolean")
+
+    bbox = _clause_bbox({"bbox": element.get("bbox")})
+    text = raw_value if raw_value else label
+    return ContractChunk(
+        chunk_id=ContractChunk.make_chunk_id(contract_id, key, 0),
+        doc_id=contract_id,
+        source_type=SourceType.STANDARD_CLAUSE,
+        chunk_type=ChunkType.PARAGRAPH,
+        section_id=key,
+        section_path=f"{contract_id}/{key}",
+        seq_in_doc=0,
+        title=label,
+        text=text,
+        text_hash=ContractChunk.compute_text_hash(text),
+        char_count=len(text),
+        token_count=max(1, round(len(text) / 1.5)),
+        level=0,
+        page_no=bbox.page if bbox is not None else None,
+        bbox=bbox,
+        category="CONTRACT_ELEMENT",
+        extra={
+            "value": raw_value,
+            "confidence": confidence,
+            "isCustom": is_custom,
+        },
+    )
+
 class IngestionService:
     """网关侧惰性结果入库与审核派发。"""
 
@@ -161,14 +212,26 @@ class IngestionService:
             for seal in (result.get("sealDetections") or [])
             if isinstance(seal, dict)
         ]
+        elements_raw = [
+            element
+            for element in (result.get("elements") or [])
+            if isinstance(element, dict)
+        ]
 
         chunks, chunk_warnings = self._build_chunks(str(contract_id), clauses)
+        element_chunks, element_warnings = self._build_element_chunks(
+            str(contract_id),
+            elements_raw,
+        )
         seals, seal_warnings = self._build_seals(seals_raw)
-        warnings = [*chunk_warnings, *seal_warnings]
+        warnings = [*chunk_warnings, *element_warnings, *seal_warnings]
 
         changed = False
-        if chunks:
-            await self._elements.bulk_upsert(contract_id, chunks)
+        if chunks or element_chunks:
+            await self._elements.bulk_upsert(
+                contract_id,
+                [*chunks, *element_chunks],
+            )
             changed = True
         if seals:
             await self._seals.bulk_upsert(contract_id, seals)
@@ -197,6 +260,7 @@ class IngestionService:
             trace_id=get_trace_id(),
             contract_id=str(contract_id),
             chunks=len(chunks),
+            elements=len(element_chunks),
             seals=len(seals),
             dispatched=dispatched,
             warnings=len(warnings),
@@ -265,6 +329,20 @@ class IngestionService:
         await self._context.session.commit()
         return celery_task_id
 
+    @staticmethod
+    def _build_element_chunks(
+        contract_id: str,
+        elements: list[dict[str, Any]],
+    ) -> tuple[list[ContractChunk], list[str]]:
+        """逐条投影解析要素，失败隔离为 warning。"""
+        chunks: list[ContractChunk] = []
+        warnings: list[str] = []
+        for element in elements:
+            try:
+                chunks.append(element_payload_to_chunk(contract_id, element))
+            except (ValueError, TypeError) as exc:
+                warnings.append(f"要素投影失败：{exc}")
+        return chunks, warnings
     @staticmethod
     def _build_chunks(
         contract_id: str,

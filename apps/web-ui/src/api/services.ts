@@ -37,10 +37,12 @@ export const contractApi = {
 export const uploadApi = {
   async presign(fileName: string, fileType: FileType): Promise<Schemas["PresignData"]> { return unwrap(await httpClient.post<Envelope<Schemas["PresignData"]>>("/contracts/presign", { fileName, fileType })); },
   async directUpload(presignedUrl: string, file: File): Promise<void> {
-    const target = new URL(presignedUrl, window.location.origin);
-    // Walking Skeleton 返回不可解析的 .local MinIO 地址；开发态保留完整三步流程，但跳过外部直传。
-    if (import.meta.env.DEV && target.hostname.endsWith(".local")) return;
-    await httpClient.put(presignedUrl, file, { baseURL: "", headers: { "Content-Type": file.type || "application/octet-stream" }, timeout: 120_000 });
+    // 原样使用后端签发的 public presign URL；失败必须向调用方抛出，不得静默跳过。
+    await httpClient.put(presignedUrl, file, {
+      baseURL: "",
+      headers: { "Content-Type": file.type || "application/octet-stream" },
+      timeout: 120_000,
+    });
   },
   async submit(body: UploadBody): Promise<TaskProgress> { return unwrap(await httpClient.post<Envelope<TaskProgress>>("/contracts/upload", body)); },
 };
@@ -48,15 +50,87 @@ export const uploadApi = {
 export const taskApi = {
   async get(taskId: string): Promise<TaskProgress> { return unwrap(await httpClient.get<Envelope<TaskProgress>>(`/tasks/${taskId}`)); },
   subscribe(taskId: string, onProgress: (progress: TaskProgress) => void, onError?: (event: Event) => void): () => void {
-    const source = new EventSource(`${apiBase}/tasks/${taskId}/stream`);
-    source.onmessage = (event) => {
+    const terminalStatuses = new Set<TaskProgress["status"]>(["DONE", "FAILED"]);
+    const parseProgress = (raw: string): TaskProgress | null => {
       try {
-        const payload = JSON.parse(event.data) as TaskProgress | Envelope<TaskProgress>;
-        onProgress("data" in payload ? payload.data : payload);
-      } catch (error) { console.warn("[task-stream] invalid event", error); }
+        const parsed = JSON.parse(raw) as unknown;
+        if (typeof parsed !== "object" || parsed === null) return null;
+        const candidate = "data" in parsed ? (parsed as { data?: unknown }).data : parsed;
+        if (typeof candidate !== "object" || candidate === null) return null;
+        const progress = candidate as Partial<TaskProgress>;
+        if (
+          typeof progress.taskId !== "string" ||
+          typeof progress.stage !== "string" ||
+          typeof progress.percent !== "number" ||
+          !["RUNNING", "DONE", "FAILED"].includes(progress.status as string)
+        ) {
+          return null;
+        }
+        return candidate as TaskProgress;
+      } catch {
+        return null;
+      }
     };
-    if (onError) source.onerror = (event) => { onError(event); source.close(); };
-    return () => source.close();
+
+    let stopped = false;
+    let polling = false;
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
+    const source = new EventSource(`${apiBase}/tasks/${taskId}/stream`);
+
+    const clearPollTimer = () => {
+      if (pollTimer !== null) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+    };
+    const finish = () => {
+      if (stopped) return;
+      stopped = true;
+      clearPollTimer();
+      source.close();
+    };
+    const emit = (progress: TaskProgress) => {
+      if (stopped) return;
+      onProgress(progress);
+      if (terminalStatuses.has(progress.status)) finish();
+    };
+    const poll = async () => {
+      if (stopped || polling) return;
+      polling = true;
+      try {
+        const progress = await taskApi.get(taskId);
+        if (!stopped) emit(progress);
+      } catch (error) {
+        if (!stopped) console.warn("[task-poll] request failed", error);
+      } finally {
+        polling = false;
+      }
+    };
+    const startPolling = () => {
+      if (stopped || pollTimer !== null) return;
+      pollTimer = setInterval(() => { void poll(); }, 2_000);
+    };
+    const handleProgress = (event: MessageEvent<string>) => {
+      const progress = parseProgress(event.data);
+      if (!progress) {
+        console.warn("[task-stream] invalid progress event", event.data);
+        return;
+      }
+      emit(progress);
+    };
+
+    source.addEventListener("progress", handleProgress as EventListener);
+    source.onerror = (event) => {
+      if (stopped) return;
+      try {
+        onError?.(event);
+      } finally {
+        source.close();
+        startPolling();
+      }
+    };
+
+    return finish;
   },
 };
 
@@ -72,6 +146,25 @@ export const settingsApi = {
 };
 
 export const feedbackApi = {
+  async list(
+    params: {
+      contractId?: string;
+      targetType?: Schemas["TargetType"];
+      verdict?: Schemas["FeedbackVerdict"];
+      page?: number;
+      pageSize?: number;
+    } = {},
+  ): Promise<Schemas["FeedbackListData"]> {
+    return unwrap(await httpClient.get<Envelope<Schemas["FeedbackListData"]>>("/feedback", {
+      params: {
+        contractId: params.contractId,
+        targetType: params.targetType,
+        verdict: params.verdict,
+        page: params.page ?? 1,
+        pageSize: params.pageSize ?? 100,
+      },
+    }));
+  },
   async create(body: FeedbackCreateBody): Promise<Schemas["FeedbackItem"]> { return unwrap(await httpClient.post<Envelope<Schemas["FeedbackItem"]>>("/feedback", body)); },
 };
 

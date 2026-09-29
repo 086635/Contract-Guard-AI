@@ -129,7 +129,23 @@ def _done_parse_result(contract_id: UUID) -> dict[str, Any]:
         "coordinatesSynthetic": True,
         "ocrUsed": False,
         "engineName": "",
-        "elements": [],
+        "elements": [
+            {
+                "key": "partyA",
+                "label": "甲方",
+                "value": "北京示例科技有限公司",
+                "confidence": 0.93,
+                "bbox": {
+                    "page": 1,
+                    "x": 72.0,
+                    "y": 720.0,
+                    "width": 300.0,
+                    "height": 40.0,
+                    "coordinateSystem": "PDF_POINTS",
+                },
+                "isCustom": False,
+            }
+        ],
         "clauses": _clause_payload(),
         "sealDetections": _seal_payload(),
         "layoutBlocks": [],
@@ -231,9 +247,17 @@ async def _exercise_ingestion_parse(dsn: str, schema: str) -> None:
             assert await IngestionService(ctx).finalize_parse(contract.id) is True
 
             chunks = await elements.list_by_contract(contract.id)
-            assert [chunk.section_id for chunk in chunks] == ["3.2", "6.1"]
-            assert chunks[0].title == "付款违约金"
-            assert chunks[1].bbox is None
+            assert [chunk.section_id for chunk in chunks] == [
+                "partyA",
+                "3.2",
+                "6.1",
+            ]
+            assert chunks[0].category == "CONTRACT_ELEMENT"
+            assert chunks[0].extra["value"] == "北京示例科技有限公司"
+            assert chunks[0].extra["confidence"] == 0.93
+            assert chunks[0].extra["isCustom"] is False
+            assert chunks[1].title == "付款违约金"
+            assert chunks[2].bbox is None
 
             loaded_seals = await seals.list_by_contract(contract.id)
             assert len(loaded_seals) == 1
@@ -257,7 +281,7 @@ async def _exercise_ingestion_parse(dsn: str, schema: str) -> None:
             # ② 幂等：重复 finalize 不重复派发、不重复建行
             assert await IngestionService(ctx).finalize_parse(contract.id) is True
             assert len([c for c in fake.calls if c[0] == TaskKind.RUN_AUDIT.value]) == 1
-            assert len(await elements.list_by_contract(contract.id)) == 2
+            assert len(await elements.list_by_contract(contract.id)) == 3
 
             # ③ RUNNING / FAILED 快照：不入库、不派发
             running_contract = await contracts.create(

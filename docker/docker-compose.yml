@@ -1,5 +1,5 @@
 # 一键启动：API / Worker / Postgres / Qdrant / Redis / MinIO / Web
-# 构建上下文为仓库根（context: .），各服务 Dockerfile 位于 docker/。
+# 各服务 context 相对 compose 文件解析；构建上下文指向仓库根，Dockerfile 位于 docker/。
 # 运行：docker compose -f docker/docker-compose.yml up -d
 #
 # ⚠️ 项目名必须显式固定：compose 默认用**文件所在目录名**作项目名，而本文件在 docker/ 下，
@@ -103,12 +103,15 @@ services:
     #    对 Docker Hub 的 `minio/minio` 返回 `denied`（实测 2026-09-23），而 quay.io 直连可用。
     #    同一个官方镜像、同一条 `server /data` 命令、同样的 MINIO_* 环境变量，行为不变。
     image: quay.io/minio/minio:latest
-    command: server /data --console-address ":9001"
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["export MINIO_API_CORS_ALLOW_ORIGIN=$$(cat /config/minio-cors.json | tr -d '[]\"') && exec minio server /data --console-address ':9001'"]
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
     ports: ["9000:9000", "9001:9001"]
-    volumes: ["miniodata:/data"]
+    volumes:
+      - "miniodata:/data"
+      - "./minio-cors.json:/config/minio-cors.json:ro"
     healthcheck:
       # minio 镜像内有 curl（实测）；打 /minio/health/live
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
@@ -117,6 +120,14 @@ services:
       retries: 10
       start_period: 10s
 
+  minio-init:
+    # 幂等初始化：建 bucket；CORS 由 minio 服务从 C42 单一文件加载。
+    image: minio/mc:latest
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["mc alias set local http://minio:9000 minioadmin minioadmin && mc mb --ignore-existing local/contracts"]
+    depends_on:
+      minio: { condition: service_healthy }
+    restart: "no"
   # ---------------------------------------------------------------------------
   # 一次性数据库迁移（C24 新增；见 `4.C24Compose全栈与健康检查.md`）
   #   - 复用 api 镜像；启动前执行 `alembic upgrade head`
@@ -142,6 +153,8 @@ services:
       CG_REDIS_URL: redis://redis:6379/0
       CG_QDRANT_URL: http://qdrant:6333
       CG_MINIO_ENDPOINT: minio:9000
+      CG_MINIO_PUBLIC_ENDPOINT: localhost:9000
+      CG_MINIO_REGION: us-east-1
       CG_MINIO_ACCESS_KEY: minioadmin
       CG_MINIO_SECRET_KEY: minioadmin
       CG_CELERY_BROKER: redis://redis:6379/1
@@ -153,6 +166,7 @@ services:
       redis: { condition: service_healthy }
       qdrant: { condition: service_healthy }
       minio: { condition: service_healthy }
+      minio-init: { condition: service_completed_successfully }
     healthcheck:
       # api 镜像内无 curl；用自带 python 打 /health（实测 200）
       test:
@@ -174,6 +188,7 @@ services:
       CG_REDIS_URL: redis://redis:6379/0
       CG_QDRANT_URL: http://qdrant:6333
       CG_MINIO_ENDPOINT: minio:9000
+      CG_MINIO_REGION: us-east-1
       CG_MINIO_ACCESS_KEY: minioadmin
       CG_MINIO_SECRET_KEY: minioadmin
       CG_CELERY_BROKER: redis://redis:6379/1
@@ -190,6 +205,7 @@ services:
       redis: { condition: service_healthy }
       qdrant: { condition: service_healthy }
       minio: { condition: service_healthy }
+      minio-init: { condition: service_completed_successfully }
     command: ["uv", "run", "--package", "async-worker", "celery", "-A", "worker.main", "worker", "--loglevel=info"]
     healthcheck:
       # 用 venv 内的 celery 直接 inspect ping（实测 pong）；C25 再补结果后端就绪验证
@@ -201,7 +217,7 @@ services:
 
   web:
     build:
-      context: .
+      context: ..
       dockerfile: docker/Dockerfile.web
     ports: ["5173:80"]
     depends_on: [api]
@@ -210,7 +226,7 @@ services:
     image: nginx:alpine
     ports: ["8080:80"]
     volumes:
-      - ./docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on: [api, web]
 
 volumes:

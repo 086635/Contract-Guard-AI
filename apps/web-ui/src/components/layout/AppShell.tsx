@@ -2,13 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import Icon, { type IconName } from "@/components/ui/Icon";
 
-const navItems: Array<{ label: string; detail: string; to: string; icon: IconName; end?: boolean; count?: string }> = [
-  { label: "合同中心", detail: "Contracts & import", to: "/contracts", icon: "grid", end: true },
-  { label: "审核工作台", detail: "Review workspace", to: "/contracts/00000000-0000-0000-0000-000000000001/audit", icon: "file-text", count: "12" },
-  { label: "审核报告", detail: "Reports & export", to: "/contracts/00000000-0000-0000-0000-000000000001/report", icon: "book" },
-  { label: "规则配置", detail: "Rules & agents", to: "/settings/rules", icon: "sliders" },
-  { label: "反馈中心", detail: "Human in the loop", to: "/feedback", icon: "activity" },
-];
+type NavItem = { label: string; detail: string; to: string; icon: IconName; end?: boolean; count?: string };
 
 export default function AppShell() {
   const location = useLocation();
@@ -16,6 +10,15 @@ export default function AppShell() {
   const [query, setQuery] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const isAudit = location.pathname.endsWith("/audit");
+  const contractMatch = location.pathname.match(/^\/contracts\/([^/]+)\/(?:audit|report)$/);
+  const contractId = contractMatch?.[1] ?? null;
+  const navItems: NavItem[] = [
+    { label: "合同中心", detail: "Contracts & import", to: "/contracts", icon: "grid", end: true },
+    { label: "审核工作台", detail: "Review workspace", to: contractId ? `/contracts/${contractId}/audit` : "/contracts", icon: "file-text", end: !contractId },
+    { label: "审核报告", detail: "Reports & export", to: contractId ? `/contracts/${contractId}/report` : "/contracts", icon: "book", end: !contractId },
+    { label: "规则配置", detail: "Rules & agents", to: "/settings/rules", icon: "sliders" },
+    { label: "反馈中心", detail: "Human in the loop", to: "/feedback", icon: "activity" },
+  ];
   const submitSearch = (event: FormEvent) => { event.preventDefault(); navigate(`/contracts${query.trim() ? `?q=${encodeURIComponent(query.trim())}` : ""}`); setSidebarOpen(false); };
   useEffect(() => {
     const handleShortcut = (event: KeyboardEvent) => {

@@ -25,8 +25,9 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
-from typing import Any, AsyncGenerator, TypeVar
+from collections.abc import AsyncGenerator
+from datetime import UTC, datetime
+from typing import Any, TypeVar
 from uuid import UUID
 
 from app.generated import schemas as s
@@ -48,7 +49,7 @@ _FILE_KEY = "contracts/2026/08/hongtu-shengda-purchase.docx"
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _trace_id() -> str:
@@ -260,6 +261,8 @@ def _system_audit_configuration(rule_id: str) -> s.SystemAuditConfiguration:
             "unlimited_liability",
             "missing_dispute_clause",
         ],
+        enabled=True,
+        reviewThresholds=s.ReviewThresholds(high=0.85, medium=0.65, low=0.40),
         customEntities=[
             s.DynamicExtractionEntityConfig(
                 entityKey="guaranteePeriod",

@@ -37,18 +37,18 @@ pnpm --filter @contract-guard/web-ui dev
 pnpm --filter @contract-guard/web-ui build
 ```
 
-如果依赖目录不完整，先在可访问 npm registry 的环境执行 `pnpm install`。前端 Vite 默认将 `/api` 代理到 `http://localhost:8008`。
+如果依赖目录不完整，先在可访问 npm registry 的环境执行 `pnpm install`。前端 Vite 默认将 `/api` 代理到 `http://localhost:8000`。
 
 ## 联调注意事项
 
-- Vite 默认将 `/api` 代理到 `http://localhost:8008`；也可用 `VITE_API_BASE_URL` 指向独立网关。
+- Vite 默认将 `/api` 代理到 `http://localhost:8000`；也可用 `VITE_API_BASE_URL` 指向独立网关。
 - 网关 SSE `/tasks/{taskId}/stream` 当前返回裸 `TaskProgress`，服务层同时兼容统一包络和裸事件。
-- 压缩包内的 MockDataFactory 返回 MinIO 示例域名，若该域名不可访问，上传弹窗会明确提示直传失败；真实环境替换为可访问的预签名 URL 即可。
+- MinIO 预签名 URL 由真实网关签发并必须直接可访问；不存在 `.local` 静默跳过，连接、CORS 或 2xx 失败都会在弹窗中显示。
 - 后端未启动时，工作台和审核页会展示可重试的 API 错误状态，不会静默显示空白列表。
 
 ## 后续建议
 
-- 用真实 API 替换页面容器中的演示数组，并为 Loading / Empty / Error 增加四态组件。
+- 保持页面只消费 `services.ts`，不要重新引入演示数组或第二套 Client。
 - 接入 PDF.js 后，将 `PdfStage` 的演示纸张替换为 Canvas + 文本层 + BBox Overlay。
 - 将 AI 改写面板拆为 `components/chat/` 域，并复用 `Button`、`Badge` 和差异标记样式。
 - 将路由逐步对齐产品路径：`/contracts`、`/contracts/:contractId/audit`、`/contracts/:contractId/report`、`/settings/rules`。

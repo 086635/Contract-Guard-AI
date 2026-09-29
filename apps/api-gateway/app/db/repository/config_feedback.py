@@ -14,7 +14,7 @@ from datetime import datetime
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -37,6 +37,7 @@ class RuleUpsert(_PersistenceDto):
     prompt_template: str
     threshold: float | None = None
     is_enabled: bool = True
+    review_thresholds: dict[str, float]
 
 
 class RuleRecord(_PersistenceDto):
@@ -48,16 +49,19 @@ class RuleRecord(_PersistenceDto):
     prompt_template: str
     threshold: float | None
     is_enabled: bool
+    review_thresholds: dict[str, float]
 
 
 class FeedbackRecord(_PersistenceDto):
     """反馈表持久化投影。"""
 
     id: UUID
+    contract_id: UUID
     target_type: TargetType
     target_id: str
     verdict: FeedbackVerdict
     user_comment: str | None
+    reviewer: str | None
     created_at: datetime
 
 
@@ -116,8 +120,11 @@ class FeedbackRepository:
         target_id: str,
         verdict: FeedbackVerdict | str,
         user_comment: str | None,
+        *,
+        contract_id: UUID,
+        reviewer: str | None = None,
     ) -> FeedbackRecord:
-        """创建反馈并校验契约枚举。"""
+        """创建反馈并校验契约枚举与合同关联。"""
         try:
             normalized_target = TargetType(target_type)
         except ValueError as exc:
@@ -128,10 +135,12 @@ class FeedbackRepository:
             raise ValueError(f"非法 verdict: {verdict}") from exc
 
         record = UserFeedback(
+            contract_id=contract_id,
             target_type=normalized_target,
             target_id=target_id,
             verdict=normalized_verdict,
             user_comment=user_comment,
+            reviewer=reviewer,
         )
         self._session.add(record)
         await self._session.flush()
@@ -139,19 +148,38 @@ class FeedbackRepository:
 
     async def list(
         self,
-        target_type: TargetType | None = None,
-    ) -> list[FeedbackRecord]:
-        """按可选目标类型列出反馈。"""
-        statement = select(UserFeedback).order_by(
-            UserFeedback.created_at.desc(),
-            UserFeedback.id.asc(),
-        )
+        target_type: TargetType | str | None = None,
+        *,
+        contract_id: UUID | None = None,
+        verdict: FeedbackVerdict | str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> tuple[list[FeedbackRecord], int]:
+        """按合同/目标类型/判定过滤并分页，返回稳定排序记录与总数。"""
+        if page < 1:
+            raise ValueError("page 必须大于等于 1")
+        if page_size < 1 or page_size > 100:
+            raise ValueError("page_size 必须在 1~100")
+
+        filters = []
+        if contract_id is not None:
+            filters.append(UserFeedback.contract_id == contract_id)
         if target_type is not None:
-            statement = statement.where(UserFeedback.target_type == target_type)
+            filters.append(UserFeedback.target_type == TargetType(target_type))
+        if verdict is not None:
+            filters.append(UserFeedback.verdict == FeedbackVerdict(verdict))
 
+        total_statement = select(func.count()).select_from(UserFeedback).where(*filters)
+        total = int((await self._session.scalar(total_statement)) or 0)
+        statement = (
+            select(UserFeedback)
+            .where(*filters)
+            .order_by(UserFeedback.created_at.desc(), UserFeedback.id.asc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
         records = (await self._session.scalars(statement)).all()
-        return [FeedbackRecord.model_validate(record) for record in records]
-
+        return [FeedbackRecord.model_validate(record) for record in records], total
 
 __all__ = [
     "FeedbackRecord",

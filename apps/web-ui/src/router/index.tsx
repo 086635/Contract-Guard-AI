@@ -1,4 +1,4 @@
-import { createBrowserRouter, Navigate } from "react-router-dom";
+import { createBrowserRouter, Navigate, useParams } from "react-router-dom";
 import App from "@/App";
 import Dashboard from "@/views/Dashboard";
 import Audit from "@/views/Audit";
@@ -18,9 +18,9 @@ export const router = createBrowserRouter([
       { path: "contracts/:contractId/report", element: <Report /> },
       { path: "settings/rules", element: <Settings /> },
       { path: "feedback", element: <Feedback /> },
-      { path: "audit", element: <Navigate to="/contracts/00000000-0000-0000-0000-000000000001/audit" replace /> },
+      { path: "audit", element: <Navigate to="/contracts" replace /> },
       { path: "audit/:contractId", element: <LegacyAuditRedirect /> },
-      { path: "report", element: <Navigate to="/contracts/00000000-0000-0000-0000-000000000001/report" replace /> },
+      { path: "report", element: <Navigate to="/contracts" replace /> },
       { path: "report/:contractId", element: <LegacyReportRedirect /> },
       { path: "settings", element: <Navigate to="/settings/rules" replace /> },
     ],
@@ -28,11 +28,11 @@ export const router = createBrowserRouter([
 ]);
 
 function LegacyAuditRedirect() {
-  const contractId = window.location.pathname.split("/").pop();
-  return <Navigate to={`/contracts/${contractId}/audit`} replace />;
+  const { contractId } = useParams<{ contractId: string }>();
+  return <Navigate to={contractId ? `/contracts/${contractId}/audit` : "/contracts"} replace />;
 }
 
 function LegacyReportRedirect() {
-  const contractId = window.location.pathname.split("/").pop();
-  return <Navigate to={`/contracts/${contractId}/report`} replace />;
+  const { contractId } = useParams<{ contractId: string }>();
+  return <Navigate to={contractId ? `/contracts/${contractId}/report` : "/contracts"} replace />;
 }

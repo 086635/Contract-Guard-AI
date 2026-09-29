@@ -58,20 +58,30 @@ pnpm --filter @contract-guard/schema gen
 #   apps/api-gateway/app/generated/schemas.py (datamodel-code-generator)
 ```
 
-### 2.4 本地启动
+### 2.4 一键 Docker 启动
 ```bash
-# 1) 基础设施（Postgres / Qdrant / Redis / MinIO）
-docker compose -f docker/docker-compose.yml up -d
+docker compose -f docker/docker-compose.yml up -d --build
+```
 
-# 2) 后端 API
-uv run --package api-gateway uvicorn app.main:app --reload --port 8000
+启动后可访问：
 
-# 3) 异步 Worker
-uv run --package async-worker celery -A worker.main worker --loglevel=info
+```text
+后端 API      http://localhost:8000
+Web 容器      http://localhost:5173
+顶层 nginx    http://localhost:8080
+MinIO Console http://localhost:9001
+```
 
-# 4) 前端
+顶层 nginx 负责 `/api` 反代到 API，并将根路径和 `/contracts/{id}/audit` 等动态路由的回退请求转发到 Web SPA。
+
+> ⚠️ 若已有无法回填的历史反馈数据，Alembic 会按设计拒绝静默迁移；此时应使用 fresh volume，或在明确备份后执行单独的数据清理任务。
+
+### 2.5 前端本地开发
+```bash
 pnpm --filter @contract-guard/web-ui dev
 ```
+
+Vite 默认地址为 `http://localhost:5173`，开发代理 `/api` 指向 `http://localhost:8000`。前端页面统一通过 `apps/web-ui/src/api/services.ts` 访问真实网关，不再使用 Mock 数据源。
 
 ---
 

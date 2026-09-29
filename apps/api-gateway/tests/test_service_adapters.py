@@ -19,9 +19,11 @@ from app.services.storage import MinioObjectStorage
 class FakeMinio:
     """MinIO SDK 测试替身。"""
 
-    def __init__(self) -> None:
+    def __init__(self, name: str = "internal") -> None:
+        self.name = name
         self.put_calls: list[tuple[str, str, timedelta]] = []
         self.get_calls: list[tuple[str, str, timedelta]] = []
+        self.stat_calls: list[tuple[str, str]] = []
 
     def presigned_put_object(
         self,
@@ -31,7 +33,7 @@ class FakeMinio:
         expires: timedelta,
     ) -> str:
         self.put_calls.append((bucket, file_key, expires))
-        return f"https://minio.local/{bucket}/{file_key}?method=PUT"
+        return f"https://{self.name}/{bucket}/{file_key}?method=PUT"
 
     def presigned_get_object(
         self,
@@ -41,9 +43,10 @@ class FakeMinio:
         expires: timedelta,
     ) -> str:
         self.get_calls.append((bucket, file_key, expires))
-        return f"https://minio.local/{bucket}/{file_key}?method=GET"
+        return f"https://{self.name}/{bucket}/{file_key}?method=GET"
 
     def stat_object(self, bucket: str, file_key: str) -> SimpleNamespace:
+        self.stat_calls.append((bucket, file_key))
         return SimpleNamespace(size=2048, etag='"abc123"')
 
 
@@ -114,19 +117,81 @@ class FakeRedis:
         return self.pubsub_instance
 
 
-def test_minio_object_storage_presign_defaults_and_custom_expiry() -> None:
-    client = FakeMinio()
-    storage = MinioObjectStorage(client=client, bucket="contracts-test")  # type: ignore[arg-type]
+def test_minio_object_storage_separates_public_and_internal_clients() -> None:
+    internal = FakeMinio("internal")
+    public = FakeMinio("public")
+    storage = MinioObjectStorage(  # type: ignore[arg-type]
+        client=internal,
+        public_client=public,
+        bucket="contracts-test",
+    )
 
-    assert storage.presign_put("a.docx").endswith("method=PUT")
-    assert storage.presign_get("a.docx", expires_s=120).endswith("method=GET")
-    assert client.put_calls == [("contracts-test", "a.docx", timedelta(seconds=600))]
-    assert client.get_calls == [("contracts-test", "a.docx", timedelta(seconds=120))]
+    assert storage.presign_put("a.docx").startswith("https://public/")
+    assert storage.presign_get("a.docx", expires_s=120).startswith("https://public/")
+    assert public.put_calls == [
+        ("contracts-test", "a.docx", timedelta(seconds=600))
+    ]
+    assert public.get_calls == [
+        ("contracts-test", "a.docx", timedelta(seconds=120))
+    ]
+    assert internal.put_calls == []
+    assert internal.get_calls == []
+
     assert storage.stat_object("a.docx").size == 2048
     assert storage.stat_object("a.docx").etag == "abc123"
+    assert internal.stat_calls == [
+        ("contracts-test", "a.docx"),
+        ("contracts-test", "a.docx"),
+    ]
+    assert public.stat_calls == []
 
     with pytest.raises(ValueError, match="expires_s"):
         storage.presign_get("a.docx", expires_s=0)
+
+
+def test_minio_public_endpoint_falls_back_to_internal_endpoint() -> None:
+    from app.config import Settings
+
+    fallback = Settings(
+        _env_file=None,
+        minio_endpoint="minio-internal:9000",
+        minio_public_endpoint=None,
+    )
+    explicit = Settings(
+        _env_file=None,
+        minio_endpoint="minio-internal:9000",
+        minio_public_endpoint="minio-public:9000",
+    )
+
+    assert fallback.resolved_minio_public_endpoint == "minio-internal:9000"
+    assert explicit.resolved_minio_public_endpoint == "minio-public:9000"
+
+
+def test_minio_storage_builds_internal_and_public_clients_from_settings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.services import storage as storage_module
+
+    endpoints: list[str] = []
+    regions: list[str] = []
+
+    class RecordingMinio:
+        def __init__(self, endpoint: str, **kwargs: object) -> None:
+            endpoints.append(endpoint)
+            regions.append(str(kwargs["region"]))
+
+    monkeypatch.setattr(storage_module, "Minio", RecordingMinio)
+    monkeypatch.setattr(storage_module.settings, "minio_endpoint", "minio:9000")
+    monkeypatch.setattr(
+        storage_module.settings,
+        "minio_public_endpoint",
+        "localhost:9000",
+    )
+
+    storage_module.MinioObjectStorage()
+
+    assert endpoints == ["minio:9000", "localhost:9000"]
+    assert regions == ["us-east-1", "us-east-1"]
 
 
 def test_celery_dispatcher_only_sends_registered_tasks() -> None:
