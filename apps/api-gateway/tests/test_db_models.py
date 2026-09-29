@@ -23,6 +23,7 @@ from app.db.models import (
     ContractElement,
     SealDetection,
     SettingsRule,
+    User,
     UserFeedback,
 )
 from app.generated.schemas import (
@@ -47,6 +48,7 @@ EXPECTED_TABLES = {
     "seal_detections",
     "settings_rules",
     "user_feedbacks",
+    "users",
 }
 
 MODELS = (
@@ -58,6 +60,7 @@ MODELS = (
     SealDetection,
     SettingsRule,
     AuditReport,
+    User,
     UserFeedback,
 )
 

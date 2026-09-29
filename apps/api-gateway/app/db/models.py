@@ -44,6 +44,7 @@ from app.generated.schemas import (
     FeedbackVerdict,
     RiskCategory,
     RiskLevel,
+    Role,
     SealStatus,
     SealType,
     Status,
@@ -356,6 +357,35 @@ class SettingsRule(Base):
     )
 
 
+class User(Base):
+    """本地账号表（密码哈希由后续 AuthService 生成）。"""
+
+    __tablename__ = "users"
+    __table_args__ = (
+        UniqueConstraint("username", name="uq_users_username"),
+        Index("ix_users_role", "role"),
+        Index("ix_users_is_active", "is_active"),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid4
+    )
+    username: Mapped[str] = mapped_column(String(255), nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    role: Mapped[Role] = mapped_column(_enum_type(Role, "user_role"))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    display_name: Mapped[str] = mapped_column(String(255))
+    last_login_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utc_now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utc_now, onupdate=_utc_now
+    )
+
+
 class AuditReport(Base):
     """审核报告元数据表。"""
 
@@ -437,5 +467,6 @@ __all__ = [
     "ContractElement",
     "SealDetection",
     "SettingsRule",
+    "User",
     "UserFeedback",
 ]

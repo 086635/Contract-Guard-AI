@@ -2,6 +2,13 @@
 
 from __future__ import annotations
 
+from app.db.repository.auth import (
+    UserAlreadyExistsError,
+    UserCreate,
+    UserRecord,
+    UserRepository,
+    normalize_username,
+)
 from app.db.repository.config_feedback import (
     FeedbackRecord,
     FeedbackRepository,
@@ -46,4 +53,9 @@ __all__ = [
     "SealRepository",
     "TaskRecord",
     "TaskRepository",
+    "UserAlreadyExistsError",
+    "UserCreate",
+    "UserRecord",
+    "UserRepository",
+    "normalize_username",
 ]

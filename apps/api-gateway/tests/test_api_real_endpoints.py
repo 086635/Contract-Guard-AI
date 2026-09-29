@@ -15,6 +15,14 @@ from app.main import app
 REPO_ROOT = Path(__file__).resolve().parents[3]
 OPENAPI_PATH = REPO_ROOT / "packages" / "schema" / "openapi.yaml"
 HTTP_METHODS = {"get", "post", "put", "patch", "delete"}
+OPENAPI_PLACEHOLDERS = {
+    ("POST", "/api/v1/auth/login"),
+    ("POST", "/api/v1/auth/refresh"),
+    ("GET", "/api/v1/auth/me"),
+    ("GET", "/api/v1/admin/users"),
+    ("POST", "/api/v1/admin/users"),
+    ("PATCH", "/api/v1/admin/users/{}"),
+}
 
 
 def _normalize_path(path: str) -> str:
@@ -79,8 +87,9 @@ def test_openapi_operation_inventory_matches_production_app() -> None:
     expected = _openapi_operations()
     actual = _production_operations()
 
-    assert len(expected) == 20
-    assert actual == expected
+    assert len(expected) == 26
+    assert OPENAPI_PLACEHOLDERS <= expected
+    assert expected - OPENAPI_PLACEHOLDERS == actual
 
 
 def test_every_v1_route_uses_service_context() -> None:

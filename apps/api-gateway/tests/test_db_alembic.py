@@ -32,6 +32,7 @@ EXPECTED_TABLES = {
     "seal_detections",
     "settings_rules",
     "user_feedbacks",
+    "users",
 }
 
 API_GATEWAY_ROOT = Path(__file__).resolve().parents[1]
