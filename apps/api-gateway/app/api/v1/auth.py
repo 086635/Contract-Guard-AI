@@ -159,8 +159,10 @@ async def login(
     try:
         bundle = await service.login(body.username, body.password.get_secret_value())
     except (InvalidCredentialsError, AccountDisabledError) as exc:
+        await db.commit()
         raise _invalid_credentials(exc) from exc
     except AccountLockedError as exc:
+        await db.commit()
         raise _invalid_credentials(exc) from exc
     await db.commit()
     _set_refresh_cookie(response, bundle)
@@ -185,6 +187,7 @@ async def refresh(
     try:
         bundle = await service.refresh(refresh_token)
     except (InvalidRefreshTokenError, AccountDisabledError) as exc:
+        await db.commit()
         _clear_refresh_cookie(response)
         raise _invalid_credentials(exc) from exc
     await db.commit()

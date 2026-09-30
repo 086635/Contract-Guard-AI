@@ -155,6 +155,55 @@ async def _exercise_login_refresh_logout(dsn: str) -> None:
 
 @pytest.mark.skipif(
     not POSTGRES_DSN,
+    reason="未设置 CG_POSTGRES_DSN，跳过 C47 登录锁定持久化 PostgreSQL 集成测试",
+)
+def test_login_failure_persists_lockout() -> None:
+    assert POSTGRES_DSN is not None
+    _run(_exercise_login_failure_lockout(POSTGRES_DSN))
+
+
+async def _exercise_login_failure_lockout(dsn: str) -> None:
+    schema = new_schema_name("cg_c47_lockout")
+    await create_schema(dsn, schema)
+    engine = schema_engine(dsn, schema)
+    factory = session_factory(engine)
+    try:
+        await migrate(dsn, schema)
+        async with factory() as session:
+            await _create_user(session, "route-locked", "locked-password", Role.viewer)
+            app = _build_app(session)
+            transport = ASGITransport(app=app)
+            async with AsyncClient(
+                transport=transport,
+                base_url="http://test",
+            ) as client:
+                for _ in range(4):
+                    failed = await client.post(
+                        "/api/v1/auth/login",
+                        json={"username": "route-locked", "password": "wrong-password"},
+                    )
+                    assert failed.status_code == 401
+
+                locked = await client.post(
+                    "/api/v1/auth/login",
+                    json={"username": "route-locked", "password": "wrong-password"},
+                )
+                assert locked.status_code == 401
+                assert locked.headers["retry-after"] == "900"
+
+                locked_correct = await client.post(
+                    "/api/v1/auth/login",
+                    json={"username": "route-locked", "password": "locked-password"},
+                )
+                assert locked_correct.status_code == 401
+                assert locked_correct.headers["retry-after"]
+    finally:
+        await engine.dispose()
+        await drop_schema(dsn, schema)
+
+
+@pytest.mark.skipif(
+    not POSTGRES_DSN,
     reason="未设置 CG_POSTGRES_DSN，跳过 C47 Bearer 依赖 PostgreSQL 集成测试",
 )
 def test_bearer_required() -> None:
