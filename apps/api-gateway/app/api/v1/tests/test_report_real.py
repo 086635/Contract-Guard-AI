@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tests.service_testkit import (
     create_schema,
     drop_schema,
+    install_test_auth,
     migrate,
     new_schema_name,
     schema_engine,
@@ -464,6 +465,7 @@ async def _exercise_reports(dsn: str) -> None:
             )
             app = FastAPI()
             app.include_router(report_router.router, prefix="/api/v1")
+            install_test_auth(app, session)
             app.dependency_overrides[get_service_context] = lambda: context
             transport = ASGITransport(app=app)
             async with AsyncClient(

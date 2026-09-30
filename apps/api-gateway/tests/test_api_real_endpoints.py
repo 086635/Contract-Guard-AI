@@ -77,7 +77,7 @@ def test_openapi_operation_inventory_matches_production_app() -> None:
     expected = _openapi_operations()
     actual = _production_operations()
 
-    assert len(expected) == 27
+    assert len(expected) == 28
     assert actual == expected
 
 
@@ -105,7 +105,7 @@ def test_every_v1_route_uses_service_context() -> None:
     for route in _iter_routes(app.router):
         if not route.endpoint.__module__.startswith("app.api.v1"):
             continue
-        if route.endpoint.__module__ == "app.api.v1.auth":
+        if route.endpoint.__module__ in {"app.api.v1.auth", "app.api.v1.audit"}:
             continue
         if get_service_context not in _dependency_calls(route.dependant):
             for method in sorted(route.methods):

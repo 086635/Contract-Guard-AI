@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from alembic import command
 from alembic.config import Config
+from fastapi import FastAPI
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import (
@@ -17,6 +19,10 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
+from app.api.deps import get_audit_service, get_current_user
+from app.db.repository.auth import UserRecord
+from app.generated.schemas import Role
+from app.services.audit_service import AuditService
 from app.services.context import ServiceContext
 from app.services.ports import (
     ObjectStoragePort,
@@ -94,6 +100,29 @@ class _NullTaskDispatcher:
     def get_status(self, task_id: str) -> TaskStatusSnapshot | None:
         del task_id
         return None
+
+
+def install_test_auth(
+    app: FastAPI,
+    session: AsyncSession,
+    *,
+    role: Role = Role.admin,
+) -> UserRecord:
+    """为直接挂载业务 router 的测试覆盖当前用户与审计依赖。"""
+    now = datetime.now(UTC)
+    user = UserRecord(
+        id=UUID("00000000-0000-0000-0000-000000000001"),
+        username="test-admin",
+        role=role,
+        is_active=True,
+        display_name="Test Admin",
+        last_login_at=None,
+        created_at=now,
+        updated_at=now,
+    )
+    app.dependency_overrides[get_current_user] = lambda: user
+    app.dependency_overrides[get_audit_service] = lambda: AuditService(session)
+    return user
 
 
 def service_context(

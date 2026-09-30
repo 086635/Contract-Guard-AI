@@ -2,16 +2,23 @@
 
 from __future__ import annotations
 
+from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
-from app.api.deps import get_service_context
+from app.api.deps import (
+    get_audit_service,
+    get_current_user,
+    get_service_context,
+)
+from app.db.repository.auth import UserRecord
 from app.generated.schemas import (
     SettingsRuleResponse,
     SettingsRulesResponse,
     SystemAuditConfiguration,
 )
+from app.services.audit_service import AuditService
 from app.services.context import ServiceContext
 from app.services.envelope import build_success_response
 from app.services.rule_service import (
@@ -54,6 +61,9 @@ async def get_rule(
 async def update_rule(
     config_id: UUID,
     body: SystemAuditConfiguration,
+    request: Request,
+    user: Annotated[UserRecord, Depends(get_current_user)],
+    audit: Annotated[AuditService, Depends(get_audit_service)],
     context: ServiceContext = Depends(get_service_context),
 ) -> SettingsRuleResponse:
     """更新规则配置（需带 version 乐观锁，冲突返 ERR_DATA_CONFLICT）。"""

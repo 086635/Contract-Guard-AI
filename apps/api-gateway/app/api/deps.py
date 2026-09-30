@@ -13,14 +13,16 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from typing import Annotated
 
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.db.models import AuditAction, AuditOutcome
 from app.db.repository.auth import UserRecord, UserRepository
 from app.db.session import get_session
 from app.generated.schemas import Role
+from app.services.audit_service import AuditService
 from app.services.auth_service import AuthService
 from app.services.context import ServiceContext
 from app.services.ports import (
@@ -80,6 +82,13 @@ async def get_auth_service(
     return AuthService(db)
 
 
+async def get_audit_service(
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> AuditService:
+    """为路由组装审计服务；写失败由 AuditService 自行告警降级。"""
+    return AuditService(db)
+
+
 _bearer_scheme = HTTPBearer(auto_error=False)
 
 
@@ -120,9 +129,24 @@ def require_roles(*roles: Role):
     required = set(roles)
 
     async def _dependency(
+        request: Request,
         user: Annotated[UserRecord, Depends(get_current_user)],
+        db: Annotated[AsyncSession, Depends(get_db)],
+        audit: Annotated[AuditService, Depends(get_audit_service)],
     ) -> UserRecord:
         if user.role not in required:
+            await audit.write_event(
+                AuditAction.auth_denied,
+                "AUTH",
+                AuditOutcome.denied,
+                actor_id=user.id,
+                actor_role=user.role,
+                resource_id=request.url.path,
+                metadata={"method": request.method, "path": request.url.path},
+                ip_address=request.client.host if request.client else None,
+                user_agent=request.headers.get("user-agent"),
+            )
+            await db.commit()
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="无权限",
@@ -143,7 +167,34 @@ async def verify_origin(
         )
 
 
+async def write_audit_event(
+    service: AuditService,
+    request: Request,
+    action: AuditAction,
+    resource_type: str,
+    outcome: AuditOutcome,
+    *,
+    actor_id: object | None = None,
+    actor_role: Role | None = None,
+    resource_id: str | None = None,
+    metadata: dict[str, object] | None = None,
+) -> None:
+    """从 HTTP 上下文补全 IP/UA 后写入审计。"""
+    await service.write_event(
+        action,
+        resource_type,
+        outcome,
+        actor_id=actor_id,
+        actor_role=actor_role,
+        resource_id=resource_id,
+        metadata=metadata,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+    )
+
+
 __all__ = [
+    "get_audit_service",
     "get_auth_service",
     "get_current_user",
     "get_db",
@@ -153,4 +204,5 @@ __all__ = [
     "get_task_dispatcher",
     "require_roles",
     "verify_origin",
+    "write_audit_event",
 ]

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, cast
 from uuid import uuid4
@@ -11,6 +12,7 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
+from tests.service_testkit import install_test_auth
 
 from app.api.deps import get_service_context
 from app.api.v1 import agent as agent_router
@@ -102,9 +104,20 @@ class FakeBroker:
         raise AssertionError("AgentService 不应订阅进度")
 
 
+class _NullSession:
+    """Agent 派发测试不需要 DB；提供审计上下文所需的异步方法。"""
+
+    @asynccontextmanager
+    async def begin_nested(self):
+        yield self
+
+    async def commit(self) -> None:
+        return None
+
+
 def _context(dispatcher: FakeDispatcher) -> ServiceContext:
     return ServiceContext(
-        session=cast(AsyncSession, object()),
+        session=cast(AsyncSession, _NullSession()),
         object_storage=cast(ObjectStoragePort, object()),
         task_dispatcher=dispatcher,
         progress_broker=cast(ProgressBrokerPort, FakeBroker()),
@@ -138,6 +151,7 @@ def test_agent_rewrite_dispatch_and_idempotent_cache() -> None:
     dispatcher = FakeDispatcher()
     app = FastAPI()
     app.include_router(agent_router.router, prefix="/api/v1")
+    install_test_auth(app, cast(AsyncSession, _NullSession()))
     app.dependency_overrides[get_service_context] = lambda: _context(dispatcher)
     transport = ASGITransport(app=app)
     body = _request_body()
@@ -168,6 +182,7 @@ def test_agent_rewrite_broker_failure_returns_502() -> None:
     dispatcher = FakeDispatcher(fail_send=True)
     app = FastAPI()
     app.include_router(agent_router.router, prefix="/api/v1")
+    install_test_auth(app, cast(AsyncSession, _NullSession()))
     app.dependency_overrides[get_service_context] = lambda: _context(dispatcher)
 
     async def scenario() -> None:

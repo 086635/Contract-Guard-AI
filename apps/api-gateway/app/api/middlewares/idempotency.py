@@ -19,6 +19,8 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
+from cg_observability import reset_trace_id, set_trace_id
+
 _IDEMPOTENT_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
 
@@ -31,7 +33,11 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
         # if request.method in _IDEMPOTENT_METHODS and cache.exists(request_id):
         #     return cache.get(request_id)
 
-        response: Response = await call_next(request)
+        trace_token = set_trace_id(trace_id)
+        try:
+            response: Response = await call_next(request)
+        finally:
+            reset_trace_id(trace_token)
         response.headers["X-Request-ID"] = request_id
         response.headers["X-Trace-Id"] = trace_id
         return response

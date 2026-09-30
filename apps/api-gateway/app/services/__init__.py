@@ -8,6 +8,7 @@ from app.services.agent_service import (
     AgentRewriteTimeoutError,
     AgentService,
 )
+from app.services.audit_service import AuditService, sanitize_metadata
 from app.services.auth_service import (
     AccountAlreadyExistsError,
     AccountDisabledError,
@@ -80,6 +81,7 @@ __all__ = [
     "AgentRewriteFailedError",
     "AgentRewriteTimeoutError",
     "AgentService",
+    "AuditService",
     "AuthSecurityError",
     "AuthService",
     "AuthServiceError",
@@ -127,6 +129,7 @@ __all__ = [
     "generate_refresh_token",
     "hash_password",
     "hash_refresh_token",
+    "sanitize_metadata",
     "task_progress_channel",
     "verify_password",
 ]

@@ -5,11 +5,19 @@
 
 from __future__ import annotations
 
+from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 
-from app.api.deps import get_service_context
+from app.api.deps import (
+    get_audit_service,
+    get_current_user,
+    get_service_context,
+    write_audit_event,
+)
+from app.db.models import AuditAction, AuditOutcome
+from app.db.repository.auth import UserRecord
 from app.generated.schemas import (
     CommitBody,
     CommitResultResponse,
@@ -25,6 +33,7 @@ from app.generated.schemas import (
     SealListResponse,
     UploadBody,
 )
+from app.services.audit_service import AuditService
 from app.services.commit_service import (
     CommitService,
     CommitValidationError,
@@ -41,6 +50,9 @@ router = APIRouter(prefix="/contracts", tags=["Contracts"])
 
 @router.get("", response_model=ContractListResponse, status_code=status.HTTP_200_OK)
 async def list_contracts(
+    request: Request,
+    user: Annotated[UserRecord, Depends(get_current_user)],
+    audit: Annotated[AuditService, Depends(get_audit_service)],
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     contract_type: str | None = None,
@@ -67,6 +79,17 @@ async def list_contracts(
         pageSize=page_size,
         hasMore=page * page_size < total,
     )
+    await write_audit_event(
+        audit,
+        request,
+        AuditAction.view,
+        "CONTRACT",
+        AuditOutcome.success,
+        actor_id=user.id,
+        actor_role=user.role,
+        metadata={"method": "GET", "path": "/api/v1/contracts", "count": total},
+    )
+    await context.session.commit()
     return build_success_response(ContractListResponse, data)
 
 
@@ -87,10 +110,25 @@ async def presign_upload(
 )
 async def upload_contract(
     body: UploadBody,
+    request: Request,
+    user: Annotated[UserRecord, Depends(get_current_user)],
+    audit: Annotated[AuditService, Depends(get_audit_service)],
     context: ServiceContext = Depends(get_service_context),
 ) -> ContractUploadResponse:
     """触发解析任务（上传三步法 步骤3，§5.3）。需 X-Request-ID 幂等。"""
     data = await ContractService(context).upload(body)
+    await write_audit_event(
+        audit,
+        request,
+        AuditAction.upload,
+        "CONTRACT",
+        AuditOutcome.success,
+        actor_id=user.id,
+        actor_role=user.role,
+        resource_id=data.task_id,
+        metadata={"fileType": body.file_type.value},
+    )
+    await context.session.commit()
     return build_success_response(ContractUploadResponse, data)
 
 
@@ -101,6 +139,9 @@ async def upload_contract(
 )
 async def get_contract(
     contract_id: UUID,
+    request: Request,
+    user: Annotated[UserRecord, Depends(get_current_user)],
+    audit: Annotated[AuditService, Depends(get_audit_service)],
     context: ServiceContext = Depends(get_service_context),
 ) -> ContractDetailResponse:
     """合同详情。"""
@@ -110,6 +151,18 @@ async def get_contract(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="contract not found",
         )
+    await write_audit_event(
+        audit,
+        request,
+        AuditAction.view,
+        "CONTRACT",
+        AuditOutcome.success,
+        actor_id=user.id,
+        actor_role=user.role,
+        resource_id=str(contract_id),
+        metadata={"method": "GET", "path": f"/api/v1/contracts/{contract_id}"},
+    )
+    await context.session.commit()
     return build_success_response(ContractDetailResponse, contract)
 
 
@@ -232,6 +285,9 @@ async def get_seals(
 async def commit_contract(
     contract_id: UUID,
     body: CommitBody,
+    request: Request,
+    user: Annotated[UserRecord, Depends(get_current_user)],
+    audit: Annotated[AuditService, Depends(get_audit_service)],
     x_request_id: str = Header(..., alias="X-Request-ID"),
     context: ServiceContext = Depends(get_service_context),
 ) -> CommitResultResponse:
@@ -257,4 +313,16 @@ async def commit_contract(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),
         ) from exc
+    await write_audit_event(
+        audit,
+        request,
+        AuditAction.commit,
+        "CONTRACT",
+        AuditOutcome.success,
+        actor_id=user.id,
+        actor_role=user.role,
+        resource_id=str(contract_id),
+        metadata={"xRequestId": x_request_id, "version": body.version},
+    )
+    await context.session.commit()
     return build_success_response(CommitResultResponse, result)

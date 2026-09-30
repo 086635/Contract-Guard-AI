@@ -40,6 +40,8 @@ tags:
     description: 登录、刷新、登出与当前用户
   - name: Admin
     description: 用户与权限管理
+  - name: Audit
+    description: 追加式审计事件查询
 
 components:
   securitySchemes:
@@ -525,6 +527,78 @@ components:
         version: { type: integer }                       # 乐观锁
 
     # §10 分层 Memory 架构数据契约
+    AuditAction:
+      type: string
+      enum:
+        - LOGIN
+        - REFRESH
+        - LOGOUT
+        - UPLOAD
+        - VIEW
+        - REWRITE
+        - COMMIT
+        - REPORT
+        - EXPORT
+        - SETTINGS_UPDATE
+        - USER_CREATE
+        - USER_UPDATE
+        - AUTH_DENIED
+        - TASK_RECOVERED
+        - FILE_REJECTED
+
+    AuditOutcome:
+      type: string
+      enum: [SUCCESS, FAILURE, DENIED]
+
+    AuditEvent:
+      type: object
+      required: [id, actorId, actorRole, action, resourceType, resourceId, outcome, ipAddress, userAgent, traceId, metadata, createdAt]
+      properties:
+        id: { type: string }
+        actorId:
+          anyOf:
+            - { type: string }
+            - type: "null"
+        actorRole:
+          anyOf:
+            - { $ref: "#/components/schemas/Role" }
+            - type: "null"
+        action: { $ref: "#/components/schemas/AuditAction" }
+        resourceType: { type: string }
+        resourceId:
+          anyOf:
+            - { type: string }
+            - type: "null"
+        outcome: { $ref: "#/components/schemas/AuditOutcome" }
+        ipAddress:
+          anyOf:
+            - { type: string }
+            - type: "null"
+        userAgent:
+          anyOf:
+            - { type: string }
+            - type: "null"
+        traceId:
+          anyOf:
+            - { type: string }
+            - type: "null"
+        metadata:
+          type: object
+          additionalProperties: true
+        createdAt: { type: string, format: date-time }
+
+    AuditEventListData:
+      type: object
+      required: [items, total, page, pageSize, hasMore]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/AuditEvent" }
+        total: { type: integer, minimum: 0 }
+        page: { type: integer, minimum: 1 }
+        pageSize: { type: integer, minimum: 1, maximum: 100 }
+        hasMore: { type: boolean }
+
     GlobalContractState:
       type: object
       required: [contractId, meta, astTopology, activeVersionId]
@@ -895,6 +969,14 @@ components:
           properties:
             data: { $ref: "#/components/schemas/SystemAuditConfiguration" }
 
+    AuditEventListResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiEnvelopeBase"
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: "#/components/schemas/AuditEventListData" }
+
     ReportGenerateResponse:
       allOf:
         - $ref: "#/components/schemas/ApiEnvelopeBase"
@@ -1112,6 +1194,32 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/CurrentUserResponse" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+  /audit/events:
+    get:
+      tags: [Audit]
+      summary: 管理员分页查询审计事件
+      operationId: listAuditEvents
+      parameters:
+        - { name: page, in: query, required: false, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: pageSize, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+        - { name: actorId, in: query, required: false, schema: { type: string } }
+        - { name: action, in: query, required: false, schema: { $ref: "#/components/schemas/AuditAction" } }
+        - { name: resourceType, in: query, required: false, schema: { type: string } }
+        - { name: resourceId, in: query, required: false, schema: { type: string } }
+        - { name: outcome, in: query, required: false, schema: { $ref: "#/components/schemas/AuditOutcome" } }
+        - { name: traceId, in: query, required: false, schema: { type: string } }
+        - { name: from, in: query, required: false, schema: { type: string, format: date-time } }
+        - { name: to, in: query, required: false, schema: { type: string, format: date-time } }
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuditEventListResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
         "500": { $ref: "#/components/responses/Internal" }
 
   /admin/users:

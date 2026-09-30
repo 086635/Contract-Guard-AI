@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.deps import get_current_user
 from app.api.middlewares import IdempotencyMiddleware
-from app.api.v1 import agent, auth, config, contracts, feedback, report, tasks
+from app.api.v1 import agent, audit, auth, config, contracts, feedback, report, tasks
 from app.config import settings
 
 app = FastAPI(
@@ -33,6 +33,7 @@ app.add_middleware(IdempotencyMiddleware)
 api_router = APIRouter(prefix=settings.api_v1_prefix)
 
 api_router.include_router(auth.router)
+api_router.include_router(audit.router)
 api_router.include_router(contracts.router, dependencies=[Depends(get_current_user)])
 api_router.include_router(agent.router, dependencies=[Depends(get_current_user)])
 api_router.include_router(config.router, dependencies=[Depends(get_current_user)])
