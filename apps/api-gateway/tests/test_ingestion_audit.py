@@ -251,6 +251,35 @@ async def _exercise_ingestion_audit(dsn: str, schema: str) -> None:
             assert await IngestionService(ctx).finalize_audit(failed.id) is False
             assert await risks.list_by_contract(failed.id) == []
 
+            result_failed = await contracts.create(
+                ContractCreate(
+                    filename="审核结果失败.docx",
+                    file_size=1024,
+                    file_hash="e" * 64,
+                    storage_path="contracts/audit-result-failed.docx",
+                )
+            )
+            await session.commit()
+            await tasks.create(
+                result_failed.id,
+                TaskKind.RUN_AUDIT.name,
+                "audit-result-failed",
+            )
+            await session.commit()
+            fake.snapshots["audit-result-failed"] = TaskStatusSnapshot(
+                status="DONE",
+                stage="done",
+                percent=1.0,
+                result={
+                    "status": "FAILED",
+                    "risks": [],
+                    "conflicts": [],
+                    "warnings": ["ERR_LLM_ALL_CLAUSES_FAILED"],
+                },
+            )
+            assert await IngestionService(ctx).finalize_audit(result_failed.id) is False
+            assert await risks.list_by_contract(result_failed.id) == []
+
             no_task = await contracts.create(
                 ContractCreate(
                     filename="无审核任务.docx",

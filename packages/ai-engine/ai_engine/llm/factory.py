@@ -72,7 +72,12 @@ def build_chat_model(
             max_retries=resolved.max_retries,
             api_key=SecretStr(api_key),
             base_url=base_url,
-            metadata={"cg_llm_json_mode": resolved.json_mode},
+            metadata={
+                "cg_llm_provider": provider,
+                "cg_llm_model": resolved.model,
+                "cg_llm_json_mode": resolved.json_mode,
+                "cg_llm_allow_external_data": resolved.allow_external_data,
+            },
         )
     else:
         raise LlmConfigError(
@@ -89,6 +94,7 @@ def build_chat_model(
         temperature=model_temperature,
         max_tokens=resolved.max_tokens,
         json_mode=resolved.json_mode,
+        allow_external_data=resolved.allow_external_data,
     )
     return model
 
@@ -104,6 +110,7 @@ def _cache_key(settings: LlmSettings) -> tuple[Any, ...]:
         settings.api_key or "",
         settings.base_url or "",
         settings.json_mode,
+        settings.allow_external_data,
     )
 
 

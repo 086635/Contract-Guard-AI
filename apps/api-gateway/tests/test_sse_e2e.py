@@ -234,5 +234,29 @@ def test_stream_skips_invalid_event_and_continues() -> None:
     asyncio.run(scenario())
 
 
+def test_done_snapshot_with_failed_result_maps_to_failed_task() -> None:
+    async def scenario() -> None:
+        record = _record()
+        snapshot = TaskStatusSnapshot(
+            status="DONE",
+            stage="done",
+            percent=1.0,
+            result={
+                "status": "FAILED",
+                "warnings": ["ERR_LLM_ALL_CLAUSES_FAILED: model unavailable"],
+            },
+        )
+        broker = _FakeProgressBroker([])
+        service = _service(record, _FakeDispatcher(snapshot), broker)
+
+        current = await service.get(record.id)
+
+        assert current is not None
+        assert current.status == Status.failed
+        assert current.result["status"] == "FAILED"
+
+    asyncio.run(scenario())
+
+
 def test_task_service_has_no_mock_factory() -> None:
     assert "MockDataFactory" not in _TASK_SERVICE_SOURCE.read_text(encoding="utf-8")

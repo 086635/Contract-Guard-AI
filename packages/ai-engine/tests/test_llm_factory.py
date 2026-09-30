@@ -371,7 +371,12 @@ def test_provider_presets_and_settings_are_forwarded(
     assert captured["max_tokens"] == 4096
     assert captured["timeout"] == 12.5
     assert captured["max_retries"] == 3
-    assert captured["metadata"] == {"cg_llm_json_mode": "json_mode"}
+    assert captured["metadata"] == {
+        "cg_llm_provider": "deepseek",
+        "cg_llm_model": "deepseek-flash",
+        "cg_llm_json_mode": "json_mode",
+        "cg_llm_allow_external_data": False,
+    }
 
 
 def test_ollama_uses_local_preset_and_placeholder_key(

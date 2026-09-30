@@ -57,10 +57,17 @@ class TaskService:
         percent = record.progress if record is not None else 0.0
         result = self._record_result(record)
         if snapshot is not None:
+            result_status = (
+                snapshot.result.get("status")
+                if isinstance(snapshot.result, dict)
+                else None
+            )
             try:
                 status = Status(snapshot.status)
             except ValueError:
                 status = Status.running
+            if snapshot.status == "FAILED" or result_status == "FAILED":
+                status = Status.failed
             stage = snapshot.stage
             percent = min(1.0, max(0.0, snapshot.percent))
             result = snapshot.result or result

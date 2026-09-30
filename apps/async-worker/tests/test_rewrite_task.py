@@ -90,8 +90,10 @@ def test_rewrite_exception_raises_runtime_error(
 
     monkeypatch.setattr(rewrite_module, "rewrite_clause", broken_rewrite)
 
-    with pytest.raises(RewriteUnavailableError, match="model unavailable"):
+    with pytest.raises(RewriteUnavailableError, match="model unavailable") as exc_info:
         rewrite_task.apply(args=(_payload(),)).get()
+
+    assert exc_info.value.detail["errorCode"] == "ERR_LLM_UNAVAILABLE"
 
 
 def test_worker_has_no_gateway_import() -> None:

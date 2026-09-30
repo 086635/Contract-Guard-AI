@@ -163,7 +163,11 @@ def rewrite_node(state: RewriteState, deps: GraphDeps) -> dict[str, Any]:
         rag_citations = (
             rag_context.get("citations", []) if isinstance(rag_context, dict) else []
         )
-        citations = value.citations if rag_citations else []
+        citations = list(value.citations)
+        for item in rag_citations:
+            citation = PreciseCitation.model_validate(item)
+            if citation not in citations:
+                citations.append(citation)
         return _finish_stage(
             state,
             stage,

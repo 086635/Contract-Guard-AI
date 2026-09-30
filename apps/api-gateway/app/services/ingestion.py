@@ -55,6 +55,7 @@ def _optional_float(value: Any) -> float | None:
     except (TypeError, ValueError):
         return None
 
+
 def _clause_bbox(clause: dict[str, Any]) -> BBox | None:
     """把 clause 的 `page_no + bbox` 合并为 `ContractChunk.BBox`（缺几何返回 None）。"""
     raw = clause.get("bbox")
@@ -126,7 +127,9 @@ def clause_payload_to_chunk(
     )
 
 
-def element_payload_to_chunk(contract_id: str, element: dict[str, Any]) -> ContractChunk:
+def element_payload_to_chunk(
+    contract_id: str, element: dict[str, Any]
+) -> ContractChunk:
     """把解析层 element dict 投影为带 extra 的 ContractChunk。"""
     key = str(element.get("key") or "").strip()
     if not key:
@@ -167,6 +170,7 @@ def element_payload_to_chunk(contract_id: str, element: dict[str, Any]) -> Contr
             "isCustom": is_custom,
         },
     )
+
 
 class IngestionService:
     """网关侧惰性结果入库与审核派发。"""
@@ -287,6 +291,19 @@ class IngestionService:
         snapshot = self._context.task_dispatcher.get_status(task.celery_task_id)
         if snapshot is None or snapshot.status != "DONE" or snapshot.result is None:
             return False
+        result_status = (
+            snapshot.result.get("status") if isinstance(snapshot.result, dict) else None
+        )
+        if result_status == "FAILED":
+            log_event(
+                _LOG,
+                "ingestion.audit.failed",
+                level="WARNING",
+                trace_id=get_trace_id(),
+                contract_id=str(contract_id),
+                task_id=str(task.id),
+            )
+            return False
 
         risks, conflicts, warnings = self._build_audit_results(snapshot.result)
         if risks or conflicts:
@@ -343,6 +360,7 @@ class IngestionService:
             except (ValueError, TypeError) as exc:
                 warnings.append(f"要素投影失败：{exc}")
         return chunks, warnings
+
     @staticmethod
     def _build_chunks(
         contract_id: str,

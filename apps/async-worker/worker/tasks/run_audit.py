@@ -60,8 +60,24 @@ def _payload(
         stage_statuses = {
             str(item.get("status", "")) for item in stage_log if isinstance(item, dict)
         }
-        if warnings or stage_statuses - {"OK"}:
+        if "FAILED" in stage_statuses:
+            effective_status = "FAILED"
+        elif warnings or stage_statuses - {"OK"}:
             effective_status = "DEGRADED"
+    if effective_status == "FAILED":
+        return {
+            "contractId": contract_id,
+            "traceId": trace_id,
+            "status": "FAILED",
+            "risks": [],
+            "conflicts": [],
+            "missingClauses": [],
+            "healthScore": {},
+            "warnings": warnings or ["audit failed"],
+            "stageLog": stage_log,
+            "tookMs": max(0, int((time.perf_counter() - started) * 1000)),
+        }
+
     return {
         "contractId": contract_id,
         "traceId": trace_id,
@@ -182,7 +198,11 @@ def run_audit_task(
             state=final_state,
             started=started,
         )
-        reporter.finish(result)
+        if result["status"] == "FAILED":
+            warnings = [item for item in result.get("warnings", []) if item]
+            reporter.fail(warnings[0] if warnings else "audit failed")
+        else:
+            reporter.finish(result)
         log_event(
             _LOG,
             "audit.task.done",

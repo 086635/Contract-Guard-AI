@@ -112,6 +112,11 @@ _PERFORMANCE_CONFLICT_TYPES = {
     ConflictType.PAYMENT_CONTRADICTION,
     ConflictType.LIABILITY_CONTRADICTION,
 }
+_ERR_LLM_UNAVAILABLE = "ERR_LLM_UNAVAILABLE"
+_ERR_LLM_ALL_CLAUSES_FAILED = "ERR_LLM_ALL_CLAUSES_FAILED"
+_ERR_LLM_INVALID_RISK = "ERR_LLM_INVALID_RISK"
+_ERR_LLM_INVALID_CONFLICT = "ERR_LLM_INVALID_CONFLICT"
+_ERR_LLM_ALL_CONFLICTS_FAILED = "ERR_LLM_ALL_CONFLICTS_FAILED"
 
 
 def _resolve_llm(deps: GraphDeps, role: str) -> BaseChatModel:
@@ -225,6 +230,11 @@ def _confidence(value: Any) -> float:
     except (TypeError, ValueError):
         return 0.0
     return min(1.0, max(0.0, parsed))
+
+
+def _risk_draft_is_valid(draft: _RiskDraft | None) -> bool:
+    """拒绝离线桩或残损结构化输出生成的空风险。"""
+    return bool(draft is not None and draft.title.strip() and draft.suggestion.strip())
 
 
 def _normalize_element(item: Any) -> dict[str, Any] | None:
@@ -512,11 +522,11 @@ def risk_node(state: AuditState, deps: GraphDeps) -> dict[str, Any]:
     try:
         model = _resolve_llm(deps, "risk")
     except Exception as exc:  # noqa: BLE001 - 节点契约要求永不抛异常
-        detail = f"风险模型不可用：{type(exc).__name__}"
+        detail = f"{_ERR_LLM_UNAVAILABLE}: 风险模型不可用：{type(exc).__name__}"
         return _finish_stage(
             state,
             stage,
-            "DEGRADED",
+            "FAILED",
             started,
             detail,
             warnings=[*budget_warnings, detail],
@@ -533,6 +543,8 @@ def risk_node(state: AuditState, deps: GraphDeps) -> dict[str, Any]:
     warnings = list(budget_warnings)
     rag_calls = 0
     llm_calls = 0
+    attempted_clauses = 0
+    failed_clauses = 0
     degraded = False
 
     for ordinal, clause in enumerate(clauses, start=1):
@@ -571,6 +583,7 @@ def risk_node(state: AuditState, deps: GraphDeps) -> dict[str, Any]:
                 )
 
         try:
+            attempted_clauses += 1
             rendered = prompt.render(
                 clause_label=clause.get("label", ""),
                 clause_text=clause.get("text", ""),
@@ -586,9 +599,15 @@ def risk_node(state: AuditState, deps: GraphDeps) -> dict[str, Any]:
                 trace_id=trace_id,
             )
             warnings.extend(invoke_warnings)
-            if draft is None:
+            if not _risk_draft_is_valid(draft):
+                failed_clauses += 1
                 degraded = True
-                warnings.append(f"条款 {clause['clause_id']} 风险识别降级")
+                warning = (
+                    f"{_ERR_LLM_INVALID_RISK}: 条款 {clause['clause_id']} 风险识别降级"
+                    if draft is None
+                    else f"{_ERR_LLM_INVALID_RISK}: 条款 {clause['clause_id']} 返回空标题或空建议"
+                )
+                warnings.append(warning)
                 continue
 
             bbox = clause.get("bbox")
@@ -614,17 +633,26 @@ def risk_node(state: AuditState, deps: GraphDeps) -> dict[str, Any]:
                 )
             )
         except Exception as exc:  # noqa: BLE001 - 单条款失败不得中断整图
+            failed_clauses += 1
             degraded = True
             warnings.append(
-                f"条款 {clause['clause_id']} 风险识别失败：{type(exc).__name__}"
+                f"{_ERR_LLM_INVALID_RISK}: 条款 {clause['clause_id']} 风险识别失败：{type(exc).__name__}"
             )
+
+    if attempted_clauses > 0 and failed_clauses == attempted_clauses:
+        status = "FAILED"
+        detail = f"风险识别失败：{failed_clauses} 个条款均未返回有效结果"
+        warnings.append(f"{_ERR_LLM_ALL_CLAUSES_FAILED}: {detail}")
+    else:
+        status = "DEGRADED" if degraded else "OK"
+        detail = f"风险识别完成：{len(risks)} 条风险"
 
     return _finish_stage(
         state,
         stage,
-        "DEGRADED" if degraded else "OK",
+        status,
         started,
-        f"风险识别完成：{len(risks)} 条风险",
+        detail,
         warnings=warnings,
         extra={
             "risks": risks,
@@ -731,11 +759,11 @@ def conflict_node(state: AuditState, deps: GraphDeps) -> dict[str, Any]:
     try:
         model = _resolve_llm(deps, "conflict")
     except Exception as exc:  # noqa: BLE001 - 节点契约要求永不抛异常
-        detail = f"矛盾模型不可用：{type(exc).__name__}"
+        detail = f"{_ERR_LLM_UNAVAILABLE}: 矛盾模型不可用：{type(exc).__name__}"
         return _finish_stage(
             state,
             stage,
-            "DEGRADED",
+            "FAILED",
             started,
             detail,
             warnings=[*warnings, detail],
@@ -752,6 +780,7 @@ def conflict_node(state: AuditState, deps: GraphDeps) -> dict[str, Any]:
     conflicts: list[CrossClauseConflict] = []
     seen_pairs: set[int] = set()
     llm_calls = 0
+    failed_batches = 0
     degraded = False
     conflict_ordinal = 0
 
@@ -775,12 +804,18 @@ def conflict_node(state: AuditState, deps: GraphDeps) -> dict[str, Any]:
             )
             warnings.extend(invoke_warnings)
             if value is None:
+                failed_batches += 1
                 degraded = True
-                warnings.append(f"冲突批次 {batch_index + 1} 精判降级")
+                warnings.append(
+                    f"{_ERR_LLM_INVALID_CONFLICT}: 冲突批次 {batch_index + 1} 精判降级"
+                )
                 continue
         except Exception as exc:  # noqa: BLE001 - 单批失败不得中断其它批次
+            failed_batches += 1
             degraded = True
-            warnings.append(f"冲突批次 {batch_index + 1} 失败：{type(exc).__name__}")
+            warnings.append(
+                f"{_ERR_LLM_INVALID_CONFLICT}: 冲突批次 {batch_index + 1} 失败：{type(exc).__name__}"
+            )
             continue
 
         for draft in value.conflicts:
@@ -809,10 +844,18 @@ def conflict_node(state: AuditState, deps: GraphDeps) -> dict[str, Any]:
                 )
             )
 
+    if batches and failed_batches == len(batches):
+        status = "FAILED"
+        warnings.append(
+            f"{_ERR_LLM_ALL_CONFLICTS_FAILED}: {failed_batches} 个冲突批次均失败"
+        )
+    else:
+        status = "DEGRADED" if degraded else "OK"
+
     return _finish_stage(
         state,
         stage,
-        "DEGRADED" if degraded else "OK",
+        status,
         started,
         f"矛盾分析完成：{len(conflicts)} 条矛盾",
         warnings=warnings,

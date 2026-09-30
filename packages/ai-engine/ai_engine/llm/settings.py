@@ -33,6 +33,7 @@ class LlmSettings(BaseSettings):
     json_mode: Literal["json_schema", "json_mode", "none"] = "json_mode"
     api_key: str | None = None
     base_url: str | None = None
+    allow_external_data: bool = False
 
     def validate_production(self) -> None:
         """生产环境拒绝 offline provider。"""
@@ -40,6 +41,11 @@ class LlmSettings(BaseSettings):
             raise ProductionConfigError(
                 "CG_LLM_PROVIDER",
                 "production forbids offline provider",
+            )
+        if not self.allow_external_data:
+            raise ProductionConfigError(
+                "CG_LLM_ALLOW_EXTERNAL_DATA",
+                "production requires explicit external-data opt-in",
             )
 
 

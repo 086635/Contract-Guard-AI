@@ -57,10 +57,14 @@ class _FakeGraph:
         fail: bool = False,
         captured: dict[str, Any] | None = None,
         clause_count: int = 1,
+        stage_statuses: dict[str, str] | None = None,
+        risks: list[EnhancedRiskItem] | None = None,
     ) -> None:
         self.fail = fail
         self.captured = captured if captured is not None else {}
         self.clause_count = clause_count
+        self.stage_statuses = stage_statuses or {}
+        self.risks = risks
 
     def stream(
         self,
@@ -77,9 +81,11 @@ class _FakeGraph:
         cumulative = dict(state)
         cumulative["stage_log"] = []
         cumulative["warnings"] = []
-        cumulative["risks"] = [
-            _risk(index) for index in range(1, self.clause_count + 1)
-        ]
+        cumulative["risks"] = (
+            list(self.risks)
+            if self.risks is not None
+            else [_risk(index) for index in range(1, self.clause_count + 1)]
+        )
         cumulative["health_score"] = 90
         cumulative["report_draft"] = {
             "health_score": {
@@ -96,7 +102,7 @@ class _FakeGraph:
                 *cumulative["stage_log"],
                 {
                     "stage": stage,
-                    "status": "OK",
+                    "status": self.stage_statuses.get(stage, "OK"),
                     "latency_ms": 0,
                     "detail": "ok",
                 },
@@ -109,6 +115,8 @@ def _patch_success_graph(
     monkeypatch: pytest.MonkeyPatch,
     *,
     clause_count: int = 1,
+    stage_statuses: dict[str, str] | None = None,
+    risks: list[EnhancedRiskItem] | None = None,
 ) -> dict[str, Any]:
     captured: dict[str, Any] = {}
     monkeypatch.setattr(
@@ -127,6 +135,8 @@ def _patch_success_graph(
         lambda deps: _FakeGraph(
             captured=captured,
             clause_count=clause_count,
+            stage_statuses=stage_statuses,
+            risks=risks,
         ),
     )
     return captured
@@ -143,6 +153,37 @@ def test_run_audit_success_offline(monkeypatch: pytest.MonkeyPatch) -> None:
     assert result["traceId"]
     assert len(result["risks"]) == 2
     assert result["healthScore"]["overall"] == 90
+
+
+def test_failed_stage_maps_task_to_failed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_success_graph(
+        monkeypatch,
+        risks=[],
+        stage_statuses={"risk": "FAILED"},
+    )
+
+    result = run_audit_task.apply(args=("C1", [_clause()])).get()
+
+    assert result["status"] == "FAILED"
+    assert result["risks"] == []
+    assert result["conflicts"] == []
+    assert result["missingClauses"] == []
+    assert result["healthScore"] == {}
+
+
+def test_degraded_stage_maps_task_to_degraded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_success_graph(
+        monkeypatch,
+        stage_statuses={"risk": "DEGRADED"},
+    )
+
+    result = run_audit_task.apply(args=("C1", [_clause()])).get()
+
+    assert result["status"] == "DEGRADED"
 
 
 def test_empty_payload_degrades(monkeypatch: pytest.MonkeyPatch) -> None:

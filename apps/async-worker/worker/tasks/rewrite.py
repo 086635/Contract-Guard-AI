@@ -22,6 +22,7 @@ from cg_observability import get_logger, log_event
 from worker.main import celery_app
 
 _LOG = get_logger("worker.tasks.rewrite")
+_ERR_LLM_UNAVAILABLE = "ERR_LLM_UNAVAILABLE"
 
 
 @celery_app.task(name="rewrite", bind=True)
@@ -48,20 +49,23 @@ def rewrite_task(self, payload: dict[str, Any]) -> dict[str, Any]:
         )
         return result
     except Exception as exc:
-        error = (
-            exc
-            if isinstance(exc, (RewriteUnavailableError, ValidationError))
-            else RewriteUnavailableError(
-                f"rewrite task failed: {type(exc).__name__}: {exc}",
+        if isinstance(exc, (RewriteUnavailableError, ValidationError)):
+            error = exc
+        else:
+            error = RewriteUnavailableError(
+                f"{_ERR_LLM_UNAVAILABLE}: rewrite task failed: {type(exc).__name__}: {exc}",
                 trace_id=trace_id,
+                detail={"errorCode": _ERR_LLM_UNAVAILABLE},
             )
-        )
+        if isinstance(error, RewriteUnavailableError):
+            error.detail.setdefault("errorCode", _ERR_LLM_UNAVAILABLE)
         log_event(
             _LOG,
             "rewrite.task.fail",
             level="ERROR",
             trace_id=trace_id,
             error=repr(error),
+            error_code=_ERR_LLM_UNAVAILABLE,
         )
         raise error from exc
 

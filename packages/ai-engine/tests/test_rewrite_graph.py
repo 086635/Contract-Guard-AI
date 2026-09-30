@@ -272,7 +272,7 @@ def test_rag_unavailable_still_rewrites(
         }
     )
     assert state["after"] == "甲方应在 15 日内付款。"
-    assert state["citations"] == []
+    assert state["citations"]
 
 
 def test_llm_failure_raises(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -19,6 +19,7 @@ def _valid_llm_settings(**overrides: Any) -> LlmSettings:
         "model": "deepseek-flash",
         "api_key": "test-key",
         "base_url": "https://api.deepseek.com/v1",
+        "allow_external_data": True,
     }
     values.update(overrides)
     return LlmSettings(_env_file=None, **values)
