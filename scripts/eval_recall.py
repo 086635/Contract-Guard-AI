@@ -75,6 +75,7 @@ DEFAULT_CORPUS = _REPO_ROOT / "scripts" / "data" / "eval_corpus.jsonl"
 DEFAULT_OUT_DIR = _REPO_ROOT / ".tmp_t" / "eval_bm25"
 DEFAULT_CUTOFFS: tuple[int, ...] = (1, 3, 5, 10)
 GATE_TOLERANCE = 0.05  # recall@5 允许波动（1-7 §7.4）
+PRODUCTION_RECALL5_THRESHOLD = 0.80  # 1-7 §8.3：真实语义检索层目标
 
 
 class InputError(Exception):
@@ -599,6 +600,65 @@ def apply_baseline(result: dict[str, Any], args: argparse.Namespace) -> bool:
     return regressed
 
 
+def production_threshold_ok(result: dict[str, Any]) -> bool:
+    """返回生产召回阈值是否达标。
+
+    阈值是 `1-7 §8.3` 已登记的人工标注 Recall@5 ≥ 0.80，不在本脚本另立数字。
+
+    Args:
+        result: 评测结果。
+
+    Returns:
+        True 表示达到生产召回阈值。
+    """
+    recall5 = float(result.get("metrics", {}).get("recall@5", 0.0))
+    return recall5 >= PRODUCTION_RECALL5_THRESHOLD
+
+
+def apply_production_threshold(result: dict[str, Any]) -> bool:
+    """执行生产语义门禁并写入 `production_gate`。
+
+    生产门禁要求真实 HTTP embedding、真实 HTTP rerank、Qdrant 向量库，
+    并要求人工标注 Recall@5 达到既登记阈值。
+
+    Args:
+        result: 评测结果。
+
+    Returns:
+        True 表示生产门禁通过。
+
+    Raises:
+        InputError: 当前配置不是生产语义配置。
+    """
+    config = result.get("meta", {}).get("config", {})
+    required = {
+        "embed_mode": "http",
+        "rerank_mode": "http",
+        "vector_store": "qdrant",
+    }
+    failures: list[str] = []
+    for field, expected in required.items():
+        actual = config.get(field)
+        if actual != expected:
+            failures.append(f"{field}={actual!r}，要求 {expected!r}")
+    if failures:
+        raise InputError(
+            "--require-production-threshold 只接受生产语义配置：" + "；".join(failures)
+        )
+
+    passed = production_threshold_ok(result)
+    result["production_gate"] = {
+        "status": "PASS" if passed else "FAILED",
+        "embed_mode": config.get("embed_mode"),
+        "rerank_mode": config.get("rerank_mode"),
+        "vector_store": config.get("vector_store"),
+        "recall@5": float(result["metrics"]["recall@5"]),
+        "mrr": float(result["metrics"]["mrr"]),
+        "recall@5_threshold": PRODUCTION_RECALL5_THRESHOLD,
+    }
+    return passed
+
+
 def format_human(result: dict[str, Any]) -> str:
     """人类可读输出（卡片 §⑤ 的字段）。
 
@@ -738,6 +798,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="BM25 索引目录；默认用**一次性临时目录**（不同语料共用一个目录会互相污染）",
     )
     parser.add_argument("--force", action="store_true", help="忽略基线配置指纹不一致")
+    parser.add_argument(
+        "--require-production-threshold",
+        action="store_true",
+        help="要求 HTTP embedding + HTTP rerank + Qdrant 且 Recall@5 ≥ 0.80",
+    )
     args = parser.parse_args(argv)
     args.cutoffs = tuple(int(x) for x in str(args.cutoffs).split(",") if x.strip())
     if not args.cutoffs:
@@ -780,6 +845,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         started = time.perf_counter()
         result = evaluate(args)
         regressed = apply_baseline(result, args) if args.baseline else False
+        production_failed = False
+        if args.require_production_threshold:
+            production_failed = not apply_production_threshold(result)
 
         out_path = args.out
         if out_path is None:
@@ -793,7 +861,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(format_human(result))
             print(f"  结果已落盘：{out_path}")
             print(f"  总耗时：{round(time.perf_counter() - started, 2)}s")
-        return 1 if regressed else 0
+        return 1 if regressed or production_failed else 0
     except InputError as exc:
         print(f"[输入/配置错误] {exc}", file=sys.stderr)
         return 2

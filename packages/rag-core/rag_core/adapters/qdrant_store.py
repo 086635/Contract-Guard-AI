@@ -139,30 +139,72 @@ class QdrantVectorStore:
             )
         if filters.law_codes:
             conditions.append(
-                models.FieldCondition(key="law_code", match=models.MatchAny(any=filters.law_codes))
+                models.FieldCondition(
+                    key="law_code", match=models.MatchAny(any=filters.law_codes)
+                )
             )
         if filters.doc_ids:
             conditions.append(
-                models.FieldCondition(key="doc_id", match=models.MatchAny(any=filters.doc_ids))
+                models.FieldCondition(
+                    key="doc_id", match=models.MatchAny(any=filters.doc_ids)
+                )
             )
         if filters.categories:
             conditions.append(
-                models.FieldCondition(key="category", match=models.MatchAny(any=filters.categories))
+                models.FieldCondition(
+                    key="category", match=models.MatchAny(any=filters.categories)
+                )
             )
         if not conditions:
             return None
         return models.Filter(must=conditions)
 
+    def _collection_dimension(self) -> int | None:
+        """读取已有 collection 的向量维度。
+
+        Returns:
+            单向量 collection 的维度；无法识别时返回 None。
+        """
+        info = self._client.get_collection(self._collection)
+        vectors = info.config.params.vectors
+        size = getattr(vectors, "size", None)
+        if size is not None:
+            return int(size)
+        if isinstance(vectors, dict):
+            sizes = [
+                int(getattr(item, "size"))
+                for item in vectors.values()
+                if getattr(item, "size", None) is not None
+            ]
+            if sizes and all(size == sizes[0] for size in sizes):
+                return sizes[0]
+        return None
+
     # ---------------- VectorStorePort ----------------
     def ensure_collection(self, dim: int) -> None:
-        """建集合 + payload keyword 索引（幂等）。
+        """建集合 + payload keyword 索引（幂等），并校验已有 collection 维度。
 
         Args:
             dim: 向量维度。
+
+        Raises:
+            StoreUnavailableError: 已有 collection 维度与配置不一致。
         """
         from qdrant_client import models
 
+        expected_dim = int(dim)
         exists = self._client.collection_exists(self._collection)
+        if exists:
+            actual_dim = self._collection_dimension()
+            if actual_dim is not None and actual_dim != expected_dim:
+                raise StoreUnavailableError(
+                    "Qdrant collection 维度不一致",
+                    detail={
+                        "collection": self._collection,
+                        "expected_dim": expected_dim,
+                        "actual_dim": actual_dim,
+                    },
+                )
         if not exists:
             # HNSW 参数显式化（C3 决策）：不依赖 SDK 默认，避免随版本漂移导致
             # 召回率/延迟不可预期。m=16 每节点连接数；ef_construct=200 建索引
@@ -170,7 +212,7 @@ class QdrantVectorStore:
             self._client.create_collection(
                 collection_name=self._collection,
                 vectors_config=models.VectorParams(
-                    size=int(dim), distance=models.Distance.COSINE
+                    size=expected_dim, distance=models.Distance.COSINE
                 ),
                 hnsw_config=models.HnswConfigDiff(m=16, ef_construct=200),
             )
@@ -212,7 +254,9 @@ class QdrantVectorStore:
             for record in records
         ]
         try:
-            self._client.upsert(collection_name=self._collection, points=points, wait=True)
+            self._client.upsert(
+                collection_name=self._collection, points=points, wait=True
+            )
         except Exception as exc:
             raise StoreUnavailableError(f"Qdrant upsert 失败：{exc}") from exc
         return len(points)
@@ -274,7 +318,11 @@ class QdrantVectorStore:
         from qdrant_client import models
 
         selector = models.Filter(
-            must=[models.FieldCondition(key="doc_id", match=models.MatchValue(value=doc_id))]
+            must=[
+                models.FieldCondition(
+                    key="doc_id", match=models.MatchValue(value=doc_id)
+                )
+            ]
         )
         try:
             points, _ = self._client.scroll(

@@ -16,6 +16,7 @@ from __future__ import annotations
 from typing import Any
 
 from cg_observability import TokenCounter, get_logger
+from rag_contracts.errors import EmbedFailedError, RerankFailedError
 from rag_contracts.ports import (
     EmbedderPort,
     RerankerPort,
@@ -271,6 +272,89 @@ def _rerank_threshold_for(settings: RagSettings) -> float | None:
     return settings.rerank_threshold
 
 
+def _probe_dense(settings: RagSettings) -> str:
+    """检查 embedding 可用性与向量维度。"""
+    embedder = build_embedder(settings)
+    vector = embedder.embed_one("semantic-healthcheck")
+    if len(vector) != settings.vector_dim:
+        raise EmbedFailedError(
+            "embedding 健康检查维度不符",
+            detail={
+                "expected_dim": settings.vector_dim,
+                "actual_dim": len(vector),
+            },
+        )
+    store = build_vector_store(settings)
+    store.ensure_collection(settings.vector_dim)
+    return "ok"
+
+
+def _probe_sparse(settings: RagSettings) -> str:
+    """检查 BM25 是否可装配；空索引显式返回 empty。"""
+    if not settings.bm25_enabled:
+        return "disabled"
+    store = build_sparse_store(settings)
+    if store is None:
+        return "disabled"
+    return "ok" if store.search("semantic-healthcheck", top_k=1) else "empty"
+
+
+def _probe_rerank(settings: RagSettings) -> str:
+    """检查 HTTP reranker 是否可调用。"""
+    if not settings.rerank_enabled:
+        return "disabled"
+    if settings.rerank_mode == "noop":
+        return "disabled"
+    if settings.rerank_mode != "http":
+        raise RerankFailedError(
+            "生产 rerank 必须是 http；local/noop 均不允许",
+            detail={"mode": settings.rerank_mode},
+        )
+    if not settings.rerank_http_url.strip():
+        raise RerankFailedError(
+            "rerank_http_url 未配置",
+            detail={"mode": settings.rerank_mode},
+        )
+    reranker = build_reranker(settings)
+    if reranker is None:
+        return "disabled"
+    scores = reranker.rerank(
+        "semantic-healthcheck",
+        ["semantic healthcheck"],
+        [1.0],
+    )
+    if len(scores) != 1:
+        raise RerankFailedError(
+            "rerank 健康检查返回条数不合法",
+            detail={"expected": 1, "actual": len(scores)},
+        )
+    return "ok"
+
+
+def _component_status(component: str, probe: Any) -> str:
+    """执行单个组件探针，并把异常收敛为 failed:<ExceptionType>。"""
+    try:
+        return str(probe())
+    except Exception as exc:  # noqa: BLE001 - 健康检查必须返回分类，不向上抛
+        _LOG.warning("health.%s.failed: %s", component, repr(exc))
+        return f"failed:{type(exc).__name__}"
+
+
+def health_check(settings: RagSettings | None = None) -> dict[str, str]:
+    """检查 dense/sparse/rerank 三条语义链路。
+
+    Returns:
+        `{dense, sparse, rerank}`；成功为 ok，禁用为 disabled，空索引为 empty，
+        失败为 failed:<ExceptionType>。
+    """
+    cfg = settings or get_settings()
+    return {
+        "dense": _component_status("dense", lambda: _probe_dense(cfg)),
+        "sparse": _component_status("sparse", lambda: _probe_sparse(cfg)),
+        "rerank": _component_status("rerank", lambda: _probe_rerank(cfg)),
+    }
+
+
 def build_service_from_settings(
     settings: RagSettings | None = None, **overrides: Any
 ) -> RAGService:
@@ -312,4 +396,5 @@ __all__ = [
     "build_service_from_settings",
     "build_sparse_store",
     "build_vector_store",
+    "health_check",
 ]

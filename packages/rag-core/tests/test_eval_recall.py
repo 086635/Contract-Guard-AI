@@ -264,6 +264,75 @@ def test_make_weak_and_dump_chunks_are_reproducible(ev: Any, tmp_path: Path) -> 
     assert ev.main(["--dump-chunks", str(tmp_path / "chunks.jsonl")]) == 0
 
 
+def test_eval_threshold_not_loosened(ev: Any) -> None:
+    """C55：生产门禁复用 1-7 §8.3 的 Recall@5 ≥ 0.80，不得在脚本里另立更低阈值。"""
+    assert ev.PRODUCTION_RECALL5_THRESHOLD == 0.80
+    assert ev.production_threshold_ok({"metrics": {"recall@5": 0.80}})
+    assert not ev.production_threshold_ok({"metrics": {"recall@5": 0.799}})
+
+    result = {
+        "meta": {
+            "config": {
+                "embed_mode": "http",
+                "rerank_mode": "http",
+                "vector_store": "qdrant",
+            }
+        },
+        "metrics": {"recall@5": 0.799, "mrr": 0.9},
+    }
+    assert ev.apply_production_threshold(result) is False
+    assert result["production_gate"]["status"] == "FAILED"
+    assert result["production_gate"]["recall@5_threshold"] == 0.80
+
+    with pytest.raises(ev.InputError):
+        ev.apply_production_threshold(
+            {
+                "meta": {
+                    "config": {
+                        "embed_mode": "hash",
+                        "rerank_mode": "http",
+                        "vector_store": "qdrant",
+                    }
+                },
+                "metrics": {"recall@5": 0.9, "mrr": 0.9},
+            }
+        )
+
+
+def test_require_production_threshold_rejects_offline_config(
+    ev: Any,
+    mini_gold: Path,
+    tmp_path: Path,
+) -> None:
+    """C55：生产门禁开关已接入 CLI，离线 hash/inmemory/noop 配置必须退出码 2。"""
+    code = ev.main(
+        [
+            "--gold",
+            str(mini_gold),
+            "--out",
+            str(tmp_path / "offline.json"),
+            "--require-production-threshold",
+        ]
+    )
+
+    assert code == 2
+
+
+def test_existing_http_baseline_passes_production_gate(ev: Any) -> None:
+    """C55：已登记的真实语义基线必须通过生产门禁，无需另造基线。"""
+    baseline = json.loads(
+        (_REPO_ROOT / "scripts" / "data" / "baseline_gold_http.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert ev.production_threshold_ok(baseline)
+    assert ev.apply_production_threshold(baseline) is True
+    assert baseline["production_gate"]["status"] == "PASS"
+    assert baseline["production_gate"]["recall@5"] >= 0.80
+    assert baseline["production_gate"]["mrr"] >= 0.80
+
+
 def test_repo_files_exist(ev: Any) -> None:
     """落点自证：语料 / 双标注集 / 双基线都在仓库里（基线必须入库才能回归）。"""
     for path in (

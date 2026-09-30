@@ -206,16 +206,36 @@ class RagSettings(BaseSettings):
     # 故这里只能删，不能接。
 
     def validate_production(self) -> None:
-        """生产环境拒绝离线 embedding 与 noop reranker。"""
+        """生产环境拒绝离线 embedding 与 noop reranker，并强制真实 HTTP 端点。"""
         if self.embed_mode == "hash":
             raise ProductionConfigError(
                 "CG_RAG_EMBED_MODE",
                 "production requires non-hash embedding",
             )
+        if self.embed_mode == "http" and not self.embed_base_url.strip():
+            raise ProductionConfigError(
+                "CG_RAG_EMBED_BASE_URL",
+                "production HTTP embedding requires base_url",
+            )
+        if not self.embed_model.strip():
+            raise ProductionConfigError(
+                "CG_RAG_EMBED_MODEL",
+                "production requires a non-empty embedding model",
+            )
         if not self.rerank_enabled or self.rerank_mode == "noop":
             raise ProductionConfigError(
                 "CG_RAG_RERANK_MODE",
                 "production requires a real reranker",
+            )
+        if self.rerank_mode == "http" and not self.rerank_http_url.strip():
+            raise ProductionConfigError(
+                "CG_RAG_RERANK_HTTP_URL",
+                "production HTTP rerank requires http_url",
+            )
+        if self.rerank_mode == "http" and not self.rerank_model.strip():
+            raise ProductionConfigError(
+                "CG_RAG_RERANK_MODEL",
+                "production HTTP rerank requires a non-empty model",
             )
 
 
