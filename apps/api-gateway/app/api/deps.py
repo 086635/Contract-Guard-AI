@@ -13,16 +13,22 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from typing import Annotated
 
-from fastapi import Depends
+from fastapi import Depends, Header, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
+from app.db.repository.auth import UserRecord, UserRepository
 from app.db.session import get_session
+from app.generated.schemas import Role
+from app.services.auth_service import AuthService
 from app.services.context import ServiceContext
 from app.services.ports import (
     ObjectStoragePort,
     ProgressBrokerPort,
     TaskDispatcherPort,
 )
+from app.services.security import JwtService, TokenValidationError
 
 
 async def get_db() -> AsyncIterator[AsyncSession]:
@@ -67,10 +73,84 @@ async def get_service_context(
     )
 
 
+async def get_auth_service(
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> AuthService:
+    """为 auth/admin 路由组装 AuthService。"""
+    return AuthService(db)
+
+
+_bearer_scheme = HTTPBearer(auto_error=False)
+
+
+async def get_current_user(
+    credentials: Annotated[
+        HTTPAuthorizationCredentials | None,
+        Depends(_bearer_scheme),
+    ],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> UserRecord:
+    """从 Authorization Bearer 解析并加载当前有效用户。"""
+    if credentials is None or credentials.scheme.lower() != "bearer":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="未认证",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    try:
+        claims = JwtService.from_settings().verify_access(credentials.credentials)
+    except TokenValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="未认证",
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from exc
+    user = await UserRepository(db).get(claims.sub)
+    if user is None or not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="未认证",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return user
+
+
+def require_roles(*roles: Role):
+    """构造角色门槛依赖；单一实现处，不在各路由重复判断。"""
+    required = set(roles)
+
+    async def _dependency(
+        user: Annotated[UserRecord, Depends(get_current_user)],
+    ) -> UserRecord:
+        if user.role not in required:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="无权限",
+            )
+        return user
+
+    return _dependency
+
+
+async def verify_origin(
+    origin: str | None = Header(default=None, alias="Origin"),
+) -> None:
+    """对所有 cookie/管理写操作校验 Origin；拒绝跨站请求。"""
+    if origin not in settings.cors_origins:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="origin not allowed",
+        )
+
+
 __all__ = [
+    "get_auth_service",
+    "get_current_user",
     "get_db",
     "get_object_storage",
     "get_progress_broker",
     "get_service_context",
     "get_task_dispatcher",
+    "require_roles",
+    "verify_origin",
 ]

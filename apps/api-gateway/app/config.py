@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api/v1"
 
     # ---- 安全 ----
-    jwt_secret: str = "change-me-in-prod"
+    jwt_secret: str = "change-me-in-prod-0123456789abcdef"
     jwt_algorithm: str = "HS256"
     jwt_issuer: str = "contract-guard"
     jwt_audience: str = "contract-guard-api"

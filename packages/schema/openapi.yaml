@@ -240,6 +240,12 @@ components:
         expiresIn: { type: integer, minimum: 1 }
         user: { $ref: "#/components/schemas/CurrentUser" }
 
+    LogoutData:
+      type: object
+      required: [revoked]
+      properties:
+        revoked: { type: boolean }
+
     UserListData:
       type: object
       required: [items, total, page, pageSize, hasMore]
@@ -947,6 +953,14 @@ components:
           properties:
             data: { $ref: "#/components/schemas/TokenData" }
 
+    LogoutResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiEnvelopeBase"
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: "#/components/schemas/LogoutData" }
+
     UserListResponse:
       allOf:
         - $ref: "#/components/schemas/ApiEnvelopeBase"
@@ -1069,6 +1083,20 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/TokenResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: 登出并撤销当前 refresh 会话
+      operationId: logout
+      responses:
+        "200":
+          description: 登出成功
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LogoutResponse" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "500": { $ref: "#/components/responses/Internal" }
 

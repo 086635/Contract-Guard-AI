@@ -231,6 +231,21 @@ class AuthService:
             session_id=rotated.id,
         )
 
+    async def logout_by_refresh_token(
+        self,
+        user_id: UUID,
+        refresh_token: str,
+    ) -> None:
+        """按 refresh cookie 撤销当前用户自己的 session。"""
+        try:
+            refresh_hash = hash_refresh_token(refresh_token)
+        except RefreshTokenError as exc:
+            raise InvalidRefreshTokenError("refresh token 无效") from exc
+        session = await self._sessions.get_by_hash(refresh_hash)
+        if session is None or session.user_id != user_id:
+            raise InvalidRefreshTokenError("refresh session 无效")
+        await self._sessions.revoke(session.id, now=_as_utc(self._now()))
+
     async def logout(self, user_id: UUID, session_id: UUID) -> None:
         """撤销当前用户自己的 session；不存在的 session 按无效处理。"""
         session = await self._sessions.get(session_id)
@@ -270,6 +285,24 @@ class AuthService:
             )
         except UserAlreadyExistsError as exc:
             raise AccountAlreadyExistsError("用户名已存在") from exc
+
+    async def list_users(
+        self,
+        page: int = 1,
+        page_size: int = 20,
+        *,
+        role: Role | None = None,
+        is_active: bool | None = None,
+        query: str | None = None,
+    ) -> tuple[list[UserRecord], int]:
+        """分页读取用户，路由层不直接访问仓储。"""
+        return await self._users.list(
+            page,
+            page_size,
+            role=role,
+            is_active=is_active,
+            query=query,
+        )
 
     async def update_user(
         self,

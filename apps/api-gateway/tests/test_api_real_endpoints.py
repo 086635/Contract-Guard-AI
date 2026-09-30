@@ -9,22 +9,12 @@ from pathlib import Path
 from fastapi.dependencies.models import Dependant
 from fastapi.routing import APIRoute
 
-from app.api.deps import get_service_context
+from app.api.deps import get_current_user, get_service_context
 from app.main import app
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 OPENAPI_PATH = REPO_ROOT / "packages" / "schema" / "openapi.yaml"
 HTTP_METHODS = {"get", "post", "put", "patch", "delete"}
-OPENAPI_PLACEHOLDERS = {
-    ("POST", "/api/v1/auth/login"),
-    ("POST", "/api/v1/auth/refresh"),
-    ("GET", "/api/v1/auth/me"),
-    ("GET", "/api/v1/admin/users"),
-    ("POST", "/api/v1/admin/users"),
-    ("PATCH", "/api/v1/admin/users/{}"),
-}
-
-
 def _normalize_path(path: str) -> str:
     return re.sub(r"\{[^}]+\}", "{}", path)
 
@@ -87,15 +77,35 @@ def test_openapi_operation_inventory_matches_production_app() -> None:
     expected = _openapi_operations()
     actual = _production_operations()
 
-    assert len(expected) == 26
-    assert OPENAPI_PLACEHOLDERS <= expected
-    assert expected - OPENAPI_PLACEHOLDERS == actual
+    assert len(expected) == 27
+    assert actual == expected
+
+
+def test_all_v1_routes_except_login_refresh_require_auth() -> None:
+    """除登录/刷新外，所有 v1 路由必须经过 Bearer 当前用户依赖。"""
+    public = {
+        ("POST", "/api/v1/auth/login"),
+        ("POST", "/api/v1/auth/refresh"),
+    }
+    missing: list[str] = []
+    for route in _iter_routes(app.router):
+        path = _normalize_path(route.path)
+        if not path.startswith("/api/v1"):
+            continue
+        for method in sorted(route.methods):
+            if (method, path) in public:
+                continue
+            if get_current_user not in _dependency_calls(route.dependant):
+                missing.append(f"{method} {path}")
+    assert missing == []
 
 
 def test_every_v1_route_uses_service_context() -> None:
     missing: list[str] = []
     for route in _iter_routes(app.router):
         if not route.endpoint.__module__.startswith("app.api.v1"):
+            continue
+        if route.endpoint.__module__ == "app.api.v1.auth":
             continue
         if get_service_context not in _dependency_calls(route.dependant):
             for method in sorted(route.methods):
