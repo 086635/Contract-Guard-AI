@@ -18,6 +18,15 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from rag_contracts.enums import RetrieveStrategy
 
 
+class ProductionConfigError(ValueError):
+    """生产配置门禁失败；只携带字段名与原因，不携带 secret。"""
+
+    def __init__(self, field: str, reason: str) -> None:
+        self.field = field
+        self.reason = reason
+        super().__init__(f"{field}: {reason}")
+
+
 class RagSettings(BaseSettings):
     """RAG 模块全部可调参数。
 
@@ -196,6 +205,19 @@ class RagSettings(BaseSettings):
     # 反向接线（让 cg_observability 消费 RagSettings）会破坏分层（可观测层在 rag-core 之下），
     # 故这里只能删，不能接。
 
+    def validate_production(self) -> None:
+        """生产环境拒绝离线 embedding 与 noop reranker。"""
+        if self.embed_mode == "hash":
+            raise ProductionConfigError(
+                "CG_RAG_EMBED_MODE",
+                "production requires non-hash embedding",
+            )
+        if not self.rerank_enabled or self.rerank_mode == "noop":
+            raise ProductionConfigError(
+                "CG_RAG_RERANK_MODE",
+                "production requires a real reranker",
+            )
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> RagSettings:
@@ -207,4 +229,4 @@ def get_settings() -> RagSettings:
     return RagSettings()
 
 
-__all__ = ["RagSettings", "get_settings"]
+__all__ = ["ProductionConfigError", "RagSettings", "get_settings"]

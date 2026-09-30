@@ -12,6 +12,8 @@ from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from rag_core.config import ProductionConfigError
+
 
 class LlmSettings(BaseSettings):
     """LLM 接入配置。"""
@@ -31,6 +33,14 @@ class LlmSettings(BaseSettings):
     json_mode: Literal["json_schema", "json_mode", "none"] = "json_mode"
     api_key: str | None = None
     base_url: str | None = None
+
+    def validate_production(self) -> None:
+        """生产环境拒绝 offline provider。"""
+        if self.provider == "offline":
+            raise ProductionConfigError(
+                "CG_LLM_PROVIDER",
+                "production forbids offline provider",
+            )
 
 
 def get_llm_settings() -> LlmSettings:

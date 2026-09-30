@@ -6,6 +6,9 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import APIRouter, Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -15,10 +18,19 @@ from app.api.middlewares import IdempotencyMiddleware
 from app.api.v1 import agent, audit, auth, config, contracts, feedback, report, tasks
 from app.config import settings
 
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    """在接收请求前执行生产配置门禁。"""
+    settings.validate_production()
+    yield
+
+
 app = FastAPI(
     title="企业合同智能审核与风险预警系统 API",
     version="1.1.0",
     description="基于大模型的企业合同智能审核与风险预警系统（Polyglot Monorepo · api-gateway）",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
