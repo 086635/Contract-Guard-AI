@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     jwt_audience: str = "contract-guard-api"
     jwt_access_ttl_seconds: int = 900
     jwt_refresh_ttl_seconds: int = 604800
+    auth_lockout_threshold: int = 5
+    auth_lockout_minutes: int = 15
 
     # ---- 基础设施 ----
     postgres_dsn: str = "postgresql+asyncpg://cg:cg@localhost:5432/cg"

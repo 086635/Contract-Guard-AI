@@ -50,6 +50,22 @@ class UserRecord(_PersistenceDto):
     updated_at: datetime
 
 
+class UserAuthRecord(_PersistenceDto):
+    """认证专用用户投影；仅 AuthService 可读取密码哈希与锁定状态。"""
+
+    id: UUID
+    username: str
+    password_hash: str
+    role: Role
+    is_active: bool
+    display_name: str
+    last_login_at: datetime | None
+    failed_login_attempts: int
+    locked_until: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
 class UserAlreadyExistsError(ValueError):
     """用户名已经存在。"""
 
@@ -100,6 +116,65 @@ class UserRepository:
         if record is None:
             return None
         return UserRecord.model_validate(record)
+
+    async def get_auth_by_username(self, username: str) -> UserAuthRecord | None:
+        """按规范化用户名读取认证投影；非法/空用户名按不存在处理。"""
+        try:
+            normalized = normalize_username(username)
+        except ValueError:
+            return None
+        statement = select(User).where(User.username == normalized)
+        record = await self._session.scalar(statement)
+        if record is None:
+            return None
+        return UserAuthRecord.model_validate(record)
+
+    async def mark_login_success(
+        self,
+        user_id: UUID,
+        *,
+        now: datetime,
+    ) -> UserRecord:
+        """更新最近登录时间并清空失败/锁定状态。"""
+        record = await self._session.get(User, user_id)
+        if record is None:
+            raise LookupError(f"用户不存在: {user_id}")
+        record.last_login_at = _as_utc(now)
+        record.failed_login_attempts = 0
+        record.locked_until = None
+        record.updated_at = _as_utc(now)
+        await self._session.flush()
+        return UserRecord.model_validate(record)
+
+    async def record_login_failure(
+        self,
+        user_id: UUID,
+        *,
+        failed_login_attempts: int,
+        locked_until: datetime | None,
+        now: datetime,
+    ) -> None:
+        """持久化失败次数和锁定截止时间。"""
+        if failed_login_attempts < 0:
+            raise ValueError("failed_login_attempts 不能为负数")
+        record = await self._session.get(User, user_id)
+        if record is None:
+            raise LookupError(f"用户不存在: {user_id}")
+        record.failed_login_attempts = failed_login_attempts
+        record.locked_until = (_as_utc(locked_until) if locked_until else None)
+        record.updated_at = _as_utc(now)
+        await self._session.flush()
+
+    async def list_active_admins_for_update(self) -> list[UserRecord]:
+        """锁定并返回全部有效管理员，服务层据此保护最后一个管理员。"""
+        statement = (
+            select(User)
+            .where(User.role == Role.admin, User.is_active.is_(True))
+            .order_by(User.id.asc())
+            .with_for_update()
+        )
+        records = (await self._session.scalars(statement)).all()
+        return [UserRecord.model_validate(record) for record in records]
 
     async def list(
         self,
@@ -237,6 +312,13 @@ class SessionRepository:
             return None
         return SessionRecord.model_validate(record)
 
+    async def get(self, session_id: UUID) -> SessionRecord | None:
+        """按会话 ID 读取安全投影。"""
+        record = await self._session.get(AuthSession, session_id)
+        if record is None:
+            return None
+        return SessionRecord.model_validate(record)
+
     async def rotate(
         self,
         refresh_token_hash: str,
@@ -259,7 +341,7 @@ class SessionRepository:
             raise SessionNotFoundError("refresh session not found")
 
         if current.revoked_at is not None or current.replaced_by_id is not None:
-            await self._revoke_all_for_user(current.user_id, current_time)
+            await self.revoke_all_for_user(current.user_id, now=current_time)
             raise RefreshTokenReusedError("refresh token reused")
 
         if current.expires_at <= current_time:
@@ -312,16 +394,22 @@ class SessionRepository:
             return False
         return await self.revoke(record.id, now=now)
 
-    async def _revoke_all_for_user(self, user_id: UUID, now: datetime) -> None:
-        """重放检测命中时撤销该用户全部未撤销会话。"""
-        await self._session.execute(
+    async def revoke_all_for_user(
+        self,
+        user_id: UUID,
+        *,
+        now: datetime | None = None,
+    ) -> int:
+        """撤销该用户全部未撤销会话，返回受影响行数。"""
+        result = await self._session.execute(
             update(AuthSession)
             .where(
                 AuthSession.user_id == user_id,
                 AuthSession.revoked_at.is_(None),
             )
-            .values(revoked_at=now)
+            .values(revoked_at=_as_utc(now or datetime.now(UTC)))
         )
+        return int(result.rowcount or 0)
 
 __all__ = [
     "RefreshTokenReusedError",
@@ -332,6 +420,7 @@ __all__ = [
     "SessionRepositoryError",
     "SessionRevokedError",
     "UserAlreadyExistsError",
+    "UserAuthRecord",
     "UserCreate",
     "UserRecord",
     "UserRepository",

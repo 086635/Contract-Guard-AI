@@ -8,6 +8,18 @@ from app.services.agent_service import (
     AgentRewriteTimeoutError,
     AgentService,
 )
+from app.services.auth_service import (
+    AccountAlreadyExistsError,
+    AccountDisabledError,
+    AccountLockedError,
+    AccountNotFoundError,
+    AuthService,
+    AuthServiceError,
+    InvalidCredentialsError,
+    InvalidRefreshTokenError,
+    LastAdminProtectedError,
+    TokenBundle,
+)
 from app.services.commit_service import (
     CommitService,
     CommitValidationError,
@@ -60,11 +72,17 @@ from app.services.storage import MinioObjectStorage
 from app.services.task_service import TaskNotFoundError, TaskService
 
 __all__ = [
+    "AccountAlreadyExistsError",
+    "AccountDisabledError",
+    "AccountLockedError",
+    "AccountNotFoundError",
     "AgentDispatchError",
     "AgentRewriteFailedError",
     "AgentRewriteTimeoutError",
     "AgentService",
     "AuthSecurityError",
+    "AuthService",
+    "AuthServiceError",
     "CeleryTaskDispatcher",
     "CommitService",
     "CommitValidationError",
@@ -74,7 +92,10 @@ __all__ = [
     "FeedbackService",
     "FeedbackValidationError",
     "IngestionService",
+    "InvalidCredentialsError",
+    "InvalidRefreshTokenError",
     "JwtService",
+    "LastAdminProtectedError",
     "MinioObjectStorage",
     "ObjectStoragePort",
     "PasswordHashError",
@@ -97,6 +118,7 @@ __all__ = [
     "TaskNotFoundError",
     "TaskService",
     "TaskStatusSnapshot",
+    "TokenBundle",
     "TokenClaims",
     "TokenValidationError",
     "build_success_response",
