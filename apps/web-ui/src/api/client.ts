@@ -24,6 +24,46 @@ function makeRequestId(): string {
   });
 }
 
+export type AuthRefreshHandler = () => Promise<string | null>;
+
+let accessToken: string | null = null;
+let refreshHandler: AuthRefreshHandler | null = null;
+let refreshPromise: Promise<string | null> | null = null;
+
+export function setAccessToken(token: string | null): void {
+  accessToken = token;
+}
+
+export function getAccessToken(): string | null {
+  return accessToken;
+}
+
+export function setRefreshHandler(handler: AuthRefreshHandler | null): void {
+  refreshHandler = handler;
+}
+
+export async function refreshAccessToken(): Promise<string | null> {
+  if (!refreshHandler) return null;
+  if (!refreshPromise) {
+    refreshPromise = refreshHandler().finally(() => {
+      refreshPromise = null;
+    });
+  }
+  return refreshPromise;
+}
+
+function isExternalRequest(config: InternalAxiosRequestConfig): boolean {
+  return config.baseURL === "" || /^https?:\/\//i.test(config.url ?? "");
+}
+
+function isAuthEndpoint(url: string | undefined): boolean {
+  if (!url) return false;
+  const path = /^https?:\/\//i.test(url) ? new URL(url).pathname : url.split("?")[0];
+  return path.endsWith("/auth/login") || path.endsWith("/auth/refresh");
+}
+
+type RetryConfig = InternalAxiosRequestConfig & { _retry?: boolean };
+
 type ErrorPayload = {
   code?: string;
   traceId?: string;
@@ -70,6 +110,9 @@ export const httpClient: AxiosInstance = axios.create({
 // ---- 请求拦截：注入 X-Request-ID ----
 httpClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   config.headers.set("X-Request-ID", makeRequestId());
+  if (accessToken && !config.headers.has("Authorization") && !isExternalRequest(config)) {
+    config.headers.set("Authorization", `Bearer ${accessToken}`);
+  }
   return config;
 });
 
@@ -85,7 +128,25 @@ httpClient.interceptors.response.use(
     //   }
     return response;
   },
-  (error) => {
+  async (error) => {
+    const original = error?.config as RetryConfig | undefined;
+    // 401 只允许一次 refresh；refresh 端点自身不得递归触发。
+    if (
+      error?.response?.status === 401 &&
+      original &&
+      !original._retry &&
+      !isAuthEndpoint(original.url) &&
+      !isExternalRequest(original)
+    ) {
+      original._retry = true;
+      const nextToken = await refreshAccessToken();
+      if (nextToken) {
+        original.headers.set("Authorization", `Bearer ${nextToken}`);
+        return httpClient(original);
+      }
+      setAccessToken(null);
+    }
+
     // 网络错误/超时没有 response：保留 Axios 原始错误，不伪造业务错误。
     if (!error?.response) return Promise.reject(error);
 

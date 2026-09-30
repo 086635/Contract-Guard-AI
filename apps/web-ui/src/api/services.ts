@@ -11,6 +11,10 @@ type UploadBody = Schemas["UploadBody"];
 type FeedbackCreateBody = Schemas["FeedbackCreateBody"];
 type AgentRewriteRequest = Schemas["AgentRewriteRequest"];
 type SystemAuditConfiguration = Schemas["SystemAuditConfiguration"];
+type LoginRequest = Schemas["LoginRequest"];
+type TokenData = Schemas["TokenData"];
+type CurrentUser = Schemas["CurrentUser"];
+type LogoutData = Schemas["LogoutData"];
 
 const unwrap = <T>(response: { data: Envelope<T> }): T => {
   if (response.data.code !== "SUCCESS") throw new Error(`API request failed: ${response.data.code}`);
@@ -19,6 +23,33 @@ const unwrap = <T>(response: { data: Envelope<T> }): T => {
 
 /** EventSource 端点返回裸 TaskProgress（而普通 HTTP 返回统一包络）。 */
 const apiBase = (import.meta.env.VITE_API_BASE_URL || "/api/v1").replace(/\/$/, "");
+
+export const authApi = {
+  async login(body: LoginRequest): Promise<TokenData> {
+    return unwrap(
+      await httpClient.post<Envelope<TokenData>>("/auth/login", body, {
+        withCredentials: true,
+      }),
+    );
+  },
+  async refresh(): Promise<TokenData> {
+    return unwrap(
+      await httpClient.post<Envelope<TokenData>>("/auth/refresh", {}, {
+        withCredentials: true,
+      }),
+    );
+  },
+  async logout(): Promise<LogoutData> {
+    return unwrap(
+      await httpClient.post<Envelope<LogoutData>>("/auth/logout", {}, {
+        withCredentials: true,
+      }),
+    );
+  },
+  async me(): Promise<CurrentUser> {
+    return unwrap(await httpClient.get<Envelope<CurrentUser>>("/auth/me"));
+  },
+};
 
 export const contractApi = {
   async list(params: { page?: number; pageSize?: number; status?: Schemas["ContractStatus"]; contractType?: Schemas["ContractType"] } = {}): Promise<ContractListData> {
