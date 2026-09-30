@@ -1102,6 +1102,11 @@ components:
       content:
         application/json:
           schema: { $ref: "#/components/schemas/ApiError" }
+    ServiceUnavailable:
+      description: 幂等存储等关键依赖不可用 (fail-closed 503)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ApiError" }
     FileTooLarge:
       description: 文件过大 (ERR_FILE_TOO_LARGE)
       content:
@@ -1184,6 +1189,8 @@ paths:
       tags: [Auth]
       summary: 登出并撤销当前 refresh 会话
       operationId: logout
+      parameters:
+        - { name: X-Request-ID, in: header, required: true, schema: { type: string }, description: 幂等 UUID }
       responses:
         "200":
           description: 登出成功
@@ -1191,6 +1198,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/LogoutResponse" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
         "500": { $ref: "#/components/responses/Internal" }
 
   /auth/me:
@@ -1325,6 +1333,8 @@ paths:
       tags: [Contracts]
       summary: 获取直传凭证（上传三步法 步骤1）
       operationId: presignUpload
+      parameters:
+        - { name: X-Request-ID, in: header, required: true, schema: { type: string }, description: 幂等 UUID }
       requestBody:
         required: true
         content:
@@ -1343,6 +1353,7 @@ paths:
               schema: { $ref: "#/components/schemas/PresignResponse" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "413": { $ref: "#/components/responses/FileTooLarge" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
         "415": { $ref: "#/components/responses/UnsupportedType" }
         "500": { $ref: "#/components/responses/Internal" }
 

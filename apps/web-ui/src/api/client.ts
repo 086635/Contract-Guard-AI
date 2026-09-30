@@ -64,12 +64,15 @@ function isAuthEndpoint(url: string | undefined): boolean {
 
 type RetryConfig = InternalAxiosRequestConfig & { _retry?: boolean };
 
+type ValidationIssue = { path: string; code: string; message: string };
+
 type ErrorPayload = {
   code?: string;
   traceId?: string;
   serverTime?: string;
   message?: string;
   detail?: string;
+  issues?: ValidationIssue[];
 };
 
 function nonEmptyString(value: unknown): string | undefined {
@@ -79,12 +82,22 @@ function nonEmptyString(value: unknown): string | undefined {
 function normalizeErrorPayload(data: unknown): ErrorPayload | null {
   if (typeof data !== "object" || data === null) return null;
   const record = data as Record<string, unknown>;
+  const rawIssues = Array.isArray(record.issues) ? record.issues : [];
+  const issues = rawIssues.flatMap((item) => {
+    if (typeof item !== "object" || item === null) return [];
+    const issue = item as Record<string, unknown>;
+    const path = nonEmptyString(issue.path);
+    const code = nonEmptyString(issue.code);
+    const message = nonEmptyString(issue.message);
+    return path && code && message ? [{ path, code, message }] : [];
+  });
   return {
     code: nonEmptyString(record.code),
     traceId: nonEmptyString(record.traceId),
     serverTime: nonEmptyString(record.serverTime),
     message: nonEmptyString(record.message),
     detail: nonEmptyString(record.detail),
+    issues,
   };
 }
 
@@ -159,9 +172,14 @@ httpClient.interceptors.response.use(
       console.warn(`[api] ${traceId}`, logDetail);
     }
 
-    // message 优先；仅当 message 缺失时使用 detail。原始 HTTP status 保持在 error.response.status。
+    // ApiError.message 优先；detail 只作为兼容回退，不在业务组件中分叉判断。
     const userMessage = payload?.message ?? payload?.detail;
     if (userMessage) error.message = userMessage;
+    if (payload) {
+      Object.defineProperty(error, "code", { value: payload.code, configurable: true, enumerable: false });
+      Object.defineProperty(error, "detail", { value: payload.detail, configurable: true, enumerable: false });
+      Object.defineProperty(error, "issues", { value: payload.issues ?? [], configurable: true, enumerable: false });
+    }
     return Promise.reject(error);
   },
 );

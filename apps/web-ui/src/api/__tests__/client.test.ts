@@ -60,6 +60,46 @@ describe("httpClient 401 refresh", () => {
     expect(refreshCalls).toBe(1);
   });
 
+  it("normalizes ApiError message detail and issues", async () => {
+    const adapter: AxiosAdapter = async (config: InternalAxiosRequestConfig) => {
+      const error = Object.assign(new Error("Request failed"), {
+        config,
+        response: {
+          status: 409,
+          statusText: "Conflict",
+          headers: {},
+          config,
+          data: {
+            code: "ERR_DUPLICATE_REQUEST",
+            message: "请求重复",
+            detail: "request id reused with different body",
+            traceId: "tr-c52",
+            issues: [{ path: "fileKey", code: "duplicate", message: "重复请求" }],
+          },
+        },
+      });
+      throw error;
+    };
+    httpClient.defaults.adapter = adapter;
+
+    try {
+      await httpClient.get("/conflict");
+      throw new Error("expected request to fail");
+    } catch (error) {
+      const apiError = error as Error & {
+        code?: string;
+        detail?: string;
+        issues?: Array<{ path: string; code: string; message: string }>;
+      };
+      expect(apiError.message).toBe("请求重复");
+      expect(apiError.code).toBe("ERR_DUPLICATE_REQUEST");
+      expect(apiError.detail).toBe("request id reused with different body");
+      expect(apiError.issues).toEqual([
+        { path: "fileKey", code: "duplicate", message: "重复请求" },
+      ]);
+    }
+  });
+
   it("refreshAccessToken de-duplicates concurrent refresh calls", async () => {
     let calls = 0;
     let resolveRefresh: ((token: string | null) => void) | undefined;
