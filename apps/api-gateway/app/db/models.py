@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime
 from enum import Enum as PyEnum
+from enum import StrEnum
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -84,6 +85,34 @@ def _enum_type(enum_cls: type[PyEnum], name: str) -> SqlEnum:
 
 
 _AUDIT_TASK_TYPES = ("PARSE_DOC", "RUN_AUDIT", "GEN_REPORT")
+
+
+class AuditAction(StrEnum):
+    """审计动作白名单；新增动作必须先登记到这里。"""
+
+    login = "LOGIN"
+    refresh = "REFRESH"
+    logout = "LOGOUT"
+    upload = "UPLOAD"
+    view = "VIEW"
+    rewrite = "REWRITE"
+    commit = "COMMIT"
+    report = "REPORT"
+    export = "EXPORT"
+    settings_update = "SETTINGS_UPDATE"
+    user_create = "USER_CREATE"
+    user_update = "USER_UPDATE"
+    auth_denied = "AUTH_DENIED"
+    task_recovered = "TASK_RECOVERED"
+    file_rejected = "FILE_REJECTED"
+
+
+class AuditOutcome(StrEnum):
+    """审计结果枚举。"""
+
+    success = "SUCCESS"
+    failure = "FAILURE"
+    denied = "DENIED"
 
 
 class Base(DeclarativeBase):
@@ -433,6 +462,46 @@ class AuthSession(Base):
     )
 
 
+class AuditEvent(Base):
+    """append-only 审计事件表；应用仓储不提供 update/delete。"""
+
+    __tablename__ = "audit_events"
+    __table_args__ = (
+        Index("ix_audit_events_created_at", "created_at"),
+        Index("ix_audit_events_actor_created", "actor_id", "created_at"),
+        Index("ix_audit_events_action_created", "action", "created_at"),
+        Index("ix_audit_events_trace_id", "trace_id"),
+        Index("ix_audit_events_resource", "resource_type", "resource_id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid4
+    )
+    actor_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True), nullable=True
+    )
+    actor_role: Mapped[Role | None] = mapped_column(
+        _enum_type(Role, "audit_actor_role"), nullable=True
+    )
+    action: Mapped[AuditAction] = mapped_column(
+        _enum_type(AuditAction, "audit_action")
+    )
+    resource_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    resource_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    outcome: Mapped[AuditOutcome] = mapped_column(
+        _enum_type(AuditOutcome, "audit_outcome")
+    )
+    ip_address: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    trace_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    event_metadata: Mapped[dict[str, Any]] = mapped_column(
+        "metadata", JSON, default=dict, nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utc_now
+    )
+
+
 class AuditReport(Base):
     """审核报告元数据表。"""
 
@@ -505,6 +574,9 @@ class UserFeedback(Base):
 
 
 __all__ = [
+    "AuditAction",
+    "AuditEvent",
+    "AuditOutcome",
     "AuditReport",
     "AuditRisk",
     "AuditTask",

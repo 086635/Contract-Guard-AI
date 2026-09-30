@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from app.db.models import Base
 
 EXPECTED_TABLES = {
+    "audit_events",
     "audit_reports",
     "audit_risks",
     "audit_tasks",

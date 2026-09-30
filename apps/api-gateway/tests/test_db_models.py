@@ -14,6 +14,7 @@ from sqlalchemy.exc import StatementError
 from sqlalchemy.orm import Session
 
 from app.db.models import (
+    AuditEvent,
     AuditReport,
     AuditRisk,
     AuditTask,
@@ -40,6 +41,7 @@ from rag_contracts.chunk import ContractChunk
 from rag_contracts.enums import ChunkType, ContractType, SourceType
 
 EXPECTED_TABLES = {
+    "audit_events",
     "audit_reports",
     "audit_risks",
     "audit_tasks",
@@ -57,6 +59,7 @@ MODELS = (
     Contract,
     ContractCommit,
     ContractElement,
+    AuditEvent,
     AuditTask,
     AuditRisk,
     AuthSession,

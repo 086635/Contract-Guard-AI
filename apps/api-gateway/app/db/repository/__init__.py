@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from app.db.repository.audit import (
+    AuditEventCreate,
+    AuditEventRecord,
+    AuditRepository,
+)
 from app.db.repository.auth import (
     RefreshTokenReusedError,
     SessionExpiredError,
@@ -43,6 +48,9 @@ from app.db.repository.result import (
 )
 
 __all__ = [
+    "AuditEventCreate",
+    "AuditEventRecord",
+    "AuditRepository",
     "CommitItemRecord",
     "CommitRepository",
     "ContractCreate",
