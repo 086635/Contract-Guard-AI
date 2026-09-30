@@ -291,6 +291,14 @@ components:
         traceId: { type: string }
         serverTime: { type: string, format: date-time }   # ISO 8601 UTC
 
+    ValidationIssue:
+      type: object
+      required: [path, code, message]
+      properties:
+        path: { type: string }
+        code: { type: string }
+        message: { type: string }
+
     ApiError:
       type: object
       description: 统一错误响应
@@ -300,6 +308,9 @@ components:
         message: { type: string, description: 面向用户提示 }
         detail: { type: string, description: 开发排查信息 }
         traceId: { type: string }
+        issues:
+          type: array
+          items: { $ref: "#/components/schemas/ValidationIssue" }
 
     # =========================================================================
     # §8.4 思维路径与 RAG 溯源

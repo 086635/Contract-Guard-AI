@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.deps import get_current_user
+from app.api.errors import register_error_handlers
 from app.api.middlewares import IdempotencyMiddleware
 from app.api.v1 import agent, audit, auth, config, contracts, feedback, report, tasks
 from app.config import settings
@@ -28,6 +29,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.add_middleware(IdempotencyMiddleware)
+register_error_handlers(app)
 
 
 api_router = APIRouter(prefix=settings.api_v1_prefix)
