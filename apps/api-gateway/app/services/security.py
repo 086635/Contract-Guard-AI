@@ -41,6 +41,23 @@ class RefreshTokenError(AuthSecurityError):
     """refresh token 生成或哈希失败。"""
 
 
+#: SSE 订阅令牌有效期（秒）：**唯一处**（C64 §⑥-1）。
+STREAM_TOKEN_TTL_SECONDS = 60
+
+
+class StreamTokenClaims(BaseModel):
+    """已通过签名与完整 claims 校验的短期 SSE 订阅令牌。"""
+
+    sub: UUID
+    task_id: UUID
+    typ: Literal["stream"]
+    scope: Literal["stream"]
+    iss: str
+    aud: str
+    iat: datetime
+    exp: datetime
+
+
 class TokenClaims(BaseModel):
     """已通过签名和完整 claims 校验的 access token。"""
 
@@ -182,6 +199,89 @@ class JwtService:
         except Exception as exc:
             raise TokenValidationError("access token 签发失败") from exc
 
+    def issue_stream(self, *, user_id: UUID, task_id: UUID) -> tuple[str, int]:
+        """签发 60 秒、`scope=stream`、绑定 `(userId, taskId)` 的短期订阅令牌。
+
+        Returns:
+            `(token, expires_in_seconds)`。
+        """
+        now = _as_utc(self._now())
+        expires_at = now + timedelta(seconds=STREAM_TOKEN_TTL_SECONDS)
+        payload = {
+            "sub": str(user_id),
+            "taskId": str(task_id),
+            "typ": "stream",
+            "scope": "stream",
+            "iss": self._issuer,
+            "aud": self._audience,
+            "iat": int(now.timestamp()),
+            "exp": int(expires_at.timestamp()),
+        }
+        try:
+            token = jwt.encode(payload, self._secret, algorithm=self._algorithm)
+        except Exception as exc:
+            raise TokenValidationError("stream token 签发失败") from exc
+        return token, STREAM_TOKEN_TTL_SECONDS
+
+    def verify_stream(self, token: str) -> StreamTokenClaims:
+        """校验短期订阅令牌：签名 / issuer / audience / exp / iat / `typ=stream` / `scope=stream`。
+
+        ⚠️ access token 缺少 `taskId`/`scope` 且 `typ=access`，因此**不能**当 stream token 用（断言 4）。
+        """
+        try:
+            payload = jwt.decode(
+                token,
+                self._secret,
+                algorithms=[self._algorithm],
+                audience=self._audience,
+                issuer=self._issuer,
+                options={
+                    "require": [
+                        "sub",
+                        "taskId",
+                        "typ",
+                        "scope",
+                        "iss",
+                        "aud",
+                        "iat",
+                        "exp",
+                    ],
+                    "verify_exp": False,
+                    "verify_iat": False,
+                    "verify_aud": True,
+                    "verify_iss": True,
+                },
+            )
+        except jwt.ExpiredSignatureError as exc:
+            raise TokenValidationError("stream token 已过期") from exc
+        except jwt.InvalidTokenError as exc:
+            raise TokenValidationError("stream token 无效") from exc
+
+        try:
+            issued_at = datetime.fromtimestamp(payload["iat"], UTC)
+            expires_at = datetime.fromtimestamp(payload["exp"], UTC)
+            current_time = _as_utc(self._now())
+            if payload["typ"] != "stream" or payload["scope"] != "stream":
+                raise TokenValidationError("stream token 类型不匹配")
+            if issued_at > current_time:
+                raise TokenValidationError("stream token 尚未生效")
+            if expires_at <= current_time:
+                raise TokenValidationError("stream token 已过期")
+            return StreamTokenClaims(
+                sub=UUID(payload["sub"]),
+                task_id=UUID(payload["taskId"]),
+                typ="stream",
+                scope="stream",
+                iss=payload["iss"],
+                aud=payload["aud"],
+                iat=issued_at,
+                exp=expires_at,
+            )
+        except TokenValidationError:
+            raise
+        except (KeyError, TypeError, ValueError, ValidationError) as exc:
+            raise TokenValidationError("stream token claims 无效") from exc
+
     def verify_access(self, token: str) -> TokenClaims:
         """校验签名、issuer、audience、exp、iat 和 typ。"""
         try:
@@ -229,11 +329,13 @@ class JwtService:
 
 
 __all__ = [
+    "STREAM_TOKEN_TTL_SECONDS",
     "AuthSecurityError",
     "JwtService",
     "PasswordHashError",
     "PasswordService",
     "RefreshTokenError",
+    "StreamTokenClaims",
     "TokenClaims",
     "TokenValidationError",
     "generate_refresh_token",

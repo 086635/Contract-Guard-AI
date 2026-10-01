@@ -53,7 +53,8 @@ api_router.include_router(agent.router, dependencies=[Depends(get_current_user)]
 api_router.include_router(config.router, dependencies=[Depends(get_current_user)])
 api_router.include_router(report.router, dependencies=[Depends(get_current_user)])
 api_router.include_router(feedback.router, dependencies=[Depends(get_current_user)])
-api_router.include_router(tasks.router, dependencies=[Depends(get_current_user)])
+# tasks: 鉴权在路由内声明（SSE 用 streamToken 或 Bearer 双凭据，见 app/api/v1/tasks.py）
+api_router.include_router(tasks.router)
 
 app.include_router(api_router)
 

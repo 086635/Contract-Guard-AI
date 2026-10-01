@@ -13,6 +13,13 @@ from __future__ import annotations
 import json
 from typing import Any
 
+#: SSE 媒体类型与响应头（唯一处）：所有 SSE 端点共用，保证 `text/event-stream` 不被改坏。
+SSE_MEDIA_TYPE = "text/event-stream"
+SSE_HEADERS: dict[str, str] = {
+    "Cache-Control": "no-cache",
+    "X-Accel-Buffering": "no",
+}
+
 
 def format_sse(
     payload: dict[str, Any],
@@ -30,6 +37,8 @@ def format_heartbeat() -> str:
 
 
 __all__ = [
+    "SSE_HEADERS",
+    "SSE_MEDIA_TYPE",
     "format_heartbeat",
     "format_sse",
 ]

@@ -77,8 +77,8 @@ def test_openapi_operation_inventory_matches_production_app() -> None:
     expected = _openapi_operations()
     actual = _production_operations()
 
-    # C58：新增 GET/POST `/contracts/{contractId}/preview[/retry]` → 30 个 operation
-    assert len(expected) == 30
+    # C58：+2（preview / preview-retry）；C64：+1（POST /tasks/{taskId}/stream-token）→ 31
+    assert len(expected) == 31
     assert actual == expected
 
 
@@ -87,6 +87,9 @@ def test_all_v1_routes_except_login_refresh_require_auth() -> None:
     public = {
         ("POST", "/api/v1/auth/login"),
         ("POST", "/api/v1/auth/refresh"),
+        # C64：SSE 用短期 streamToken 或 Bearer 双凭据（见 app/api/v1/tasks.py::stream_principal），
+        # 因此不在「必须挂 get_current_user」的集合里，但**仍然需要凭据**、不放宽匿名订阅。
+        ("GET", "/api/v1/tasks/{taskId}/stream"),
     }
     missing: list[str] = []
     for route in _iter_routes(app.router):

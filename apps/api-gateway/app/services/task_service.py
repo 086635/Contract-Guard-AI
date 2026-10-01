@@ -15,9 +15,11 @@ from uuid import UUID
 
 from pydantic import ValidationError
 
+from app.db.repository.auth import UserRecord
 from app.db.repository.contract import TaskRecord, TaskRepository
-from app.generated.schemas import Status, TaskProgress
+from app.generated.schemas import Status, StreamTokenData, TaskProgress
 from app.services.context import ServiceContext
+from app.services.security import JwtService, StreamTokenClaims
 from app.services.sse import format_sse
 from cg_observability import get_logger, log_event
 
@@ -36,12 +38,62 @@ class TaskNotFoundError(LookupError):
     """任务不存在。"""
 
 
+class StreamTokenScopeError(PermissionError):
+    """stream token 合法但不属于该任务（跨任务复用）。"""
+
+
 class TaskService:
     """任务状态读取与事件流。"""
 
-    def __init__(self, context: ServiceContext) -> None:
+    def __init__(
+        self,
+        context: ServiceContext,
+        *,
+        jwt: JwtService | None = None,
+        tasks: TaskRepository | None = None,
+    ) -> None:
+        """构造服务；`jwt` / `tasks` 可注入（测试用固定时钟与内存仓储，保持离线可测）。"""
         self._context = context
-        self._tasks = TaskRepository(context.session)
+        self._tasks = tasks or TaskRepository(context.session)
+        self._jwt = jwt or JwtService.from_settings()
+
+    async def assert_access(
+        self,
+        task_id: UUID,
+        user: UserRecord | None = None,
+    ) -> TaskRecord:
+        """任务访问权（**唯一处**）：任务不存在 → `TaskNotFoundError`（路由映射 404，不泄露存在性）。
+
+        当前口径：单租户私有化部署下，**已认证用户可见全部合同**，因此这里只校验任务存在。
+        `user` 是预留的归属扩展位：一旦 `contracts` 增加归属字段（母文档 `4-7 §⑤.11` 的
+        `created_by_id`，目前尚未落库），**只改这一处**即可收紧为「仅任务归属人可见」。
+        """
+        record = await self._tasks.get(task_id)
+        if record is None:
+            raise TaskNotFoundError(str(task_id))
+        return record
+
+    async def issue_stream_token(
+        self,
+        task_id: UUID,
+        user: UserRecord,
+    ) -> StreamTokenData:
+        """签发短期 SSE 订阅令牌（60 秒，绑定 userId + taskId）。"""
+        await self.assert_access(task_id, user)
+        token, expires_in = self._jwt.issue_stream(user_id=user.id, task_id=task_id)
+        return StreamTokenData(streamToken=token, expiresIn=expires_in)
+
+    def verify_stream_token(self, task_id: UUID, token: str) -> StreamTokenClaims:
+        """校验短期订阅令牌，并确认它**绑定在本任务**上。
+
+        Raises:
+            TokenValidationError: 签名/过期/类型不对（含把 access token 当 stream token 用）。
+            StreamTokenScopeError: 令牌合法但绑定的 taskId 与请求路径不一致。
+        """
+        claims = self._jwt.verify_stream(token)
+        if claims.task_id != task_id:
+            raise StreamTokenScopeError("stream token 不属于该任务")
+        return claims
 
     async def get(self, task_id: UUID) -> TaskProgress | None:
         """读取任务当前快照。"""
@@ -123,6 +175,7 @@ class TaskService:
 
 
 __all__ = [
+    "StreamTokenScopeError",
     "TaskNotFoundError",
     "TaskService",
 ]

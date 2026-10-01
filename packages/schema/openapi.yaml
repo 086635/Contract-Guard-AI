@@ -903,6 +903,13 @@ components:
           properties:
             data: { $ref: "#/components/schemas/PresignData" }
 
+    StreamTokenData:
+      type: object
+      required: [streamToken, expiresIn]
+      properties:
+        streamToken: { type: string, description: 绑定 userId/taskId 的短期 SSE 订阅令牌 }
+        expiresIn: { type: integer, description: 有效期（秒），固定 60 }
+
     ContractUploadResponse:
       allOf:
         - $ref: "#/components/schemas/ApiEnvelopeBase"
@@ -918,6 +925,14 @@ components:
           required: [data]
           properties:
             data: { $ref: "#/components/schemas/PreviewData" }
+
+    StreamTokenResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiEnvelopeBase"
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: "#/components/schemas/StreamTokenData" }
 
     ContractDetailResponse:
       allOf:
@@ -1703,6 +1718,23 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "500": { $ref: "#/components/responses/Internal" }
 
+  /tasks/{taskId}/stream-token:
+    post:
+      tags: [Tasks]
+      summary: 签发 SSE 订阅用的短期 stream token（60 秒）
+      operationId: createTaskStreamToken
+      parameters:
+        - { name: taskId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StreamTokenResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/Internal" }
+
   /tasks/{taskId}/stream:
     get:
       tags: [Tasks]
@@ -1710,6 +1742,11 @@ paths:
       operationId: streamTask
       parameters:
         - { name: taskId, in: path, required: true, schema: { type: string } }
+        - name: streamToken
+          in: query
+          required: false
+          schema: { type: string }
+          description: 短期 SSE 订阅令牌（EventSource 无法携带 Authorization 头时使用；不得放 access token）
       responses:
         "200":
           description: text/event-stream
