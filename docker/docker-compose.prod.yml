@@ -1,0 +1,63 @@
+# =============================================================================
+# 生产 Secret 层（C66 · T-D7-8）
+#
+# 与开发 compose 叠加使用：
+#   CG_SECRETS_DIR=/etc/contract-guard/secrets \
+#   docker compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d
+#
+# ⚠️ 先用**部署方**创建 secret 文件（权限 600，不入库、不进镜像）：
+#   ${CG_SECRETS_DIR:-./secrets}/{jwt_secret,postgres_password,minio_access_key,minio_secret_key,llm_api_key}
+#
+# ⚠️ 本文件只负责 secret 注入；prod profile / TLS / readiness / 端口收敛由 C67 继续叠加。
+# =============================================================================
+secrets:
+  cg_jwt_secret:
+    file: ${CG_SECRETS_DIR:-./secrets}/jwt_secret
+  cg_postgres_password:
+    file: ${CG_SECRETS_DIR:-./secrets}/postgres_password
+  cg_minio_access_key:
+    file: ${CG_SECRETS_DIR:-./secrets}/minio_access_key
+  cg_minio_secret_key:
+    file: ${CG_SECRETS_DIR:-./secrets}/minio_secret_key
+  cg_llm_api_key:
+    file: ${CG_SECRETS_DIR:-./secrets}/llm_api_key
+
+x-cg-secret-env: &cg-secret-env
+  CG_JWT_SECRET_FILE: /run/secrets/cg_jwt_secret
+  CG_POSTGRES_PASSWORD_FILE: /run/secrets/cg_postgres_password
+  CG_MINIO_ACCESS_KEY_FILE: /run/secrets/cg_minio_access_key
+  CG_MINIO_SECRET_KEY_FILE: /run/secrets/cg_minio_secret_key
+  CG_LLM_API_KEY_FILE: /run/secrets/cg_llm_api_key
+
+x-cg-secret-mounts: &cg-secret-mounts
+  - cg_jwt_secret
+  - cg_postgres_password
+  - cg_minio_access_key
+  - cg_minio_secret_key
+  - cg_llm_api_key
+
+services:
+  # 迁移也要用真实口令：DSN 里的口令位会被 CG_POSTGRES_PASSWORD_FILE 覆盖
+  migrate:
+    environment:
+      CG_POSTGRES_DSN: postgresql+asyncpg://cg:from-secret-file@postgres:5432/cg
+      <<: *cg-secret-env
+    secrets: *cg-secret-mounts
+
+  api:
+    environment:
+      CG_POSTGRES_DSN: postgresql+asyncpg://cg:from-secret-file@postgres:5432/cg
+      <<: *cg-secret-env
+    secrets: *cg-secret-mounts
+
+  worker:
+    environment:
+      CG_POSTGRES_DSN: postgresql+asyncpg://cg:from-secret-file@postgres:5432/cg
+      <<: *cg-secret-env
+    secrets: *cg-secret-mounts
+
+  worker-convert:
+    environment:
+      CG_POSTGRES_DSN: postgresql+asyncpg://cg:from-secret-file@postgres:5432/cg
+      <<: *cg-secret-env
+    secrets: *cg-secret-mounts

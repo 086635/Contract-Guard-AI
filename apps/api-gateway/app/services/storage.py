@@ -42,8 +42,8 @@ class MinioObjectStorage:
         """按 endpoint 构建独立签名的 MinIO client。"""
         return Minio(
             endpoint=endpoint,
-            access_key=settings.minio_access_key,
-            secret_key=settings.minio_secret_key,
+            access_key=settings.minio_access_key.get_secret_value(),
+            secret_key=settings.minio_secret_key.get_secret_value(),
             secure=settings.minio_secure,
             region=settings.minio_region,
         )

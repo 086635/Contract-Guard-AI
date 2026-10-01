@@ -174,7 +174,7 @@ class JwtService:
         """从统一配置构造 JWT 服务。"""
         current = app_settings or settings
         return cls(
-            secret=current.jwt_secret,
+            secret=current.jwt_secret.get_secret_value(),
             algorithm=current.jwt_algorithm,
             issuer=current.jwt_issuer,
             audience=current.jwt_audience,
