@@ -18,6 +18,7 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.config import settings
 from app.db.repository.contract import (
     ContractCreate,
     ContractRepository,
@@ -40,16 +41,30 @@ from app.generated.schemas import (
 from app.services.context import ServiceContext
 from app.services.dispatch import TaskKind
 from app.services.projector import ContractProjector
+from app.services.storage import UploadObjectError, validate_upload_object
 from rag_contracts.enums import ContractType
+
+#: 单文件大小上限（唯一处；C56 §⑥ 沿用既有 50 MB 约定）。
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+
+#: 声明文件类型 → 允许的扩展名（**服务端准入唯一处**，C56 §⑥）。
+#: 扩展名只用于「声明的类型与文件名是否自洽」；真实内容判据是 C57 的 magic sniff。
+_ALLOWED_EXTENSIONS: dict[FileType, frozenset[str]] = {
+    FileType.pdf_native: frozenset({".pdf"}),
+    FileType.pdf_scanned: frozenset({".pdf"}),
+    FileType.docx: frozenset({".docx"}),
+}
 
 
 class PresignRequest(BaseModel):
-    """上传 presign 请求体。"""
+    """上传 presign 请求体（C56 兼容新增 `sizeBytes` / `contentType`）。"""
 
     model_config = ConfigDict(populate_by_name=True)
 
     file_name: str = Field(..., alias="fileName")
     file_type: FileType = Field(..., alias="fileType")
+    size_bytes: int | None = Field(None, alias="sizeBytes", ge=1)
+    content_type: str | None = Field(None, alias="contentType")
 
 
 class ContractService:
@@ -65,18 +80,29 @@ class ContractService:
         self._reports = ReportRepository(context.session)
 
     async def presign_upload(self, body: PresignRequest) -> PresignData:
-        """生成对象键和 PUT 预签名 URL。"""
+        """校验声明并生成对象键和 PUT 预签名 URL（C56）。"""
+        _validate_presign_request(body)
         file_key = generate_file_key(body.file_name)
         url = self._context.object_storage.presign_put(file_key, 600)
         return PresignData(
             presignedUrl=url,
             fileKey=file_key,
             expiresIn=600,
+            contentType=body.content_type,
         )
 
     async def upload(self, body: UploadBody) -> TaskProgress:
-        """创建合同/任务并派发解析。"""
+        """复核对象后创建合同/任务并派发解析（C56）。"""
+        # 先复核 key 形态再触碰对象存储：非法 key 不得触发 bucket 访问。
+        validate_upload_object(body.file_key)
         object_info = self._context.object_storage.stat_object(body.file_key)
+        validate_upload_object(
+            body.file_key,
+            object_info,
+            expected_size=body.size_bytes,
+            expected_etag=body.etag,
+            max_bytes=MAX_UPLOAD_BYTES,
+        )
         file_hash = object_info.etag.strip('"')[:64]
         if not file_hash:
             file_hash = hashlib.sha256(body.file_key.encode("utf-8")).hexdigest()
@@ -152,6 +178,25 @@ class ContractService:
         )
 
 
+def _validate_presign_request(body: PresignRequest) -> None:
+    """presign 准入：扩展名与声明类型自洽、大小上限、production 必填大小（C56 §⑥）。"""
+    allowed = _ALLOWED_EXTENSIONS.get(body.file_type)
+    suffix = Path(body.file_name).suffix.lower()
+    if allowed is None or suffix not in allowed:
+        raise UploadObjectError(
+            415,
+            "ERR_UNSUPPORTED_FILE_TYPE：仅支持 PDF / DOCX，且扩展名需与 fileType 一致",
+        )
+    if body.size_bytes is None:
+        if settings.runtime_env == "production":
+            raise UploadObjectError(
+                400, "ERR_VALIDATION：production 必须提供 sizeBytes"
+            )
+        return
+    if body.size_bytes > MAX_UPLOAD_BYTES:
+        raise UploadObjectError(413, "ERR_FILE_TOO_LARGE：单文件不得超过 50 MB")
+
+
 def generate_file_key(
     file_name: str,
     *,
@@ -174,6 +219,7 @@ def _safe_filename(file_name: str) -> str:
 
 
 __all__ = [
+    "MAX_UPLOAD_BYTES",
     "ContractService",
     "PresignRequest",
     "generate_file_key",

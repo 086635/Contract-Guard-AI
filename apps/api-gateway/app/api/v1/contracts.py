@@ -44,6 +44,7 @@ from app.services.context import ServiceContext
 from app.services.contract_service import ContractService, PresignRequest
 from app.services.envelope import build_success_response
 from app.services.result_service import ResultService
+from app.services.storage import UploadObjectError
 
 router = APIRouter(prefix="/contracts", tags=["Contracts"])
 
@@ -98,8 +99,11 @@ async def presign_upload(
     body: PresignRequest,
     context: ServiceContext = Depends(get_service_context),
 ) -> PresignResponse:
-    """获取直传凭证（上传三步法 步骤1，§5.3）。"""
-    data = await ContractService(context).presign_upload(body)
+    """获取直传凭证（上传三步法 步骤1，§5.3）。含服务端准入校验（C56）。"""
+    try:
+        data = await ContractService(context).presign_upload(body)
+    except UploadObjectError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
     return build_success_response(PresignResponse, data)
 
 
@@ -115,8 +119,11 @@ async def upload_contract(
     audit: Annotated[AuditService, Depends(get_audit_service)],
     context: ServiceContext = Depends(get_service_context),
 ) -> ContractUploadResponse:
-    """触发解析任务（上传三步法 步骤3，§5.3）。需 X-Request-ID 幂等。"""
-    data = await ContractService(context).upload(body)
+    """触发解析任务（上传三步法 步骤3，§5.3）。需 X-Request-ID 幂等。含对象复核（C56）。"""
+    try:
+        data = await ContractService(context).upload(body)
+    except UploadObjectError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
     await write_audit_event(
         audit,
         request,

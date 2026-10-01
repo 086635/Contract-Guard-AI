@@ -66,14 +66,20 @@ export const contractApi = {
 };
 
 export const uploadApi = {
-  async presign(fileName: string, fileType: FileType): Promise<Schemas["PresignData"]> { return unwrap(await httpClient.post<Envelope<Schemas["PresignData"]>>("/contracts/presign", { fileName, fileType })); },
-  async directUpload(presignedUrl: string, file: File): Promise<void> {
+  async presign(fileName: string, fileType: FileType, sizeBytes?: number, contentType?: string): Promise<Schemas["PresignData"]> {
+    // C56：sizeBytes/contentType 仅作服务端准入输入，服务端不复用其真实性判断。
+    return unwrap(await httpClient.post<Envelope<Schemas["PresignData"]>>("/contracts/presign", { fileName, fileType, sizeBytes, contentType }));
+  },
+  async directUpload(presignedUrl: string, file: File): Promise<string | null> {
     // 原样使用后端签发的 public presign URL；失败必须向调用方抛出，不得静默跳过。
-    await httpClient.put(presignedUrl, file, {
+    const response = await httpClient.put(presignedUrl, file, {
       baseURL: "",
       headers: { "Content-Type": file.type || "application/octet-stream" },
       timeout: 120_000,
     });
+    // C56：MinIO PUT 响应带 ETag；浏览器能否读到取决于对象存储 CORS 是否暴露该头。
+    const etag = response.headers?.etag;
+    return typeof etag === "string" && etag ? etag : null;
   },
   async submit(body: UploadBody): Promise<TaskProgress> { return unwrap(await httpClient.post<Envelope<TaskProgress>>("/contracts/upload", body)); },
 };

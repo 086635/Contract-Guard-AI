@@ -718,6 +718,7 @@ components:
         presignedUrl: { type: string }
         fileKey: { type: string }
         expiresIn: { type: integer, description: 有效期（秒） }
+        contentType: { type: string, description: 直传时应使用的 Content-Type }
 
     UploadBody:
       type: object
@@ -726,6 +727,8 @@ components:
         fileKey: { type: string }
         fileName: { type: string }
         fileType: { $ref: "#/components/schemas/FileType" }
+        sizeBytes: { type: integer, minimum: 0, description: 直传后声明大小；服务端 stat 复核 }
+        etag: { type: string, description: 直传返回的 ETag；服务端 stat 复核 }
 
     AgentRewriteRequest:
       type: object
@@ -1345,6 +1348,8 @@ paths:
               properties:
                 fileName: { type: string }
                 fileType: { $ref: "#/components/schemas/FileType" }
+                sizeBytes: { type: integer, minimum: 1, description: 声明文件大小；production 必填 }
+                contentType: { type: string, description: 声明 MIME；仅作提示，服务端不信任 }
       responses:
         "200":
           description: 成功
@@ -1377,6 +1382,8 @@ paths:
               schema: { $ref: "#/components/schemas/ContractUploadResponse" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "409": { $ref: "#/components/responses/Duplicate" }
+        "413": { $ref: "#/components/responses/FileTooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedType" }
         "500": { $ref: "#/components/responses/Internal" }
 
   /contracts/{contractId}:

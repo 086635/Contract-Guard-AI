@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import timedelta
 
 from minio import Minio
@@ -87,4 +88,68 @@ class MinioObjectStorage:
             raise ValueError("expires_s 必须大于 0")
 
 
-__all__ = ["MinioObjectStorage"]
+#: 合同对象键前缀（bucket 内唯一允许的上传子树；C56）。
+UPLOAD_KEY_PREFIX = "contracts"
+
+#: 服务端生成的合同对象键形态，与 `contract_service.generate_file_key` 同形：
+#: `contracts/{yyyy}/{mm}/{uuid4().hex}-{safe_name}`。**唯一写入方**仍是契约服务，
+#: 这里只负责「拒绝任意 key」的复核，不负责生成。
+_UPLOAD_KEY_RE = re.compile(r"^contracts/\d{4}/\d{2}/[0-9a-f]{32}-[^/\\]+$")
+
+
+class UploadObjectError(ValueError):
+    """上传准入 / 对象复核失败（C56）。
+
+    `status_code` 由路由映射为 HTTP 响应；`detail` 是**安全摘要**——
+    只说明拒绝原因，不回显对象内容，也不回显用户提交的文件内容。
+    """
+
+    def __init__(self, status_code: int, detail: str) -> None:
+        super().__init__(detail)
+        self.status_code = status_code
+        self.detail = detail
+
+
+def validate_upload_object(
+    file_key: str,
+    info: StoredObjectInfo | None = None,
+    *,
+    expected_size: int | None = None,
+    expected_etag: str | None = None,
+    max_bytes: int | None = None,
+) -> None:
+    """复核对象键与 `stat_object` 结果（C56 §⑤ `validate_upload_object`）。
+
+    Args:
+        file_key: 客户端回传的对象键；必须匹配服务端生成的固定前缀与形态。
+        info: `stat_object` 的结果；为 `None` 时只复核 key 形态（stat 之前调用）。
+        expected_size: 客户端声明的大小；`None` 表示未声明（不比对）。
+        expected_etag: 客户端声明的 ETag；空串/`None` 表示未声明（不比对）。
+        max_bytes: 服务端大小上限；`None` 表示本层不设上限。
+
+    Raises:
+        UploadObjectError: key 非法 / 超过上限 / 大小或 ETag 与 stat 不一致。
+    """
+    if not isinstance(file_key, str) or _UPLOAD_KEY_RE.match(file_key) is None:
+        raise UploadObjectError(400, "fileKey 非法：必须由服务端 presign 生成")
+    if info is None:
+        return
+    if max_bytes is not None and info.size > max_bytes:
+        raise UploadObjectError(413, "文件超过大小上限")
+    if expected_size is not None and int(expected_size) != info.size:
+        raise UploadObjectError(409, "对象大小与声明不一致")
+    if expected_etag and _normalize_etag(expected_etag) != _normalize_etag(info.etag):
+        raise UploadObjectError(409, "对象 ETag 与声明不一致")
+
+
+def _normalize_etag(value: str) -> str:
+    """归一化 ETag：去空白、去引号、统一小写，避免大小写/引号导致的假不一致。"""
+    return value.strip().strip('"').lower()
+
+
+__all__ = [
+    "UPLOAD_KEY_PREFIX",
+    "MinioObjectStorage",
+    "UploadObjectError",
+    "validate_upload_object",
+]

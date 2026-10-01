@@ -93,11 +93,11 @@ export default function UploadPanel({ onClose, onCreated }: UploadPanelProps) {
     setState("uploading");
     try {
       const fileType = fileTypeOf(file);
-      const presign = await uploadApi.presign(file.name, fileType);
+      const presign = await uploadApi.presign(file.name, fileType, file.size, file.type || undefined);
       if (!activeRef.current) return;
-      await uploadApi.directUpload(presign.presignedUrl, file);
+      const etag = await uploadApi.directUpload(presign.presignedUrl, file);
       if (!activeRef.current) return;
-      const task = await uploadApi.submit({ fileKey: presign.fileKey, fileName: file.name, fileType });
+      const task = await uploadApi.submit({ fileKey: presign.fileKey, fileName: file.name, fileType, sizeBytes: file.size, etag: etag ?? undefined });
       if (!activeRef.current) return;
       setProgress(task);
       onCreated?.(task);
