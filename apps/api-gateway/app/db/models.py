@@ -85,7 +85,19 @@ def _enum_type(enum_cls: type[PyEnum], name: str) -> SqlEnum:
     )
 
 
-_AUDIT_TASK_TYPES = ("PARSE_DOC", "RUN_AUDIT", "GEN_REPORT")
+#: 网关允许落库的任务类型白名单（**唯一处**）：新增任务必须先登记到这里，
+#: 否则 `audit_task_type` CHECK 约束会在写库时拒绝（C57 扫描 / C59 转换即为此补齐）。
+_AUDIT_TASK_TYPES = (
+    "PARSE_DOC",
+    "RUN_AUDIT",
+    "GEN_REPORT",
+    "REWRITE",
+    "SCAN_UPLOAD",
+    "CONVERT_DOC",
+)
+
+#: 任务默认可尝试次数（C62 有限重试上限；单个任务可用 `max_attempts` 覆盖）。
+DEFAULT_MAX_ATTEMPTS = 3
 
 
 class AuditAction(StrEnum):
@@ -300,6 +312,22 @@ class AuditTask(Base):
     )
     celery_task_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # ---- 可靠性字段（C62）：DB 任务行是唯一可恢复状态源，Redis 只做进度/队列 ----
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer, default=DEFAULT_MAX_ATTEMPTS)
+    last_heartbeat_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    next_retry_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    locked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utc_now
     )

@@ -18,7 +18,7 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import AuditTask, Contract, ContractCommit
+from app.db.models import DEFAULT_MAX_ATTEMPTS, AuditTask, Contract, ContractCommit
 from app.generated.schemas import ContractStatus, Status
 from rag_contracts.enums import ContractType
 
@@ -66,8 +66,13 @@ class ContractDetail(_PersistenceDto):
     updated_at: datetime
 
 
+#: 重试退避基数/上限（秒）：**唯一处**，指数退避 `base * 2^(attempt-1)` 封顶。
+RETRY_BACKOFF_BASE_S = 5.0
+RETRY_BACKOFF_CAP_S = 300.0
+
+
 class TaskRecord(_PersistenceDto):
-    """任务单条的持久化投影。"""
+    """任务单条的持久化投影（含 C62 可靠性字段）。"""
 
     id: UUID
     contract_id: UUID
@@ -77,6 +82,29 @@ class TaskRecord(_PersistenceDto):
     status: Status
     celery_task_id: str | None
     error_message: str | None
+    attempt_count: int = 0
+    max_attempts: int = DEFAULT_MAX_ATTEMPTS
+    last_heartbeat_at: datetime | None = None
+    next_retry_at: datetime | None = None
+    error_code: str | None = None
+    locked_at: datetime | None = None
+    completed_at: datetime | None = None
+
+    @property
+    def can_retry(self) -> bool:
+        """是否还能再试一次（**有限重试唯一判据**：禁止无限重试）。"""
+        if self.status is Status.done:
+            return False
+        return self.attempt_count < max(1, self.max_attempts)
+
+    @property
+    def retry_delay_seconds(self) -> float:
+        """下一次重试前的等待秒数：`base × 2^(已完成尝试数-1)`，封顶 `RETRY_BACKOFF_CAP_S`。
+
+        例：1 次尝试后失败 → 5s；2 次 → 10s；3 次 → 20s（长退避不会无限增长）。
+        """
+        exponent = max(0, self.attempt_count - 1)
+        return min(RETRY_BACKOFF_CAP_S, RETRY_BACKOFF_BASE_S * (2**exponent))
 
 
 class CommitItemRecord(_PersistenceDto):
@@ -231,8 +259,10 @@ class TaskRepository:
         contract_id: UUID,
         task_type: str,
         celery_task_id: str | None,
+        *,
+        max_attempts: int = DEFAULT_MAX_ATTEMPTS,
     ) -> TaskRecord:
-        """创建并 flush 任务记录。"""
+        """创建并 flush 任务记录（C62：**派发前**先建行，celery id 随后回填）。"""
         record = AuditTask(
             contract_id=contract_id,
             task_type=task_type,
@@ -240,8 +270,43 @@ class TaskRepository:
             progress=0.0,
             status=Status.running,
             celery_task_id=celery_task_id,
+            attempt_count=0,
+            max_attempts=max(1, int(max_attempts)),
         )
         self._session.add(record)
+        await self._session.flush()
+        return TaskRecord.model_validate(record)
+
+    async def attach_celery_task_id(
+        self,
+        task_id: UUID,
+        celery_task_id: str,
+    ) -> TaskRecord:
+        """派发成功后回填 Celery id（⑥：派发前先建行 → 进程中断也能对账）。"""
+        record = await self._session.get(AuditTask, task_id)
+        if record is None:
+            raise LookupError(f"任务不存在: {task_id}")
+        record.celery_task_id = celery_task_id
+        record.updated_at = datetime.now(UTC)
+        await self._session.flush()
+        return TaskRecord.model_validate(record)
+
+    async def mark_failed(
+        self,
+        task_id: UUID,
+        *,
+        error_code: str,
+        error_message: str | None = None,
+    ) -> TaskRecord:
+        """置终态 `FAILED` 并写 `errorCode` / `completedAt`（⑥-3）。"""
+        record = await self._session.get(AuditTask, task_id)
+        if record is None:
+            raise LookupError(f"任务不存在: {task_id}")
+        record.status = Status.failed
+        record.error_code = error_code
+        record.error_message = error_message
+        record.completed_at = datetime.now(UTC)
+        record.updated_at = record.completed_at
         await self._session.flush()
         return TaskRecord.model_validate(record)
 
@@ -306,6 +371,8 @@ class TaskRepository:
 
 
 __all__ = [
+    "RETRY_BACKOFF_BASE_S",
+    "RETRY_BACKOFF_CAP_S",
     "CommitItemRecord",
     "CommitRepository",
     "ContractCreate",

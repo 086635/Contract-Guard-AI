@@ -19,7 +19,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import AuditTask
+from app.db.models import DEFAULT_MAX_ATTEMPTS, AuditTask
 from app.generated.schemas import Status
 from app.services.context import ServiceContext
 from app.services.ports import TaskStatusSnapshot
@@ -90,6 +90,8 @@ class _FakeProgressBroker:
 
 
 def _record() -> AuditTask:
+    # 模拟「已落库」的任务行：C62 的可靠性列在库里是 NOT NULL（含默认值），
+    # 因此内存夹具也要带上，才与 TaskRecord 的投影契约一致。
     return AuditTask(
         id=uuid4(),
         contract_id=uuid4(),
@@ -99,6 +101,8 @@ def _record() -> AuditTask:
         status=Status.running,
         celery_task_id=_CELERY_ID,
         error_message=None,
+        attempt_count=0,
+        max_attempts=DEFAULT_MAX_ATTEMPTS,
     )
 
 

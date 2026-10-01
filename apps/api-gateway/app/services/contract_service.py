@@ -117,15 +117,22 @@ class ContractService:
             )
         )
         task_kind, task_args = _dispatch_target(body, str(contract.id))
-        celery_task_id = self._context.task_dispatcher.send(
-            task_kind,
-            args=task_args,
-        )
-        task = await self._tasks.create(
-            contract.id,
-            task_kind.name,
-            celery_task_id,
-        )
+        # C62：**派发前**先落可恢复任务行；派发失败立即置终态，避免留下幽灵 RUNNING。
+        task = await self._tasks.create(contract.id, task_kind.name, None)
+        try:
+            celery_task_id = self._context.task_dispatcher.send(
+                task_kind,
+                args=task_args,
+            )
+        except Exception as exc:
+            await self._tasks.mark_failed(
+                task.id,
+                error_code="DISPATCH_FAILED",
+                error_message=type(exc).__name__,
+            )
+            await self._context.session.commit()
+            raise
+        task = await self._tasks.attach_celery_task_id(task.id, celery_task_id)
         await self._context.session.commit()
         return TaskProgress(
             taskId=str(task.id),
