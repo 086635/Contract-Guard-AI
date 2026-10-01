@@ -85,6 +85,11 @@ class Settings(BaseSettings):
     # ---- CORS ----
     cors_origins: list[str] = ["http://localhost:5173"]
 
+    # ---- 上传安全（C57）----
+    #: 内容扫描档位：`off`（development/test 默认）| `clamav`（production 强制）。
+    #: 消费方：`ContractService` 的首跳任务选择 + `validate_production()` 门禁。
+    upload_av_mode: Literal["off", "clamav"] = "off"
+
     @property
     def resolved_minio_public_endpoint(self) -> str:
         """返回浏览器可访问的 MinIO endpoint，未配置时回退内部 endpoint。"""
@@ -127,6 +132,13 @@ class Settings(BaseSettings):
                 (
                     "CG_MINIO_PUBLIC_ENDPOINT",
                     "production public endpoint must not be localhost",
+                )
+            )
+        if self.upload_av_mode != "clamav":
+            violations.append(
+                (
+                    "CG_UPLOAD_AV_MODE",
+                    "production requires content antivirus scanning (clamav)",
                 )
             )
 

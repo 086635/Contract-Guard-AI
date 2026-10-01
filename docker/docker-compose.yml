@@ -120,6 +120,24 @@ services:
       retries: 10
       start_period: 10s
 
+  # ---------------------------------------------------------------------------
+  # ClamAV（C57 新增）：上传内容病毒扫描。worker 经 clamd INSTREAM 协议调用。
+  #   ⚠️ 首次启动需下载病毒库（freshclam），healthcheck 的 start_period 给足 180s。
+  #   ⚠️ 开发档默认 `CG_UPLOAD_AV_MODE=off`（不扫描）；生产档由 C67 prod profile 打开，
+  #      且 api-gateway 启动门禁会拒绝 production+off。
+  # ---------------------------------------------------------------------------
+  clamav:
+    image: clamav/clamav:stable
+    environment:
+      CLAMAV_NO_MILTERD: "true"
+    volumes: ["clamdb:/var/lib/clamav"]
+    healthcheck:
+      test: ["CMD", "clamdcheck.sh"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 180s
+
   minio-init:
     # 幂等初始化：建 bucket；CORS 由 minio 服务从 C42 单一文件加载。
     image: minio/mc:latest
@@ -159,6 +177,8 @@ services:
       CG_MINIO_SECRET_KEY: minioadmin
       CG_CELERY_BROKER: redis://redis:6379/1
       CG_CELERY_BACKEND: redis://redis:6379/2
+      # 上传内容扫描档位（C57）：开发默认 off；生产必须 clamav（启动门禁强制）
+      CG_UPLOAD_AV_MODE: ${CG_UPLOAD_AV_MODE:-off}
     ports: ["8000:8000"]
     depends_on:
       migrate: { condition: service_completed_successfully }
@@ -193,6 +213,10 @@ services:
       CG_MINIO_SECRET_KEY: minioadmin
       CG_CELERY_BROKER: redis://redis:6379/1
       CG_CELERY_BACKEND: redis://redis:6379/2
+      # 上传内容扫描（C57）：档位 + clamd 地址（compose 服务名）
+      CG_UPLOAD_AV_MODE: ${CG_UPLOAD_AV_MODE:-off}
+      CG_CLAMAV_HOST: clamav
+      CG_CLAMAV_PORT: "3310"
       # RAG 检索层（rag_core）：显式指向 compose 内 Qdrant（默认值是 inmemory）
       CG_RAG_VECTOR_STORE: qdrant
       CG_RAG_QDRANT_MODE: server
@@ -206,6 +230,7 @@ services:
       qdrant: { condition: service_healthy }
       minio: { condition: service_healthy }
       minio-init: { condition: service_completed_successfully }
+      clamav: { condition: service_started }
     command: ["uv", "run", "--package", "async-worker", "celery", "-A", "worker.main", "worker", "--loglevel=info"]
     healthcheck:
       # 用 venv 内的 celery 直接 inspect ping（实测 pong）；C25 再补结果后端就绪验证
@@ -235,3 +260,4 @@ volumes:
   miniodata:
   etcddata:
   milvusdata:
+  clamdb:

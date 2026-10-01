@@ -116,13 +116,14 @@ class ContractService:
                 status=ContractStatus.parsing,
             )
         )
+        task_kind, task_args = _dispatch_target(body, str(contract.id))
         celery_task_id = self._context.task_dispatcher.send(
-            TaskKind.PARSE_DOC,
-            args=(body.file_key, str(contract.id)),
+            task_kind,
+            args=task_args,
         )
         task = await self._tasks.create(
             contract.id,
-            TaskKind.PARSE_DOC.name,
+            task_kind.name,
             celery_task_id,
         )
         await self._context.session.commit()
@@ -176,6 +177,29 @@ class ContractService:
             seals=seals,
             report=report,
         )
+
+
+def _dispatch_target(
+    body: UploadBody,
+    contract_id: str,
+) -> tuple[TaskKind, tuple[object, ...]]:
+    """按 `CG_UPLOAD_AV_MODE` 决定首跳任务（C57 §⑤.8）。
+
+    - `off`（development/test 默认）：保持原有行为，直接派发 `parse_doc`。
+    - `clamav`：先派发 `scan_upload`；**扫描通过后由 worker 链式派发 `parse_doc`**，
+      扫描未通过绝不进入解析。
+    """
+    if settings.upload_av_mode == "clamav":
+        return (
+            TaskKind.SCAN_UPLOAD,
+            (
+                body.file_key,
+                body.file_name,
+                body.file_type.value,
+                contract_id,
+            ),
+        )
+    return TaskKind.PARSE_DOC, (body.file_key, contract_id)
 
 
 def _validate_presign_request(body: PresignRequest) -> None:

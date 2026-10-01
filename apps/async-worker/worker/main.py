@@ -17,6 +17,7 @@ celery_app = Celery(
     broker=BROKER_URL,
     backend=BACKEND_URL,
     include=[
+        "worker.tasks.scan_upload",
         "worker.tasks.parse_doc",
         "worker.tasks.run_audit",
         "worker.tasks.gen_report",

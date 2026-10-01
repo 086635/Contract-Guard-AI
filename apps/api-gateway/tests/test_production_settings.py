@@ -47,6 +47,7 @@ def _valid_gateway_settings(**overrides: Any) -> Settings:
         "minio_access_key": "prod-access",
         "minio_secret_key": "prod-secret",
         "minio_public_endpoint": "minio.example.com:9000",
+        "upload_av_mode": "clamav",
     }
     values.update(overrides)
     return Settings(_env_file=None, **values)
@@ -141,6 +142,25 @@ def test_production_rejects_localhost_public_endpoint() -> None:
 
 def test_production_accepts_explicit_non_offline_config() -> None:
     _validate(_valid_gateway_settings())
+
+
+def test_production_rejects_disabled_upload_scan() -> None:
+    """C57：production 必须开启内容扫描（CLAMAV），`off` 直接拒绝启动。"""
+    with pytest.raises(ProductionConfigError) as exc_info:
+        _validate(_valid_gateway_settings(upload_av_mode="off"))
+
+    assert "CG_UPLOAD_AV_MODE" in exc_info.value.field
+
+
+def test_development_can_disable_upload_scan() -> None:
+    """development/test 允许 `off`（离线基线不受影响）。"""
+    development = Settings(
+        _env_file=None, runtime_env="development", upload_av_mode="off"
+    )
+    development.validate_production(
+        llm_settings=LlmSettings(_env_file=None),
+        rag_settings=RagSettings(_env_file=None),
+    )
 
 
 def test_development_keeps_offline_defaults() -> None:

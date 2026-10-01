@@ -26,8 +26,10 @@ from app.services.contract_service import (
     MAX_UPLOAD_BYTES,
     ContractService,
     PresignRequest,
+    _dispatch_target,
     generate_file_key,
 )
+from app.services.dispatch import TaskKind
 from app.services.ports import (
     ProgressBrokerPort,
     StoredObjectInfo,
@@ -274,3 +276,42 @@ def test_compliant_declarations_pass(
     assert data.file_key.endswith(f"-{file_name}")
     assert data.expires_in == 600
     assert storage.put_calls == [(data.file_key, 600)]
+
+
+# ---------------------------------------------------------------------------
+# C57：`CG_UPLOAD_AV_MODE` 决定上传后的首跳任务（upload 流程接线）
+# ---------------------------------------------------------------------------
+
+
+def _upload_body(file_name: str = "spec.docx") -> UploadBody:
+    return UploadBody(
+        fileKey=generate_file_key(file_name),
+        fileName=file_name,
+        fileType=FileType.docx,
+    )
+
+
+def test_av_mode_off_dispatches_parse_first() -> None:
+    """development/test 默认 off：保持原行为——直接派发 `parse_doc`。"""
+    body = _upload_body()
+
+    kind, args = _dispatch_target(body, "contract-1")
+
+    assert kind is TaskKind.PARSE_DOC
+    assert args == (body.file_key, "contract-1")
+
+
+def test_av_mode_clamav_dispatches_scan_first(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`CG_UPLOAD_AV_MODE=clamav`：首跳 `scan_upload`，由扫描通过后再链式派发 parse。"""
+    monkeypatch.setattr(contract_service_module.settings, "upload_av_mode", "clamav")
+    body = _upload_body()
+
+    kind, args = _dispatch_target(body, "contract-1")
+
+    assert kind is TaskKind.SCAN_UPLOAD
+    assert args == (body.file_key, "spec.docx", "DOCX", "contract-1")
+
+
+def test_scan_upload_is_registered_task_kind() -> None:
+    """`scan_upload` 必须是网关允许派发的登记任务名（防拼写漂移）。"""
+    assert TaskKind("scan_upload") is TaskKind.SCAN_UPLOAD
