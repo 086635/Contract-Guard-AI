@@ -8,6 +8,7 @@ worker 侧 `publish` 与网关侧 `subscribe` 共用同一个 `task_progress_cha
 from __future__ import annotations
 
 TASK_PROGRESS_CHANNEL_PREFIX = "task_progress"
+TASK_HEARTBEAT_KEY_PREFIX = "task_heartbeat"
 
 
 def task_progress_channel(task_id: str) -> str:
@@ -15,4 +16,18 @@ def task_progress_channel(task_id: str) -> str:
     return f"{TASK_PROGRESS_CHANNEL_PREFIX}:{task_id}"
 
 
-__all__ = ["TASK_PROGRESS_CHANNEL_PREFIX", "task_progress_channel"]
+def task_heartbeat_key(task_id: str) -> str:
+    """生成任务心跳 redis key：`task_heartbeat:{task_id}`（带 TTL 的存活标记）。
+
+    说明（C63）：**进度是事件流，心跳是存活标记**，两者语义不同、不可合并——
+    进度可能长时间没有新阶段，但 worker 仍活着；心跳缺失才说明任务失联。
+    """
+    return f"{TASK_HEARTBEAT_KEY_PREFIX}:{task_id}"
+
+
+__all__ = [
+    "TASK_HEARTBEAT_KEY_PREFIX",
+    "TASK_PROGRESS_CHANNEL_PREFIX",
+    "task_heartbeat_key",
+    "task_progress_channel",
+]

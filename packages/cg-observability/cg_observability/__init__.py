@@ -12,7 +12,12 @@
 from __future__ import annotations
 
 from .logger import JsonFormatter, configure_root, get_logger, log_event, resolve_level
-from .progress import TASK_PROGRESS_CHANNEL_PREFIX, task_progress_channel
+from .progress import (
+    TASK_HEARTBEAT_KEY_PREFIX,
+    TASK_PROGRESS_CHANNEL_PREFIX,
+    task_heartbeat_key,
+    task_progress_channel,
+)
 from .token_counter import (
     DEFAULT_CHARS_PER_TOKEN,
     DEFAULT_MODEL,
@@ -38,6 +43,7 @@ __version__ = "1.0.0"
 __all__ = [
     "DEFAULT_CHARS_PER_TOKEN",
     "DEFAULT_MODEL",
+    "TASK_HEARTBEAT_KEY_PREFIX",
     "TASK_PROGRESS_CHANNEL_PREFIX",
     "JsonFormatter",
     "Span",
@@ -57,6 +63,7 @@ __all__ = [
     "reset_trace_id",
     "resolve_level",
     "set_trace_id",
+    "task_heartbeat_key",
     "task_progress_channel",
     "trace_context",
 ]

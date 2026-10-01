@@ -17,11 +17,19 @@ import os
 from typing import Any
 
 from ai_engine.graphs.state import AUDIT_STAGES
-from cg_observability import get_logger, log_event, task_progress_channel
+from cg_observability import (
+    get_logger,
+    log_event,
+    task_heartbeat_key,
+    task_progress_channel,
+)
 
 _LOG = get_logger("worker.progress")
 
 _PROGRESS_REDIS_URL = os.getenv("CG_REDIS_URL", "redis://localhost:6379/0")
+
+#: 心跳键 TTL（秒）：必须小于 reconciler 的 stale 阈值，否则会把活着的任务判成失联。
+HEARTBEAT_TTL_S = int(os.getenv("CG_TASK_HEARTBEAT_TTL_S", "120"))
 _redis_client: Any = None
 _redis_ready = False
 _publish_disabled = False
@@ -46,7 +54,11 @@ def _progress_redis() -> Any:
 
 
 def _publish_progress(task: Any, meta: dict[str, Any], trace_id: str) -> None:
-    """把进度 meta publish 到 `task_progress:{celery_task_id}`（失败只告警、不阻断任务）。"""
+    """发布进度事件 **并刷新心跳键**（失败只告警、不阻断任务）。
+
+    C63：进度是事件流、心跳是**带 TTL 的存活标记**，二者一起发；worker 只写 Redis，
+    业务 DB 的 `last_heartbeat_at` 由网关侧对账回写（`worker 不写业务 DB`）。
+    """
     global _publish_disabled
     if _publish_disabled:
         return
@@ -60,6 +72,11 @@ def _publish_progress(task: Any, meta: dict[str, Any], trace_id: str) -> None:
     try:
         client.publish(
             task_progress_channel(str(task_id)), json.dumps(meta, ensure_ascii=False)
+        )
+        client.set(
+            task_heartbeat_key(str(task_id)),
+            "1",
+            ex=HEARTBEAT_TTL_S,
         )
     except Exception as exc:  # noqa: BLE001 - 进度发布失败不影响任务本身
         _publish_disabled = True

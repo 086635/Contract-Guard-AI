@@ -78,6 +78,10 @@ class ProgressBrokerPort(Protocol):
         """订阅指定任务的进度事件。"""
         ...
 
+    async def heartbeat_seen(self, task_id: str) -> bool:
+        """该任务近期是否有心跳（worker 存活证据，C63 对账输入）。"""
+        ...
+
 
 __all__ = [
     "ObjectStoragePort",

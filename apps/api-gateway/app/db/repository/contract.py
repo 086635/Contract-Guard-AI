@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -335,6 +335,109 @@ class TaskRepository:
         record = await self._session.scalar(statement)
         if record is None:
             return None
+        return TaskRecord.model_validate(record)
+
+    async def list_stale(
+        self,
+        *,
+        stale_before: datetime,
+        lock_expired_before: datetime,
+        limit: int = 200,
+    ) -> list[TaskRecord]:
+        """列出「非终态 + 心跳过期 + 锁未被他人持有」的任务（C63 扫描入口）。
+
+        ⚠️ 判定只看**最后心跳/最后更新**，绝不看 `created_at`（§⑨-1）：
+        长任务可能创建很久但一直在推进。
+        """
+        statement = (
+            select(AuditTask)
+            .where(
+                AuditTask.status == Status.running,
+                or_(
+                    and_(
+                        AuditTask.last_heartbeat_at.is_(None),
+                        AuditTask.updated_at < stale_before,
+                    ),
+                    AuditTask.last_heartbeat_at < stale_before,
+                ),
+                or_(
+                    AuditTask.locked_at.is_(None),
+                    AuditTask.locked_at < lock_expired_before,
+                ),
+            )
+            .order_by(AuditTask.updated_at.asc(), AuditTask.id.asc())
+            .limit(max(1, int(limit)))
+        )
+        records = (await self._session.scalars(statement)).all()
+        return [TaskRecord.model_validate(record) for record in records]
+
+    async def heartbeat(
+        self,
+        task_id: UUID,
+        *,
+        at: datetime | None = None,
+    ) -> None:
+        """回写心跳时间（网关侧对账写入；worker 只往 Redis 打点）。"""
+        moment = at or datetime.now(UTC)
+        record = await self._session.get(AuditTask, task_id)
+        if record is None:
+            raise LookupError(f"任务不存在: {task_id}")
+        record.last_heartbeat_at = moment
+        record.updated_at = moment
+        await self._session.flush()
+
+    async def claim(
+        self,
+        task_id: UUID,
+        *,
+        now: datetime,
+        lock_expired_before: datetime,
+    ) -> bool:
+        """原子抢锁：只有「仍 RUNNING + 锁空闲/过期」的行会被本次 sweep 拿到。
+
+        Returns:
+            True 表示本次调用拿到处理权；False 表示已被其它 sweep 持有（**不得重复派发**）。
+        """
+        statement = (
+            update(AuditTask)
+            .where(
+                AuditTask.id == task_id,
+                AuditTask.status == Status.running,
+                or_(
+                    AuditTask.locked_at.is_(None),
+                    AuditTask.locked_at < lock_expired_before,
+                ),
+            )
+            .values(locked_at=now, updated_at=now)
+            .execution_options(synchronize_session=False)
+        )
+        result = await self._session.execute(statement)
+        return bool(result.rowcount)
+
+    async def record_attempt(
+        self,
+        task_id: UUID,
+        *,
+        error_code: str,
+        next_retry_at: datetime,
+        at: datetime | None = None,
+    ) -> TaskRecord:
+        """记一次尝试（重试派发后调用）：`attempt_count+1` + errorCode + 下次重试时间。
+
+        同时刷新 `last_heartbeat_at` 并释放 `locked_at` —— 重试窗口从本次重新起算，
+        避免同一个 stale 窗口被连续重复派发。
+        """
+        moment = at or datetime.now(UTC)
+        record = await self._session.get(AuditTask, task_id)
+        if record is None:
+            raise LookupError(f"任务不存在: {task_id}")
+        record.attempt_count = int(record.attempt_count or 0) + 1
+        record.error_code = error_code
+        record.next_retry_at = next_retry_at
+        record.last_heartbeat_at = moment
+        record.locked_at = None
+        record.updated_at = moment
+        await self._session.flush()
         return TaskRecord.model_validate(record)
 
     async def update_status(

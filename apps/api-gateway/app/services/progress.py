@@ -20,7 +20,12 @@ from redis.exceptions import RedisError
 from app.config import settings
 
 # channel 命名唯一处已上移到 cg_observability（worker 不能 import app.*）
-from cg_observability import get_logger, log_event, task_progress_channel
+from cg_observability import (
+    get_logger,
+    log_event,
+    task_heartbeat_key,
+    task_progress_channel,
+)
 
 _LOG = get_logger("api_gateway.services.progress")
 
@@ -77,6 +82,24 @@ class RedisProgressBroker:
                     await self._client.aclose()
 
         return iterator()
+
+    async def heartbeat_seen(self, task_id: str) -> bool:
+        """读心跳键判断 worker 是否存活。
+
+        Redis 不可用时返回 `False`（**保守**：宁可让 reconciler 按 DB 阈值收敛，
+        也不把失联任务当成存活而永久留 RUNNING）。
+        """
+        try:
+            return bool(await self._client.exists(task_heartbeat_key(task_id)))
+        except RedisError as exc:
+            log_event(
+                _LOG,
+                "task_progress.heartbeat_read_failed",
+                level="WARNING",
+                task_id=task_id,
+                error=repr(exc),
+            )
+            return False
 
     @staticmethod
     def _decode_message(raw: object) -> dict[str, Any] | None:
