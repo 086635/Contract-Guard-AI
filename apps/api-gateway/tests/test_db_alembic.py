@@ -30,6 +30,7 @@ EXPECTED_TABLES = {
     "auth_sessions",
     "contract_elements",
     "contract_commits",
+    "contract_previews",
     "contracts",
     "seal_detections",
     "settings_rules",

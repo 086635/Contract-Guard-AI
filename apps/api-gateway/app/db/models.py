@@ -43,6 +43,7 @@ from app.generated.schemas import (
     ConflictType,
     ContractStatus,
     FeedbackVerdict,
+    PreviewStatus,
     RiskCategory,
     RiskLevel,
     Role,
@@ -573,6 +574,42 @@ class UserFeedback(Base):
     )
 
 
+class ContractPreview(Base):
+    """合同预览元数据（C58）：显式状态机 + 预览派生对象 key。
+
+    `preview_object_key` 是**内部** MinIO key，只用于运行时签名，绝不进 API 响应；
+    PDF 指向原对象，DOCX 由 `convert_doc`（C59）写入 `contract_previews/...` 派生对象。
+    """
+
+    __tablename__ = "contract_previews"
+    __table_args__ = (
+        UniqueConstraint("contract_id", name="uq_contract_previews_contract"),
+        Index("ix_contract_previews_status", "status"),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid4
+    )
+    contract_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("contracts.id"), nullable=False
+    )
+    status: Mapped[PreviewStatus] = mapped_column(
+        _enum_type(PreviewStatus, "preview_status"),
+        default=PreviewStatus.pending,
+    )
+    preview_object_key: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    convert_task_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    page_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    converter_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utc_now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utc_now, onupdate=_utc_now
+    )
+
+
 __all__ = [
     "AuditAction",
     "AuditEvent",
@@ -585,6 +622,7 @@ __all__ = [
     "Contract",
     "ContractCommit",
     "ContractElement",
+    "ContractPreview",
     "SealDetection",
     "SettingsRule",
     "User",

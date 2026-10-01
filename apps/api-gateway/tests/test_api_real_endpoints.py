@@ -77,7 +77,8 @@ def test_openapi_operation_inventory_matches_production_app() -> None:
     expected = _openapi_operations()
     actual = _production_operations()
 
-    assert len(expected) == 28
+    # C58：新增 GET/POST `/contracts/{contractId}/preview[/retry]` → 30 个 operation
+    assert len(expected) == 30
     assert actual == expected
 
 

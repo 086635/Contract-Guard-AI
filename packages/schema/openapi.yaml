@@ -730,6 +730,24 @@ components:
         sizeBytes: { type: integer, minimum: 0, description: 直传后声明大小；服务端 stat 复核 }
         etag: { type: string, description: 直传返回的 ETag；服务端 stat 复核 }
 
+    PreviewStatus:
+      type: string
+      enum: [PENDING, RUNNING, DONE, FAILED]
+
+    PreviewData:
+      type: object
+      required: [contractId, status, expiresIn, createdAt]
+      properties:
+        contractId: { type: string }
+        status: { $ref: "#/components/schemas/PreviewStatus" }
+        previewUrl:
+          type: ["string", "null"]
+          description: 运行时签发的短期 GET URL；PENDING/FAILED 时为 null（不落库）
+        expiresIn: { type: integer, description: previewUrl 有效期（秒）；无 URL 时为 0 }
+        pageCount: { type: ["integer", "null"] }
+        converterVersion: { type: ["string", "null"] }
+        createdAt: { type: string, format: date-time }
+
     AgentRewriteRequest:
       type: object
       required: [contractId, clauseId, instruction, scopedMemory, xRequestId]
@@ -892,6 +910,14 @@ components:
           required: [data]
           properties:
             data: { $ref: "#/components/schemas/TaskProgress" }
+
+    PreviewResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiEnvelopeBase"
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: "#/components/schemas/PreviewData" }
 
     ContractDetailResponse:
       allOf:
@@ -1384,6 +1410,43 @@ paths:
         "409": { $ref: "#/components/responses/Duplicate" }
         "413": { $ref: "#/components/responses/FileTooLarge" }
         "415": { $ref: "#/components/responses/UnsupportedType" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+  /contracts/{contractId}/preview:
+    get:
+      tags: [Contracts]
+      summary: 文档预览元数据与短期预览 URL
+      operationId: getContractPreview
+      parameters:
+        - { name: contractId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PreviewResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+  /contracts/{contractId}/preview/retry:
+    post:
+      tags: [Contracts]
+      summary: 重试 DOCX→PDF 预览转换（需 X-Request-ID 幂等）
+      operationId: retryContractPreview
+      parameters:
+        - { name: contractId, in: path, required: true, schema: { type: string } }
+        - { name: X-Request-ID, in: header, required: true, schema: { type: string }, description: 幂等 UUID }
+      responses:
+        "200":
+          description: 已派发转换任务
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ContractUploadResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Duplicate" }
         "500": { $ref: "#/components/responses/Internal" }
 
   /contracts/{contractId}:

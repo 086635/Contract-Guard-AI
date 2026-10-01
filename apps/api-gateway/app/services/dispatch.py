@@ -22,6 +22,7 @@ class TaskKind(StrEnum):
     """网关允许派发的 worker 任务名。"""
 
     SCAN_UPLOAD = "scan_upload"
+    CONVERT_DOC = "convert_doc"
     PARSE_DOC = "parse_doc"
     RUN_AUDIT = "run_audit"
     GEN_REPORT = "gen_report"

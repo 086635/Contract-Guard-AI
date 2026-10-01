@@ -14,6 +14,7 @@ from app.api.deps import (
     get_audit_service,
     get_current_user,
     get_service_context,
+    require_roles,
     write_audit_event,
 )
 from app.db.models import AuditAction, AuditOutcome
@@ -29,7 +30,9 @@ from app.generated.schemas import (
     ElementListResponse,
     ParseStatusResponse,
     PresignResponse,
+    PreviewResponse,
     RiskListResponse,
+    Role,
     SealListResponse,
     UploadBody,
 )
@@ -43,6 +46,7 @@ from app.services.commit_service import (
 from app.services.context import ServiceContext
 from app.services.contract_service import ContractService, PresignRequest
 from app.services.envelope import build_success_response
+from app.services.preview_service import PreviewService
 from app.services.result_service import ResultService
 from app.services.storage import UploadObjectError
 
@@ -137,6 +141,73 @@ async def upload_contract(
     )
     await context.session.commit()
     return build_success_response(ContractUploadResponse, data)
+
+
+@router.get(
+    "/{contract_id}/preview",
+    response_model=PreviewResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def get_contract_preview(
+    contract_id: UUID,
+    request: Request,
+    user: Annotated[UserRecord, Depends(get_current_user)],
+    audit: Annotated[AuditService, Depends(get_audit_service)],
+    context: ServiceContext = Depends(get_service_context),
+) -> PreviewResponse:
+    """文档预览元数据与短期预览 URL（C58）。合同不存在 → 404（不泄露存在性）。"""
+    try:
+        data = await PreviewService(context).get(contract_id)
+    except ContractNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="contract not found",
+        ) from exc
+    await write_audit_event(
+        audit,
+        request,
+        AuditAction.view,
+        "CONTRACT_PREVIEW",
+        AuditOutcome.success,
+        actor_id=user.id,
+        actor_role=user.role,
+        resource_id=str(contract_id),
+        metadata={
+            "method": "GET",
+            "path": f"/api/v1/contracts/{contract_id}/preview",
+        },
+    )
+    await context.session.commit()
+    return build_success_response(PreviewResponse, data)
+
+
+@router.post(
+    "/{contract_id}/preview/retry",
+    response_model=ContractUploadResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def retry_contract_preview(
+    contract_id: UUID,
+    user: Annotated[
+        UserRecord,
+        Depends(require_roles(Role.admin, Role.reviewer)),
+    ],
+    x_request_id: str = Header(..., alias="X-Request-ID"),
+    context: ServiceContext = Depends(get_service_context),
+) -> ContractUploadResponse:
+    """重试 DOCX→PDF 预览转换（C58）。
+
+    仅 ADMIN/REVIEWER 可触发；结果只暴露预览状态摘要，不暴露内部对象 key。
+    """
+    del user, x_request_id  # 幂等由全局 X-Request-ID 中间件保证；此处只用作用户门槛
+    try:
+        progress = await PreviewService(context).retry(contract_id)
+    except ContractNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="contract not found",
+        ) from exc
+    return build_success_response(ContractUploadResponse, progress)
 
 
 @router.get(
