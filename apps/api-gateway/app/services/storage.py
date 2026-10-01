@@ -71,6 +71,12 @@ class MinioObjectStorage:
             expires=timedelta(seconds=expires_s),
         )
 
+    def download_object(self, file_key: str, target_path: str) -> str:
+        """把对象下载到本地路径（内部 client 只读；调用方负责临时文件生命周期）。"""
+        return str(
+            self._internal_client.fget_object(self._bucket, file_key, target_path)
+        )
+
     def stat_object(self, file_key: str) -> StoredObjectInfo:
         """读取对象大小与 ETag。"""
         stat = self._internal_client.stat_object(self._bucket, file_key)

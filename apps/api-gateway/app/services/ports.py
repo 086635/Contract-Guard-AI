@@ -48,6 +48,10 @@ class ObjectStoragePort(Protocol):
         """读取对象大小与 ETag。"""
         ...
 
+    def download_object(self, file_key: str, target_path: str) -> str:
+        """把对象下载到本地路径（服务端内部读取派生文件用）。"""
+        ...
+
 
 class TaskDispatcherPort(Protocol):
     """Celery 任务派发端口。"""

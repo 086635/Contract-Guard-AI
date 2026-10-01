@@ -10,12 +10,13 @@
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 from app.db.repository.contract import ContractDetail
 from app.db.repository.result import ReportRecord
 from app.generated import schemas as s
-from rag_contracts.chunk import ContractChunk
+from rag_contracts.chunk import BBox, ContractChunk
 
 _RISK_PENALTY = {
     s.RiskLevel.high: 15,
@@ -87,7 +88,7 @@ class ContractProjector:
     @staticmethod
     def _element(chunk: ContractChunk) -> s.ContractElement:
         bbox = None
-        if chunk.bbox is not None:
+        if chunk.bbox is not None and ContractProjector._is_renderable(chunk.bbox):
             bbox = s.BBox(
                 page=chunk.bbox.page,
                 x=chunk.bbox.x,
@@ -121,6 +122,14 @@ class ContractProjector:
             bbox=bbox,
             isCustom=False,
         )
+    @staticmethod
+    def _is_renderable(bbox: BBox) -> bool:
+        """退化框（页码 < 1、宽高非正、坐标非有限）不投影 —— **不伪造高亮**（C60）。"""
+        values = (bbox.x, bbox.y, bbox.width, bbox.height)
+        if any(not math.isfinite(value) for value in values):
+            return False
+        return bbox.page >= 1 and bbox.width > 0 and bbox.height > 0
+
     @staticmethod
     def _health_score(
         risks: list[s.EnhancedRiskItem],

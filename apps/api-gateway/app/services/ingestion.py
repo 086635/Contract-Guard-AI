@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 from uuid import UUID
 
@@ -175,11 +176,17 @@ def element_payload_to_chunk(
 class IngestionService:
     """网关侧惰性结果入库与审核派发。"""
 
-    def __init__(self, context: ServiceContext) -> None:
+    def __init__(
+        self,
+        context: ServiceContext,
+        *,
+        elements: ElementRepository | None = None,
+    ) -> None:
+        """构造服务；`elements` 可注入替身（坐标重建用例需要**离线**验证写回）。"""
         self._context = context
         self._contracts = ContractRepository(context.session)
         self._tasks = TaskRepository(context.session)
-        self._elements = ElementRepository(context.session)
+        self._elements = elements or ElementRepository(context.session)
         self._risks = RiskRepository(context.session)
         self._seals = SealRepository(context.session)
 
@@ -270,6 +277,28 @@ class IngestionService:
             warnings=len(warnings),
         )
         return True
+
+    async def finalize_preview_alignment(
+        self,
+        contract_id: UUID,
+        chunks: Sequence[ContractChunk],
+    ) -> int:
+        """把重建后的切片坐标写回 `contract_elements`（C60 §④）。
+
+        `chunk_id` 不变，故 `bulk_upsert` 是**幂等更新**：重复重建得到同样的坐标，
+        写库结果一致（断言 4）。
+
+        Args:
+            contract_id: 合同 ID。
+            chunks: 已重建坐标的切片（只改 `bbox` / `page_no`）。
+
+        Returns:
+            实际写入的切片数；空输入不触发任何写。
+        """
+        if not chunks:
+            return 0
+        await self._elements.bulk_upsert(contract_id, chunks)
+        return len(chunks)
 
     async def finalize_audit(self, contract_id: UUID) -> bool:
         """按最新 `RUN_AUDIT` 任务结果入库 `risks` / `conflicts`。
