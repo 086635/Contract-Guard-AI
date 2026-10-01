@@ -77,6 +77,13 @@ class MinioObjectStorage:
             self._internal_client.fget_object(self._bucket, file_key, target_path)
         )
 
+    def bucket_exists(self) -> bool:
+        """就绪探针：桶是否存在且可访问（失败只返回 False，不回显 endpoint/凭据）。"""
+        try:
+            return bool(self._internal_client.bucket_exists(self._bucket))
+        except Exception:  # noqa: BLE001 - 探针不得把底层异常抛出到 /health/ready
+            return False
+
     def stat_object(self, file_key: str) -> StoredObjectInfo:
         """读取对象大小与 ETag。"""
         stat = self._internal_client.stat_object(self._bucket, file_key)

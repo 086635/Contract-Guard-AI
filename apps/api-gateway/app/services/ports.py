@@ -48,6 +48,10 @@ class ObjectStoragePort(Protocol):
         """读取对象大小与 ETag。"""
         ...
 
+    def bucket_exists(self) -> bool:
+        """就绪探针：对象存储桶是否可访问（C67）。"""
+        ...
+
     def download_object(self, file_key: str, target_path: str) -> str:
         """把对象下载到本地路径（服务端内部读取派生文件用）。"""
         ...
@@ -80,6 +84,10 @@ class ProgressBrokerPort(Protocol):
 
     async def heartbeat_seen(self, task_id: str) -> bool:
         """该任务近期是否有心跳（worker 存活证据，C63 对账输入）。"""
+        ...
+
+    async def ping(self) -> bool:
+        """就绪探针：Redis 是否可连通（C67）。"""
         ...
 
 

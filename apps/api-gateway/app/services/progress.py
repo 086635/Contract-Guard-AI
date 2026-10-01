@@ -83,6 +83,19 @@ class RedisProgressBroker:
 
         return iterator()
 
+    async def ping(self) -> bool:
+        """就绪探针：`PING` Redis；不可用返回 False（**不抛异常、不回显连接串**）。"""
+        try:
+            return bool(await self._client.ping())
+        except RedisError as exc:
+            log_event(
+                _LOG,
+                "readiness.redis_failed",
+                level="WARNING",
+                error=type(exc).__name__,
+            )
+            return False
+
     async def heartbeat_seen(self, task_id: str) -> bool:
         """读心跳键判断 worker 是否存活。
 

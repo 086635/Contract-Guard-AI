@@ -1,15 +1,32 @@
 # =============================================================================
-# 生产 Secret 层（C66 · T-D7-8）
+# 生产 overlay（C66 secret 注入 + C67 prod profile / 端口收敛 / 资源与日志）
 #
-# 与开发 compose 叠加使用：
+# 用法：
 #   CG_SECRETS_DIR=/etc/contract-guard/secrets \
 #   docker compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d
 #
-# ⚠️ 先用**部署方**创建 secret 文件（权限 600，不入库、不进镜像）：
-#   ${CG_SECRETS_DIR:-./secrets}/{jwt_secret,postgres_password,minio_access_key,minio_secret_key,llm_api_key}
-#
-# ⚠️ 本文件只负责 secret 注入；prod profile / TLS / readiness / 端口收敛由 C67 继续叠加。
+# C67 约定：
+#   · **只公开 nginx 的 80/443**；其它服务一律 `ports: !override []`（不发布宿主端口）
+#   · 每个服务 `restart: unless-stopped` + json-file 日志轮转 + 资源上限（可用环境变量覆盖）
+#   · api 健康检查走 `/health/live`（只表示进程活着）；**依赖就绪**由 `/health/ready` 表达
+#   · `CG_DISABLE_DOCS=true` 关闭公开 docs / redoc / openapi
+#   ⚠️ TLS / 安全头 / 限流见 C68（docker/nginx.prod.conf）；备份见 C69。
 # =============================================================================
+x-cg-logging: &cg-logging
+  driver: json-file
+  options:
+    max-size: ${CG_LOG_MAX_SIZE:-10m}
+    max-file: "${CG_LOG_MAX_FILE:-5}"
+
+x-cg-api-limits: &cg-api-limits
+  resources:
+    limits:
+      cpus: "${CG_API_CPUS:-1.0}"
+      memory: ${CG_API_MEMORY:-1g}
+
+# -----------------------------------------------------------------------------
+# Secret（C66）：文件由部署方创建（权限 600），compose 只挂载不写明文
+# -----------------------------------------------------------------------------
 secrets:
   cg_jwt_secret:
     file: ${CG_SECRETS_DIR:-./secrets}/jwt_secret
@@ -37,27 +54,140 @@ x-cg-secret-mounts: &cg-secret-mounts
   - cg_llm_api_key
 
 services:
-  # 迁移也要用真实口令：DSN 里的口令位会被 CG_POSTGRES_PASSWORD_FILE 覆盖
+  postgres:
+    restart: unless-stopped
+    ports: !override []
+    logging: *cg-logging
+    deploy:
+      resources:
+        limits:
+          cpus: "${CG_POSTGRES_CPUS:-1.0}"
+          memory: ${CG_POSTGRES_MEMORY:-1g}
+
+  redis:
+    restart: unless-stopped
+    ports: !override []
+    logging: *cg-logging
+    deploy:
+      resources:
+        limits:
+          cpus: "${CG_REDIS_CPUS:-0.5}"
+          memory: ${CG_REDIS_MEMORY:-512m}
+
+  qdrant:
+    restart: unless-stopped
+    ports: !override []
+    logging: *cg-logging
+    deploy:
+      resources:
+        limits:
+          cpus: "${CG_QDRANT_CPUS:-1.0}"
+          memory: ${CG_QDRANT_MEMORY:-1g}
+
+  # Milvus 是 P2 备选向量库：生产默认**不启动**（profile 显式开启），且不发布端口
+  etcd:
+    profiles: ["milvus"]
+
+  milvus:
+    profiles: ["milvus"]
+    restart: unless-stopped
+    ports: !override []
+    logging: *cg-logging
+
+  minio:
+    restart: unless-stopped
+    ports: !override []
+    logging: *cg-logging
+    deploy:
+      resources:
+        limits:
+          cpus: "${CG_MINIO_CPUS:-1.0}"
+          memory: ${CG_MINIO_MEMORY:-1g}
+
+  minio-init:
+    restart: "no"
+
+  # 迁移也要用真实口令：DSN 的口令位会被 CG_POSTGRES_PASSWORD_FILE 覆盖
   migrate:
     environment:
       CG_POSTGRES_DSN: postgresql+asyncpg://cg:from-secret-file@postgres:5432/cg
       <<: *cg-secret-env
     secrets: *cg-secret-mounts
+    restart: "no"
 
   api:
+    restart: unless-stopped
+    ports: !override []
     environment:
       CG_POSTGRES_DSN: postgresql+asyncpg://cg:from-secret-file@postgres:5432/cg
+      CG_DISABLE_DOCS: "true"
       <<: *cg-secret-env
     secrets: *cg-secret-mounts
+    logging: *cg-logging
+    deploy: *cg-api-limits
+    healthcheck:
+      # live 探针：只表示进程活着（依赖就绪看 /health/ready）
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health/live', timeout=3).status == 200 else 1)
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
 
   worker:
+    restart: unless-stopped
     environment:
       CG_POSTGRES_DSN: postgresql+asyncpg://cg:from-secret-file@postgres:5432/cg
       <<: *cg-secret-env
     secrets: *cg-secret-mounts
+    logging: *cg-logging
+    deploy:
+      resources:
+        limits:
+          cpus: "${CG_WORKER_CPUS:-2.0}"
+          memory: ${CG_WORKER_MEMORY:-2g}
+    depends_on:
+      # C57 的扫描依赖升级为健康门禁（clamav 自带 healthcheck）
+      clamav: { condition: service_healthy }
 
   worker-convert:
+    restart: unless-stopped
     environment:
       CG_POSTGRES_DSN: postgresql+asyncpg://cg:from-secret-file@postgres:5432/cg
       <<: *cg-secret-env
     secrets: *cg-secret-mounts
+    logging: *cg-logging
+    deploy:
+      resources:
+        limits:
+          cpus: "${CG_CONVERT_CPUS:-2.0}"
+          memory: ${CG_CONVERT_MEMORY:-2g}
+
+  clamav:
+    restart: unless-stopped
+    ports: !override []
+    logging: *cg-logging
+    deploy:
+      resources:
+        limits:
+          cpus: "${CG_CLAMAV_CPUS:-1.0}"
+          memory: ${CG_CLAMAV_MEMORY:-1g}
+
+  web:
+    restart: unless-stopped
+    ports: !override []
+    logging: *cg-logging
+
+  nginx:
+    restart: unless-stopped
+    # 生产只公开 80/443（TLS 证书与安全头由 C68 叠加）
+    ports: !override ["80:80", "443:443"]
+    logging: *cg-logging
+    deploy:
+      resources:
+        limits:
+          cpus: "${CG_NGINX_CPUS:-1.0}"
+          memory: ${CG_NGINX_MEMORY:-512m}

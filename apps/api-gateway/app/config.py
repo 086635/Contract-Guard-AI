@@ -86,6 +86,8 @@ class Settings(BaseSettings):
     app_name: str = "contract-guard-api"
     debug: bool = False
     api_v1_prefix: str = "/api/v1"
+    #: 生产 overlay 置 true：关闭公开 `/docs` / `/redoc` / `/openapi.json`（C67 §② 做）。
+    disable_docs: bool = False
 
     # ---- 安全 ----
     #: 敏感值一律用 `SecretStr`：`repr(settings)` / 日志只显示 `**********`（C66 §⑥-1）。
