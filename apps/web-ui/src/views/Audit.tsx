@@ -4,10 +4,11 @@ import Button from "@/components/ui/Button";
 import Icon from "@/components/ui/Icon";
 import ElementsPanel from "@/components/audit/ElementsPanel";
 import PdfStage from "@/components/audit/PdfStage";
+import type { Highlight } from "@/components/pdf-viewer/PdfViewer";
 import RiskPanel from "@/components/audit/RiskPanel";
 import FeedbackDialog from "@/components/audit/FeedbackDialog";
 import AgentChat from "@/components/chat/AgentChat";
-import { contractApi, reportApi, taskApi } from "@/api/services";
+import { contractApi, previewApi, reportApi, taskApi } from "@/api/services";
 import type { components } from "@/api/generated/types";
 
 type Schemas = components["schemas"];
@@ -26,6 +27,8 @@ export default function Audit() {
   const [conflicts, setConflicts] = useState<Schemas["CrossClauseConflict"][]>([]);
   const [seals, setSeals] = useState<Schemas["SealSignatureDetection"][]>([]);
   const [parseStatus, setParseStatus] = useState<Schemas["TaskProgress"] | null>(null);
+  const [preview, setPreview] = useState<Schemas["PreviewData"] | null>(null);
+  const [previewRetrying, setPreviewRetrying] = useState(false);
   const [selectedRiskId, setSelectedRiskId] = useState<string>();
   const [selectedElement, setSelectedElement] = useState<Element | null>(null);
   const [filter, setFilter] = useState<RiskFilter>("ALL");
@@ -48,6 +51,7 @@ export default function Audit() {
       setConflicts([]);
       setSeals([]);
       setParseStatus(null);
+      setPreview(null);
       setSelectedRiskId(undefined);
       setSelectedElement(null);
       setError("合同 ID 无效，请从合同中心选择合同。");
@@ -62,8 +66,9 @@ export default function Audit() {
       contractApi.conflicts(selectedId),
       contractApi.seals(selectedId),
       contractApi.parseStatus(selectedId),
+      previewApi.get(selectedId),
     ]);
-    const [detail, extracted, riskItems, conflictItems, sealItems, status] = results;
+    const [detail, extracted, riskItems, conflictItems, sealItems, status, previewData] = results;
     if (detail.status === "fulfilled") setContract(detail.value);
     if (extracted.status === "fulfilled") setElements(extracted.value);
     if (riskItems.status === "fulfilled") {
@@ -73,6 +78,7 @@ export default function Audit() {
     if (conflictItems.status === "fulfilled") setConflicts(conflictItems.value);
     if (sealItems.status === "fulfilled") setSeals(sealItems.value);
     if (status.status === "fulfilled") setParseStatus(status.value);
+    if (previewData.status === "fulfilled") setPreview(previewData.value);
 
     const failures: unknown[] = [];
     results.forEach((result) => {
@@ -99,13 +105,43 @@ export default function Audit() {
     setConflicts([]);
     setSeals([]);
     setParseStatus(null);
+    setPreview(null);
     setSelectedRiskId(undefined);
     setSelectedElement(null);
     void loadAudit();
   }, [selectedId]);
 
+  // 预览转换中：每 2 秒刷新一次元数据（与任务轮询同节奏），完成即自动切换到查看器。
+  useEffect(() => {
+    if (!preview || (preview.status !== "PENDING" && preview.status !== "RUNNING")) return;
+    const timer = window.setTimeout(() => {
+      void previewApi
+        .get(selectedId)
+        .then(setPreview)
+        .catch(() => undefined);
+    }, 2000);
+    return () => window.clearTimeout(timer);
+  }, [preview, selectedId]);
+
+  const retryPreview = async () => {
+    if (!UUID_RE.test(selectedId) || previewRetrying) return;
+    setPreviewRetrying(true);
+    try {
+      await previewApi.retry(selectedId);
+      setPreview(await previewApi.get(selectedId));
+    } catch (reason) {
+      setActionMessage(reason instanceof Error ? reason.message : "预览转换重试失败，请稍后重试。");
+    } finally {
+      setPreviewRetrying(false);
+    }
+  };
+
   const selectedRisk = risks.find((risk) => risk.id === selectedRiskId);
-  const highlight = useMemo(() => selectedElement?.bbox ? { label: selectedElement.label, kind: "element" as const, bbox: selectedElement.bbox } : selectedRisk ? { label: selectedRisk.title, kind: "risk" as const, bbox: selectedRisk.bbox } : null, [selectedElement, selectedRisk]);
+  const highlights = useMemo<Highlight[]>(() => {
+    if (selectedElement?.bbox) return [{ id: selectedElement.key, label: selectedElement.label, kind: "element", bbox: selectedElement.bbox }];
+    if (selectedRisk?.bbox) return [{ id: selectedRisk.id, label: selectedRisk.title, kind: "risk", bbox: selectedRisk.bbox }];
+    return [];
+  }, [selectedElement, selectedRisk]);
   const commit = async () => {
     const items = risks.filter((risk) => accepted[risk.id]).map((risk) => ({ id: risk.id, accept: true }));
     if (!items.length || actionLoading) return;
@@ -159,5 +195,5 @@ export default function Audit() {
   const lowCount = risks.filter((item) => item.level === "LOW").length;
   const hasAuditData = Boolean(contract || elements.length || risks.length || conflicts.length || seals.length || parseStatus);
 
-  return <div className="audit-page"><div className="audit-topbar"><div><div className="eyebrow">CONTRACT REVIEW · {contract?.id ?? selectedId}</div><h1>{contract?.fileName ?? (loading ? "正在加载合同…" : "合同详情")} <span className="inline-status"><i />{contract?.status === "FINALIZED" ? "已定稿" : "审核中"}</span></h1></div><div className="audit-top-actions"><span className="save-state"><i />{loading ? "正在同步" : parseStatus?.status === "DONE" ? `解析完成 · ${seals.length} 处签署已校验` : "自动保存已开启"}</span><Button variant="secondary" size="sm" icon={<Icon name="refresh" size={16} />} onClick={() => void loadAudit()} disabled={loading}>刷新</Button></div></div>{error && <div className="audit-data-error"><Icon name="activity" size={17} /><span>{error}</span><Button size="sm" variant="secondary" onClick={() => void loadAudit()}>重新加载</Button></div>}{loading ? <div className="audit-loading"><div className="state-spinner" /><span>正在装载合同、风险和坐标图层…</span></div> : !hasAuditData ? <div className="data-state error"><div><p>{error ?? "未找到该合同的审核数据。"}</p><Button size="sm" variant="secondary" onClick={() => void loadAudit()}>重新加载</Button></div></div> : <div className="audit-workspace"><ElementsPanel extractedElements={elements} selectedElementKey={selectedElement?.key} onSelectElement={chooseElement} riskCounts={{ high: highCount, medium: mediumCount, low: lowCount, conflicts: conflicts.length, seals: seals.length }} riskFilter={filter} onRiskFilter={applyFilter} healthScore={contract?.healthScore.overall} /><PdfStage fileName={contract?.fileName ?? "合同文件"} highlight={highlight} onFeedback={() => selectedRisk && setFeedbackRisk(selectedRisk)} /><RiskPanel healthScore={contract?.healthScore.overall} risks={risks} conflicts={conflicts} seals={seals} filter={filter} selectedRiskId={selectedRiskId} accepted={accepted} onFilter={applyFilter} onSelectRisk={chooseRisk} onToggleAccepted={(riskId) => setAccepted((current) => ({ ...current, [riskId]: !current[riskId] }))} onCommit={() => void commit()} onGenerateReport={() => void generateReport()} onRewrite={setRewriteRisk} onFeedback={setFeedbackRisk} actionLoading={actionLoading} /></div>}{actionMessage && <div className={`audit-toast ${actionMessage.includes("失败") ? "error" : ""}`} onClick={() => setActionMessage(null)}>{actionMessage}</div>}{rewriteRisk && <AgentChat contractId={selectedId} clauseId={rewriteRisk.clauseId} originalText={rewriteRisk.originalText} onClose={() => setRewriteRisk(null)} onApplied={() => { setAccepted((current) => ({ ...current, [rewriteRisk.id]: true })); setActionMessage("AI 改写建议已加入提交清单。"); }} />}{feedbackRisk && <FeedbackDialog contractId={selectedId} targetId={feedbackRisk.id} targetLabel={feedbackRisk.title} onClose={() => setFeedbackRisk(null)} onSubmitted={setActionMessage} />}</div>;
+  return <div className="audit-page"><div className="audit-topbar"><div><div className="eyebrow">CONTRACT REVIEW · {contract?.id ?? selectedId}</div><h1>{contract?.fileName ?? (loading ? "正在加载合同…" : "合同详情")} <span className="inline-status"><i />{contract?.status === "FINALIZED" ? "已定稿" : "审核中"}</span></h1></div><div className="audit-top-actions"><span className="save-state"><i />{loading ? "正在同步" : parseStatus?.status === "DONE" ? `解析完成 · ${seals.length} 处签署已校验` : "自动保存已开启"}</span><Button variant="secondary" size="sm" icon={<Icon name="refresh" size={16} />} onClick={() => void loadAudit()} disabled={loading}>刷新</Button></div></div>{error && <div className="audit-data-error"><Icon name="activity" size={17} /><span>{error}</span><Button size="sm" variant="secondary" onClick={() => void loadAudit()}>重新加载</Button></div>}{loading ? <div className="audit-loading"><div className="state-spinner" /><span>正在装载合同、风险和坐标图层…</span></div> : !hasAuditData ? <div className="data-state error"><div><p>{error ?? "未找到该合同的审核数据。"}</p><Button size="sm" variant="secondary" onClick={() => void loadAudit()}>重新加载</Button></div></div> : <div className="audit-workspace"><ElementsPanel extractedElements={elements} selectedElementKey={selectedElement?.key} onSelectElement={chooseElement} riskCounts={{ high: highCount, medium: mediumCount, low: lowCount, conflicts: conflicts.length, seals: seals.length }} riskFilter={filter} onRiskFilter={applyFilter} healthScore={contract?.healthScore.overall} /><PdfStage fileName={contract?.fileName ?? "合同文件"} preview={preview} highlights={highlights} previewRetrying={previewRetrying} onRetry={() => void retryPreview()} onFeedback={() => selectedRisk && setFeedbackRisk(selectedRisk)} /><RiskPanel healthScore={contract?.healthScore.overall} risks={risks} conflicts={conflicts} seals={seals} filter={filter} selectedRiskId={selectedRiskId} accepted={accepted} onFilter={applyFilter} onSelectRisk={chooseRisk} onToggleAccepted={(riskId) => setAccepted((current) => ({ ...current, [riskId]: !current[riskId] }))} onCommit={() => void commit()} onGenerateReport={() => void generateReport()} onRewrite={setRewriteRisk} onFeedback={setFeedbackRisk} actionLoading={actionLoading} /></div>}{actionMessage && <div className={`audit-toast ${actionMessage.includes("失败") ? "error" : ""}`} onClick={() => setActionMessage(null)}>{actionMessage}</div>}{rewriteRisk && <AgentChat contractId={selectedId} clauseId={rewriteRisk.clauseId} originalText={rewriteRisk.originalText} onClose={() => setRewriteRisk(null)} onApplied={() => { setAccepted((current) => ({ ...current, [rewriteRisk.id]: true })); setActionMessage("AI 改写建议已加入提交清单。"); }} />}{feedbackRisk && <FeedbackDialog contractId={selectedId} targetId={feedbackRisk.id} targetLabel={feedbackRisk.title} onClose={() => setFeedbackRisk(null)} onSubmitted={setActionMessage} />}</div>;
 }

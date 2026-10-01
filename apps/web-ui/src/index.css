@@ -111,3 +111,16 @@ body { color: #252a36; background: #f5f6fa; }
 .auth-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 32px; }.auth-brand strong { display: block; font-size: 17px; letter-spacing: -.3px; }.auth-brand strong span { color: #a899ff; }.auth-brand small { display: block; margin-top: 3px; color: #676a79; font-size: 8px; letter-spacing: 1.25px; }
 .auth-copy .eyebrow { margin-bottom: 9px; }.auth-copy h1 { margin: 0 0 12px; font-size: 27px; letter-spacing: -.7px; }.auth-copy p { margin: 0 0 26px; color: #8c8f9f; font-size: 13px; line-height: 1.65; }
 .auth-form { display: grid; gap: 16px; }.auth-form label { display: grid; gap: 7px; color: #9ea2b1; font-size: 12px; }.auth-form input { height: 42px; padding: 0 12px; color: #eeeef4; outline: 0; border: 1px solid rgba(255,255,255,.12); border-radius: 9px; background: rgba(255,255,255,.045); }.auth-form input:focus { border-color: #8c7bff; box-shadow: 0 0 0 3px rgba(140,123,255,.14); }.auth-form .button { margin-top: 5px; width: 100%; }.auth-error { padding: 9px 11px; color: #f5a1a5; border: 1px solid rgba(244,125,130,.25); border-radius: 8px; background: rgba(244,125,130,.08); font-size: 12px; }.auth-footnote { display: block; margin-top: 22px; color: #6f7280; font-size: 11px; line-height: 1.6; }.auth-loading { min-height: 100vh; display: grid; place-items: center; color: #9ea2b1; background: #101116; }
+
+/* ---- C61：PDF.js 查看器（Canvas + TextLayer + BBox Overlay）---- */
+.pdf-viewer { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.pdf-page { position: relative; margin: 0 auto; background: #fff; box-shadow: 0 12px 35px rgba(45,49,65,.16); }
+.pdf-page-canvas { display: block; }
+.pdf-text-layer { position: absolute; left: 0; top: 0; overflow: hidden; opacity: .25; line-height: 1; }
+.pdf-text-layer span { position: absolute; color: transparent; white-space: pre; transform-origin: 0 0; }
+.pdf-viewer-state { position: absolute; inset: 0; display: grid; place-items: center; padding: 20px; color: #7b8090; background: rgba(255,255,255,.72); font-size: 11px; }
+.pdf-viewer-state.error { color: #c0454c; }
+.pdf-preview-state { flex: 1; display: grid; align-content: center; justify-items: center; gap: 10px; padding: 40px 24px; color: #7b8090; text-align: center; font-size: 11px; }
+.pdf-preview-state strong { color: #4a5060; font-size: 13px; }
+.bbox-overlay { min-width: 0; min-height: 0; z-index: 4; padding: 0; cursor: pointer; animation: none; }
+.bbox-overlay span { left: 0; bottom: calc(100% + 3px); background: #dc5d67; }

@@ -84,6 +84,17 @@ export const uploadApi = {
   async submit(body: UploadBody): Promise<TaskProgress> { return unwrap(await httpClient.post<Envelope<TaskProgress>>("/contracts/upload", body)); },
 };
 
+export const previewApi = {
+  /** 预览元数据 + 短期签名 URL（C58）。 */
+  async get(contractId: string): Promise<Schemas["PreviewData"]> {
+    return unwrap(await httpClient.get<Envelope<Schemas["PreviewData"]>>(`/contracts/${contractId}/preview`));
+  },
+  /** 重试 DOCX→PDF 预览转换（C59；仅 ADMIN/REVIEWER，X-Request-ID 幂等）。 */
+  async retry(contractId: string): Promise<TaskProgress> {
+    return unwrap(await httpClient.post<Envelope<TaskProgress>>(`/contracts/${contractId}/preview/retry`));
+  },
+};
+
 export const taskApi = {
   async get(taskId: string): Promise<TaskProgress> { return unwrap(await httpClient.get<Envelope<TaskProgress>>(`/tasks/${taskId}`)); },
   subscribe(taskId: string, onProgress: (progress: TaskProgress) => void, onError?: (event: Event) => void): () => void {
