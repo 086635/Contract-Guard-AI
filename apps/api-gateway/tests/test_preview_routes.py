@@ -26,7 +26,7 @@ from app.db.repository.preview import PreviewRecord
 from app.generated.schemas import ContractStatus, PreviewStatus, Role, Status
 from app.services.commit_service import ContractNotFoundError
 from app.services.context import ServiceContext
-from app.services.ports import ProgressBrokerPort
+from app.services.ports import ProgressBrokerPort, TaskStatusSnapshot
 from app.services.preview_service import (
     PREVIEW_URL_TTL_SECONDS,
     PreviewService,
@@ -79,6 +79,7 @@ class FakeDispatcher:
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, tuple[object, ...]]] = []
+        self.snapshot: TaskStatusSnapshot | None = None
 
     def send(
         self,
@@ -91,9 +92,9 @@ class FakeDispatcher:
         self.calls.append((str(task_name), args))
         return "celery-convert-1"
 
-    def get_status(self, task_id: str) -> None:
+    def get_status(self, task_id: str) -> TaskStatusSnapshot | None:
         del task_id
-        return None
+        return self.snapshot
 
 
 class FakeSession:
@@ -164,6 +165,45 @@ class FakePreviewRepository:
             update={
                 "status": PreviewStatus.running,
                 "convert_task_id": convert_task_id,
+                "updated_at": datetime.now(UTC),
+            }
+        )
+        self.rows[preview_id] = updated
+        return updated
+
+    async def mark_done(
+        self,
+        preview_id: UUID,
+        *,
+        preview_object_key: str,
+        converter_version: str | None,
+        page_count: int | None = None,
+    ) -> PreviewRecord:
+        old = self.rows[preview_id]
+        updated = old.model_copy(
+            update={
+                "status": PreviewStatus.done,
+                "preview_object_key": preview_object_key,
+                "converter_version": converter_version,
+                "page_count": page_count if page_count is not None else old.page_count,
+                "error_message": None,
+                "updated_at": datetime.now(UTC),
+            }
+        )
+        self.rows[preview_id] = updated
+        return updated
+
+    async def mark_failed(
+        self,
+        preview_id: UUID,
+        *,
+        error_message: str,
+    ) -> PreviewRecord:
+        old = self.rows[preview_id]
+        updated = old.model_copy(
+            update={
+                "status": PreviewStatus.failed,
+                "error_message": error_message,
                 "updated_at": datetime.now(UTC),
             }
         )
@@ -289,7 +329,7 @@ def test_preview_retry_idempotent() -> None:
     second = asyncio.run(service.retry(contract.id))
 
     assert dispatcher.calls == [
-        ("convert_doc", (contract.storage_path, str(contract.id)))
+        ("convert_doc", (str(contract.id), contract.storage_path))
     ]
     assert first.task_id == second.task_id == "celery-convert-1"
     assert first.status is Status.running and second.status is Status.running
@@ -305,6 +345,81 @@ def test_preview_retry_skips_when_done() -> None:
     assert dispatcher.calls == []
     assert progress.status is Status.done
     assert progress.percent == 1.0
+
+
+# --------------------------------------------------------------------------
+# 4b. 转换结果回写（C59 交接：worker 不写业务 DB，回写是网关职责）
+# --------------------------------------------------------------------------
+def test_preview_reconcile_marks_done() -> None:
+    """Celery 结果 SUCCESS → 写派生 key/版本并置 DONE，URL 从派生对象签发。"""
+    contract = _contract("采购合同.docx")
+    service, previews, storage, dispatcher = _service(contract)
+    asyncio.run(service.retry(contract.id))
+
+    dispatcher.snapshot = TaskStatusSnapshot(
+        status="DONE",
+        stage="done",
+        percent=1.0,
+        result={
+            "contractId": str(contract.id),
+            "status": "SUCCESS",
+            "storagePath": "contract_previews/c-1/converted.pdf",
+            "converterVersion": "libreoffice-24.8",
+            "warnings": [],
+        },
+    )
+
+    data = asyncio.run(service.get(contract.id))
+
+    assert data.status is PreviewStatus.done
+    assert data.preview_url is not None
+    assert data.converter_version == "libreoffice-24.8"
+    assert storage.get_calls == [
+        ("contract_previews/c-1/converted.pdf", PREVIEW_URL_TTL_SECONDS)
+    ]
+    assert next(iter(previews.rows.values())).status is PreviewStatus.done
+
+
+def test_preview_reconcile_marks_failed() -> None:
+    """Celery 结果 FAILED → 置 FAILED 并记录安全摘要，不签发 URL。"""
+    contract = _contract("采购合同.docx")
+    service, previews, storage, dispatcher = _service(contract)
+    asyncio.run(service.retry(contract.id))
+
+    dispatcher.snapshot = TaskStatusSnapshot(
+        status="FAILED",
+        stage="converted",
+        percent=0.0,
+        result={"status": "FAILED", "warnings": ["CONVERT_TIMEOUT"]},
+    )
+
+    data = asyncio.run(service.get(contract.id))
+
+    assert data.status is PreviewStatus.failed
+    assert data.preview_url is None
+    assert data.expires_in == 0
+    assert storage.get_calls == []
+    assert next(iter(previews.rows.values())).error_message == "CONVERT_TIMEOUT"
+
+
+def test_preview_reconcile_keeps_running() -> None:
+    """Celery 仍在跑 → 保持 RUNNING（不误判成功/失败）。"""
+    contract = _contract("采购合同.docx")
+    service, _, storage, dispatcher = _service(contract)
+    asyncio.run(service.retry(contract.id))
+
+    dispatcher.snapshot = TaskStatusSnapshot(
+        status="RUNNING",
+        stage="converting",
+        percent=0.5,
+        result=None,
+    )
+
+    data = asyncio.run(service.get(contract.id))
+
+    assert data.status is PreviewStatus.running
+    assert data.preview_url is None
+    assert storage.get_calls == []
 
 
 # --------------------------------------------------------------------------

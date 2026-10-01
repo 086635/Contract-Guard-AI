@@ -35,6 +35,14 @@ SOURCE_PDF = "PDF"
 SOURCE_DOCX = "DOCX"
 
 
+def _failure_reason(result: dict) -> str:
+    """从转换结果里取第一条安全摘要（没有则给通用码）。"""
+    warnings = result.get("warnings")
+    if isinstance(warnings, list) and warnings:
+        return str(warnings[0])
+    return "CONVERT_FAILED"
+
+
 def source_kind_of(filename: str) -> str | None:
     """按存储文件名判定预览来源类型。
 
@@ -92,6 +100,11 @@ class PreviewService:
         if record is None:
             record = await self._initialize(contract)
             await self._context.session.commit()
+        elif record.status is PreviewStatus.running:
+            reconciled = await self.reconcile_convert(contract_id)
+            if reconciled is not None:
+                record = reconciled
+            await self._context.session.commit()
         return self._to_preview_data(record)
 
     async def retry(self, contract_id: UUID) -> TaskProgress:
@@ -110,15 +123,56 @@ class PreviewService:
                 record, Status.running, stage="converting", percent=0.0
             )
 
+        # 参数顺序即 C59 §⑤ 的跨进程契约：`convert_doc(contract_id, source_key)`。
         celery_task_id = self._context.task_dispatcher.send(
             TaskKind.CONVERT_DOC,
-            args=(contract.storage_path, str(contract_id)),
+            args=(str(contract_id), contract.storage_path),
         )
         record = await self._previews.mark_running(record.id, celery_task_id)
         await self._context.session.commit()
         return self._to_progress(
             record, Status.running, stage="converting", percent=0.0
         )
+
+    async def reconcile_convert(self, contract_id: UUID) -> PreviewRecord | None:
+        """按 Celery 转换结果回写预览状态（**网关**职责；worker 不写业务 DB）。
+
+        - 仍 `RUNNING` → 原样返回（下一次读取或 C63 reconciler 再试）；
+        - Celery `DONE` 且结果 `status=SUCCESS` → 写派生 key/版本，置 `DONE`；
+        - Celery `FAILED` 或结果 `status=FAILED` → 置 `FAILED`（附安全摘要）。
+
+        Returns:
+            回写后的记录；没有预览行/没有在飞任务/状态非 `RUNNING` 时返回当前值。
+        """
+        record = await self._previews.get_by_contract(contract_id)
+        if record is None or not record.convert_task_id:
+            return record
+        if record.status is not PreviewStatus.running:
+            return record
+
+        snapshot = self._context.task_dispatcher.get_status(record.convert_task_id)
+        if snapshot is None:
+            return record
+        result = snapshot.result if isinstance(snapshot.result, dict) else {}
+        if snapshot.status == "FAILED" or result.get("status") == "FAILED":
+            return await self._previews.mark_failed(
+                record.id,
+                error_message=_failure_reason(result),
+            )
+        if snapshot.status == "DONE" and result.get("status") == "SUCCESS":
+            object_key = result.get("storagePath")
+            if not isinstance(object_key, str) or not object_key:
+                return await self._previews.mark_failed(
+                    record.id,
+                    error_message="CONVERT_NO_OUTPUT_KEY",
+                )
+            version = result.get("converterVersion")
+            return await self._previews.mark_done(
+                record.id,
+                preview_object_key=object_key,
+                converter_version=str(version) if version else None,
+            )
+        return record
 
     async def _require_contract(self, contract_id: UUID) -> ContractDetail:
         """读取合同；不存在抛 `ContractNotFoundError`（路由统一映射 404）。"""

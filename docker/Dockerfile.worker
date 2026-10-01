@@ -3,6 +3,16 @@ FROM python:3.11-slim AS base
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
 RUN pip install --no-cache-dir uv
 
+# C59：DOCX→PDF 预览转换依赖 LibreOffice（headless）。
+#   · libreoffice-writer 提供 `soffice`；`--convert-to pdf` 走 headless 模式
+#   · 装中日韩字体，否则中文合同转出的 PDF 会缺字
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        libreoffice-writer \
+        fonts-noto-cjk \
+        fonts-dejavu-core \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 COPY pyproject.toml ./
 COPY packages ./packages

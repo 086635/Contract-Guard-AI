@@ -90,6 +90,42 @@ class PreviewRepository:
         await self._session.flush()
         return PreviewRecord.model_validate(record)
 
+    async def mark_done(
+        self,
+        preview_id: UUID,
+        *,
+        preview_object_key: str,
+        converter_version: str | None,
+        page_count: int | None = None,
+    ) -> PreviewRecord:
+        """转换成功：写入派生对象 key / 转换器版本，置 `DONE`。"""
+        record = await self._session.get(ContractPreview, preview_id)
+        if record is None:
+            raise LookupError(f"预览记录不存在: {preview_id}")
+        record.status = PreviewStatus.done
+        record.preview_object_key = preview_object_key
+        record.converter_version = converter_version
+        if page_count is not None:
+            record.page_count = page_count
+        record.error_message = None
+        await self._session.flush()
+        return PreviewRecord.model_validate(record)
+
+    async def mark_failed(
+        self,
+        preview_id: UUID,
+        *,
+        error_message: str,
+    ) -> PreviewRecord:
+        """转换失败：置 `FAILED` 并记录安全摘要（原文不动，可重试）。"""
+        record = await self._session.get(ContractPreview, preview_id)
+        if record is None:
+            raise LookupError(f"预览记录不存在: {preview_id}")
+        record.status = PreviewStatus.failed
+        record.error_message = error_message
+        await self._session.flush()
+        return PreviewRecord.model_validate(record)
+
 
 __all__ = [
     "PreviewRecord",

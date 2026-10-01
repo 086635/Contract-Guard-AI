@@ -240,6 +240,49 @@ services:
       retries: 5
       start_period: 30s
 
+  # ---------------------------------------------------------------------------
+  # 预览转换 worker（C59）：只消费 `convert` 队列，与默认 worker 分离。
+  #   镜像与 worker 相同（内含 LibreOffice）；命令用 `-Q convert` 限定队列。
+  # ---------------------------------------------------------------------------
+  worker-convert:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.worker
+    environment:
+      CG_POSTGRES_DSN: postgresql+asyncpg://cg:cg@postgres:5432/cg
+      CG_REDIS_URL: redis://redis:6379/0
+      CG_QDRANT_URL: http://qdrant:6333
+      CG_MINIO_ENDPOINT: minio:9000
+      CG_MINIO_REGION: us-east-1
+      CG_MINIO_ACCESS_KEY: minioadmin
+      CG_MINIO_SECRET_KEY: minioadmin
+      CG_CELERY_BROKER: redis://redis:6379/1
+      CG_CELERY_BACKEND: redis://redis:6379/2
+      # 转换队列名与超时（C59）
+      CG_CELERY_CONVERT_QUEUE: convert
+      CG_CONVERT_TIMEOUT_S: "120"
+      CG_SOFFICE_BIN: soffice
+      # 上传内容扫描（C57）：档位 + clamd 地址（compose 服务名）
+      CG_UPLOAD_AV_MODE: ${CG_UPLOAD_AV_MODE:-off}
+      CG_CLAMAV_HOST: clamav
+      CG_CLAMAV_PORT: "3310"
+      CG_RAG_VECTOR_STORE: qdrant
+      CG_RAG_QDRANT_MODE: server
+      CG_RAG_QDRANT_URL: http://qdrant:6333
+      CG_LLM_PROVIDER: offline
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+      minio: { condition: service_healthy }
+      minio-init: { condition: service_completed_successfully }
+    command: ["uv", "run", "--package", "async-worker", "celery", "-A", "worker.main", "worker", "-Q", "convert", "--loglevel=info"]
+    healthcheck:
+      test: ["CMD", "/app/.venv/bin/celery", "-A", "worker.main", "inspect", "ping", "--timeout", "3"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
   web:
     build:
       context: ..

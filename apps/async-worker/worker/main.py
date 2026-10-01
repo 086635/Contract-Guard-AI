@@ -11,6 +11,8 @@ from celery import Celery
 
 BROKER_URL = os.getenv("CG_CELERY_BROKER", "redis://localhost:6379/1")
 BACKEND_URL = os.getenv("CG_CELERY_BACKEND", "redis://localhost:6379/2")
+#: C59：DOCX→PDF 预览转换的独立队列（专用 worker 用 `-Q convert` 消费）。
+CONVERT_QUEUE = os.getenv("CG_CELERY_CONVERT_QUEUE", "convert")
 
 celery_app = Celery(
     "contract_guard_worker",
@@ -18,6 +20,7 @@ celery_app = Celery(
     backend=BACKEND_URL,
     include=[
         "worker.tasks.scan_upload",
+        "worker.tasks.convert_doc",
         "worker.tasks.parse_doc",
         "worker.tasks.run_audit",
         "worker.tasks.gen_report",
@@ -31,6 +34,8 @@ celery_app.conf.update(
     accept_content=["json"],
     task_track_started=True,
     worker_prefetch_multiplier=1,
+    # C59：转换任务只进 convert 队列，避免与解析/审核任务互相拖慢。
+    task_routes={"convert_doc": {"queue": CONVERT_QUEUE}},
 )
 
 # 便于 `uv run --package async-worker celery -A worker.main worker`
