@@ -183,8 +183,11 @@ services:
 
   nginx:
     restart: unless-stopped
-    # 生产只公开 80/443（TLS 证书与安全头由 C68 叠加）
+    # 生产只公开 80/443；挂载生产 nginx 配置 + 证书目录（证书由部署方提供，不入库）
     ports: !override ["80:80", "443:443"]
+    volumes: !override
+      - ./nginx.prod.conf:/etc/nginx/conf.d/default.conf:ro
+      - ${CG_TLS_DIR:-./tls}:/etc/nginx/certs:ro
     logging: *cg-logging
     deploy:
       resources:
