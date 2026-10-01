@@ -122,6 +122,10 @@ export default function Report() {
           setError("报告生成失败，请重试。");
           clearReportSubscription();
         }
+      }, (reason) => {
+        // C65：订阅中断 → 底层转 2 秒轮询；权限/不存在错误给安全提示（不含令牌）。
+        if (!activeRef.current) return;
+        setMessage(reason instanceof Error && reason.message ? reason.message : "报告进度订阅中断，已切换为轮询。");
       });
     } catch (reason) {
       if (!activeRef.current) return;

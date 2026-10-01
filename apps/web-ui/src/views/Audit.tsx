@@ -180,6 +180,9 @@ export default function Audit() {
         } else {
           setActionMessage(`报告生成中：${progress.stage} ${Math.round(progress.percent * 100)}%`);
         }
+      }, (reason) => {
+        // C65：订阅中断 → 底层转 2 秒轮询；权限类错误给出安全提示（不含令牌）。
+        setActionMessage(reason instanceof Error && reason.message ? reason.message : "报告进度订阅中断，已切换为轮询。");
       });
     } catch (reason) {
       clearReportSubscription();

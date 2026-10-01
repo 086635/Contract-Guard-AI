@@ -128,6 +128,10 @@ export default function UploadPanel({ onClose, onCreated }: UploadPanelProps) {
           busyRef.current = false;
           clearSubscription();
         }
+      }, (reason) => {
+        // C65：订阅中断（断线/令牌过期/无权限）。断线时底层已转 2 秒轮询，故不置失败态。
+        if (!activeRef.current) return;
+        setError(reason instanceof Error && reason.message ? reason.message : "进度订阅中断，已切换为轮询，任务仍会继续。");
       });
     } catch (reason) {
       if (!activeRef.current) return;
