@@ -85,6 +85,7 @@ export default function PdfViewer({ fileUrl, page, zoom, highlights, onPageChang
     let cancelled = false;
     let renderTask: { cancel: () => void; promise: Promise<void> } | null = null;
     let textLayer: { cancel?: () => void } | null = null;
+    let loadedDocument: { destroy: () => Promise<void> } | null = null;
 
     const render = async () => {
       setStatus("loading");
@@ -92,14 +93,19 @@ export default function PdfViewer({ fileUrl, page, zoom, highlights, onPageChang
       try {
         const pdfjs = await import("pdfjs-dist");
         pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
-        const document = await pdfjs.getDocument({ url: fileUrl }).promise;
-        if (cancelled) return;
-        const pageCount = document.numPages;
+        const pdfDocument = await pdfjs.getDocument({ url: fileUrl }).promise;
+        loadedDocument = pdfDocument;
+        if (cancelled) {
+          await pdfDocument.destroy();
+          loadedDocument = null;
+          return;
+        }
+        const pageCount = pdfDocument.numPages;
         onPageCountChange?.(pageCount);
         const targetPage = clampPage(page, pageCount);
         if (targetPage !== page) onPageChange?.(targetPage);
 
-        const pdfPage = await document.getPage(targetPage);
+        const pdfPage = await pdfDocument.getPage(targetPage);
         const viewport = pdfPage.getViewport({ scale });
         const canvas = canvasRef.current;
         const textLayerHost = textLayerRef.current;
@@ -142,6 +148,11 @@ export default function PdfViewer({ fileUrl, page, zoom, highlights, onPageChang
       cancelled = true;
       renderTask?.cancel?.();
       textLayer?.cancel?.();
+      // 翻页/缩放会重建 pdf 文档；不释放会让内存与 worker 会话持续累积。
+      if (loadedDocument) {
+        void loadedDocument.destroy();
+        loadedDocument = null;
+      }
     };
   }, [fileUrl, page, zoom, onPageChange, onPageCountChange, scale]);
 

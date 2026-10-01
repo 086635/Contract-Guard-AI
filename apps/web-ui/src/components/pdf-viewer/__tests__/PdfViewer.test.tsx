@@ -71,6 +71,13 @@ describe("C61 PDF 查看器", () => {
     }
   });
 
+  it("test_pdf_viewer_releases_document", () => {
+    // 翻页/缩放会重建 pdf 文档；必须在 effect cleanup 里 destroy，否则内存与
+    // worker 会话会随翻页持续累积（真实浏览器内存回归由 C75 兜底）。
+    expect(VIEWER_SOURCE).toContain("loadedDocument.destroy()");
+    expect(VIEWER_SOURCE).toContain("let loadedDocument: { destroy: () => Promise<void> } | null = null;");
+  });
+
   it("test_bbox_scale_mapping", () => {
     // 1x：PDF_POINTS 与 CSS 像素 1:1（左上原点，不做 Y 翻转）
     expect(toViewportRect(bbox(), { width: 595, height: 842 }, 1)).toEqual({
