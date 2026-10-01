@@ -19,13 +19,13 @@ import pytest
 
 from worker.storage import av_scan
 from worker.storage.av_scan import (
-    CLEAN,
+    FAILED,
     REASON_AV_INFECTED,
     REASON_AV_TIMEOUT,
     REASON_AV_UNAVAILABLE,
     REASON_MAGIC_MISMATCH,
     REASON_TOO_LARGE,
-    REJECTED,
+    SUCCESS,
     ClamdScanner,
     detect_document_type,
 )
@@ -72,6 +72,11 @@ class _FakeClamdSocket:
         return self._response
 
 
+def _forged_pdf() -> bytes:
+    """伪装成 PDF 的可执行头（扩展名/声明类型都不足以通过内容判据）。"""
+    return b"MZ\x90\x00" + b"\x00" * 256
+
+
 def _run(
     file_key: str,
     file_name: str,
@@ -116,11 +121,11 @@ def test_detect_reads_content_not_extension() -> None:
 
 
 def test_magic_mismatch_rejected() -> None:
-    """伪造扩展名：`.pdf` 文件名 + 非 PDF 内容 → REJECTED（MAGIC_MISMATCH）。"""
+    """伪造扩展名：`.pdf` 文件名 + 非 PDF 内容 → FAILED（MAGIC_MISMATCH）。"""
     forged = b"PK\x03\x04" + b"not-a-real-zip" * 8
     result = scan_bytes(forged, "PDF")
 
-    assert result.status == REJECTED
+    assert result.status == FAILED
     assert result.reason == REASON_MAGIC_MISMATCH
     assert result.safe_to_parse is False
 
@@ -136,23 +141,23 @@ def test_docx_requires_real_word_parts() -> None:
         archive.writestr("xl/workbook.xml", "<workbook/>")
     result = scan_bytes(buffer.getvalue(), "DOCX")
 
-    assert result.status == REJECTED
+    assert result.status == FAILED
     assert result.reason == REASON_MAGIC_MISMATCH
 
 
 def test_compliant_pdf_and_docx_pass() -> None:
-    """合规 PDF / DOCX 内容 → CLEAN（离线档不调 ClamAV）。"""
+    """合规 PDF / DOCX 内容 → SUCCESS（离线档不调 ClamAV）。"""
     pdf = scan_bytes((_FIXTURES / "native.pdf").read_bytes(), "PDF")
     docx = scan_bytes((_FIXTURES / "contract.docx").read_bytes(), "DOCX")
 
-    assert (pdf.status, pdf.detected_type, pdf.reason) == (CLEAN, "PDF", None)
-    assert (docx.status, docx.detected_type, docx.reason) == (CLEAN, "DOCX", None)
+    assert (pdf.status, pdf.detected_type, pdf.reason) == (SUCCESS, "PDF", None)
+    assert (docx.status, docx.detected_type, docx.reason) == (SUCCESS, "DOCX", None)
 
 
 def test_oversized_content_rejected() -> None:
     """超过读取上限的内容直接阻断（防御性上限，与网关 50 MB 同口径）。"""
     result = scan_bytes(b"%PDF-" + b"0" * (MAX_SCAN_BYTES + 1), "PDF")
-    assert result.status == REJECTED
+    assert result.status == FAILED
     assert result.reason == REASON_TOO_LARGE
 
 
@@ -162,7 +167,7 @@ def test_oversized_content_rejected() -> None:
 
 
 def test_clamav_infected_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
-    """EICAR 测试签名 → REJECTED(AV_INFECTED)，且只返回签名名、不回显内容。"""
+    """EICAR 测试签名 → FAILED(AV_INFECTED)，且只返回签名名、不回显内容。"""
     monkeypatch.setattr(
         av_scan.socket,
         "create_connection",
@@ -173,7 +178,7 @@ def test_clamav_infected_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
 
     result = ClamdScanner(host="clamav", port=3310).scan(_EICAR)
 
-    assert result.status == REJECTED
+    assert result.status == FAILED
     assert result.reason is not None
     assert result.reason.startswith(REASON_AV_INFECTED)
     assert "Eicar-Test-Signature" in result.reason
@@ -181,7 +186,7 @@ def test_clamav_infected_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_clamav_clean_accepted(monkeypatch: pytest.MonkeyPatch) -> None:
-    """clamd 返回 OK → CLEAN。"""
+    """clamd 返回 OK → SUCCESS。"""
     monkeypatch.setattr(
         av_scan.socket,
         "create_connection",
@@ -190,12 +195,12 @@ def test_clamav_clean_accepted(monkeypatch: pytest.MonkeyPatch) -> None:
 
     result = ClamdScanner().scan(b"%PDF-1.7\n%%EOF\n")
 
-    assert result.status == CLEAN
+    assert result.status == SUCCESS
     assert result.reason is None
 
 
 def test_av_timeout_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
-    """clamd 超时 → REJECTED(AV_TIMEOUT)：**超时按失败处理**，不得静默放行。"""
+    """clamd 超时 → FAILED(AV_TIMEOUT)：**超时按失败处理**，不得静默放行。"""
 
     def _timeout(*args: object, **kwargs: object) -> None:
         raise TimeoutError("timed out")
@@ -204,13 +209,13 @@ def test_av_timeout_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
 
     result = ClamdScanner(timeout_s=0.01).scan(b"%PDF-1.7\n%%EOF\n")
 
-    assert result.status == REJECTED
+    assert result.status == FAILED
     assert result.reason == REASON_AV_TIMEOUT
     assert result.safe_to_parse is False
 
 
 def test_av_unavailable_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
-    """clamd 连不上 → REJECTED(AV_UNAVAILABLE)：fail closed，不是 fail open。"""
+    """clamd 连不上 → FAILED(AV_UNAVAILABLE)：fail closed，不是 fail open。"""
 
     def _refused(*args: object, **kwargs: object) -> None:
         raise ConnectionRefusedError("connection refused")
@@ -219,7 +224,7 @@ def test_av_unavailable_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
 
     result = ClamdScanner().scan(b"%PDF-1.7\n%%EOF\n")
 
-    assert result.status == REJECTED
+    assert result.status == FAILED
     assert result.reason is not None
     assert result.reason.startswith(REASON_AV_UNAVAILABLE)
 
@@ -242,19 +247,19 @@ def test_scan_none_parse(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
     forged = tmp_path / "forged.pdf"
     forged.write_bytes(b"MZ\x90\x00" + b"\x00" * 256)  # 伪装成 .pdf 的可执行头
     rejected = _run("key", "forged.pdf", "PDF_NATIVE", "c-reject", forged)
-    assert rejected["status"] == REJECTED
+    assert rejected["status"] == FAILED
     assert rejected["reason"] == REASON_MAGIC_MISMATCH
     assert dispatched == []
     assert rejected.get("parseTaskId") is None
 
     clean = _run("key", "native.pdf", "PDF_NATIVE", "c-clean", _FIXTURES / "native.pdf")
-    assert clean["status"] == CLEAN
+    assert clean["status"] == SUCCESS
     assert dispatched == [("key", "c-clean")]
     assert clean["parseTaskId"] == "parse-task-1"
 
 
 def test_scan_task_docx_chain(monkeypatch: pytest.MonkeyPatch) -> None:
-    """DOCX 合规内容走同一链路：CLEAN → 派发 parse。"""
+    """DOCX 合规内容走同一链路：SUCCESS → 派发 parse。"""
     monkeypatch.setattr(
         scan_module, "dispatch_parse", lambda file_key, contract_id: "parse-docx-1"
     )
@@ -263,7 +268,7 @@ def test_scan_task_docx_chain(monkeypatch: pytest.MonkeyPatch) -> None:
         "key", "contract.docx", "DOCX", "c-docx", _FIXTURES / "contract.docx"
     )
 
-    assert payload["status"] == CLEAN
+    assert payload["status"] == SUCCESS
     assert payload["detectedType"] == "DOCX"
     assert payload["parseTaskId"] == "parse-docx-1"
 
@@ -289,7 +294,7 @@ def test_scan_task_clamav_infected_does_not_parse(
         "key", "native.pdf", "PDF_NATIVE", "c-virus", _FIXTURES / "native.pdf"
     )
 
-    assert payload["status"] == REJECTED
+    assert payload["status"] == FAILED
     assert payload["reason"] == REASON_AV_INFECTED
     assert dispatched == []
     assert payload.get("parseTaskId") is None
@@ -302,11 +307,11 @@ class _StubScanner:
         del data
         from worker.storage.av_scan import ScanResult
 
-        return ScanResult(REJECTED, None, REASON_AV_INFECTED)
+        return ScanResult(FAILED, None, REASON_AV_INFECTED)
 
 
 def test_scan_task_never_raises(monkeypatch: pytest.MonkeyPatch) -> None:
-    """拿不到源文件 → 返回 REJECTED 信封（**不抛异常给 broker**）。"""
+    """拿不到源文件 → 返回 FAILED 信封（**不抛异常给 broker**）。"""
 
     class _Broken:
         def get_object(self, bucket: str, key: str) -> object:
@@ -316,17 +321,30 @@ def test_scan_task_never_raises(monkeypatch: pytest.MonkeyPatch) -> None:
 
     payload = _run("no-such.pdf", "no-such.pdf", "PDF_NATIVE")
 
-    assert payload["status"] == REJECTED
+    assert payload["status"] == FAILED
     assert str(payload["reason"]).startswith("SOURCE_UNAVAILABLE")
     assert payload.get("parseTaskId") is None
 
 
 def test_scan_task_rejects_unknown_file_type() -> None:
-    """未登记的声明类型 → REJECTED(ERR_UNSUPPORTED_FILE_TYPE)。"""
+    """未登记的声明类型 → FAILED(ERR_UNSUPPORTED_FILE_TYPE)。"""
     payload = _run("key", "x.png", "IMAGE", _FIXTURES / "native.pdf")
 
-    assert payload["status"] == REJECTED
+    assert payload["status"] == FAILED
     assert payload["reason"] == "ERR_UNSUPPORTED_FILE_TYPE"
+
+
+def test_payload_status_reuses_platform_task_vocabulary() -> None:
+    """拒绝必须用平台任务状态词表 `FAILED`（回到字面量断言）。
+
+    网关 `TaskService.get` 的既有约定是 `result.status == "FAILED"` → `Status.failed`；
+    若这里改成自定义词（如 `REJECTED`），被拒的上传会在前端显示成「完成」。
+    """
+    rejected = _run("key", "forged.pdf", "PDF_NATIVE", None, _forged_pdf())
+    accepted = _run("key", "native.pdf", "PDF_NATIVE", None, _FIXTURES / "native.pdf")
+
+    assert rejected["status"] == "FAILED"
+    assert accepted["status"] == "SUCCESS"
 
 
 def test_task_signature_keeps_card_contract() -> None:

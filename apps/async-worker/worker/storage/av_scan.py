@@ -15,9 +15,11 @@ from dataclasses import dataclass
 from io import BytesIO
 from zipfile import BadZipFile, ZipFile
 
-#: 扫描结论（唯一取值集合）：仅 `CLEAN` 允许继续解析。
-CLEAN = "CLEAN"
-REJECTED = "REJECTED"
+#: 扫描结论（唯一取值集合）：**只用平台任务状态词表**，仅 `SUCCESS` 允许继续解析。
+#: 用 `SUCCESS/FAILED` 而非自定义词，是为了直接复用网关既有约定
+#: （`TaskService.get`：`result.status == "FAILED"` → 前端 `FAILED`），零额外接线。
+SUCCESS = "SUCCESS"
+FAILED = "FAILED"
 
 #: 拒绝/失败的安全摘要码（`ScanResult.reason`）。
 REASON_MAGIC_MISMATCH = "MAGIC_MISMATCH"
@@ -49,8 +51,8 @@ class ScanResult:
 
     @property
     def safe_to_parse(self) -> bool:
-        """仅 `CLEAN` 允许派发解析。"""
-        return self.status == CLEAN
+        """仅 `SUCCESS` 允许派发解析。"""
+        return self.status == SUCCESS
 
     def to_payload(self) -> dict[str, object]:
         """转成任务返回值（camelCase，与契约字段名一致）。"""
@@ -115,7 +117,7 @@ class ClamdScanner:
         self._timeout = timeout_s
 
     def scan(self, data: bytes) -> ScanResult:
-        """扫描字节流；**不抛异常**，任何异常都折算成 `REJECTED` 结论。"""
+        """扫描字节流；**不抛异常**，任何异常都折算成 `FAILED` 结论。"""
         try:
             with socket.create_connection(
                 (self._host, self._port), timeout=self._timeout
@@ -127,10 +129,10 @@ class ClamdScanner:
                 sock.sendall(b"\x00\x00\x00\x00")
                 verdict = _read_until_nul(sock)
         except TimeoutError:
-            return ScanResult(REJECTED, None, REASON_AV_TIMEOUT)
+            return ScanResult(FAILED, None, REASON_AV_TIMEOUT)
         except OSError as exc:
             return ScanResult(
-                REJECTED, None, f"{REASON_AV_UNAVAILABLE}:{type(exc).__name__}"
+                FAILED, None, f"{REASON_AV_UNAVAILABLE}:{type(exc).__name__}"
             )
 
         return _verdict_to_result(verdict)
@@ -141,11 +143,11 @@ def _verdict_to_result(verdict: bytes) -> ScanResult:
     text = verdict.decode("utf-8", "replace").replace("\x00", "").strip()
     lowered = text.lower()
     if lowered.endswith("ok"):
-        return ScanResult(CLEAN, None, None)
+        return ScanResult(SUCCESS, None, None)
     if "found" in lowered:
         signature = text.split(":", 1)[1].strip() if ":" in text else text
-        return ScanResult(REJECTED, None, f"{REASON_AV_INFECTED}:{signature}")
-    return ScanResult(REJECTED, None, REASON_AV_BAD_RESPONSE)
+        return ScanResult(FAILED, None, f"{REASON_AV_INFECTED}:{signature}")
+    return ScanResult(FAILED, None, REASON_AV_BAD_RESPONSE)
 
 
 def _chunks(data: bytes, size: int) -> list[bytes]:
@@ -165,7 +167,7 @@ def _read_until_nul(sock: socket.socket, *, limit: int = 4096) -> bytes:
 
 
 __all__ = [
-    "CLEAN",
+    "FAILED",
     "REASON_AV_BAD_RESPONSE",
     "REASON_AV_INFECTED",
     "REASON_AV_TIMEOUT",
@@ -175,7 +177,7 @@ __all__ = [
     "REASON_SOURCE_UNAVAILABLE",
     "REASON_TOO_LARGE",
     "REASON_UNSUPPORTED_TYPE",
-    "REJECTED",
+    "SUCCESS",
     "ClamdScanner",
     "ScanResult",
     "av_mode",

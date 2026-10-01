@@ -21,13 +21,13 @@ from cg_observability import get_logger, log_event
 from worker.main import celery_app
 from worker.storage import get_minio_client
 from worker.storage.av_scan import (
-    CLEAN,
+    FAILED,
     REASON_DISPATCH_FAILED,
     REASON_MAGIC_MISMATCH,
     REASON_SOURCE_UNAVAILABLE,
     REASON_TOO_LARGE,
     REASON_UNSUPPORTED_TYPE,
-    REJECTED,
+    SUCCESS,
     ClamdScanner,
     ScanResult,
     av_mode,
@@ -83,14 +83,14 @@ def scan_bytes(
 ) -> ScanResult:
     """对单份内容做「magic/结构校验 + 可选 ClamAV 扫描」（纯函数，可离线测试）。"""
     if len(data) > MAX_SCAN_BYTES:
-        return ScanResult(REJECTED, None, REASON_TOO_LARGE)
+        return ScanResult(FAILED, None, REASON_TOO_LARGE)
 
     detected = detect_document_type(data)
     if detected is None or detected != expected_type:
-        return ScanResult(REJECTED, detected, REASON_MAGIC_MISMATCH)
+        return ScanResult(FAILED, detected, REASON_MAGIC_MISMATCH)
 
     if (mode or av_mode()) != "clamav":
-        return ScanResult(CLEAN, detected, None)
+        return ScanResult(SUCCESS, detected, None)
 
     verdict = _build_scanner().scan(data)
     return ScanResult(verdict.status, detected, verdict.reason)
@@ -117,7 +117,7 @@ def scan_upload_task(
 
     Returns:
         `ScanResult` 信封 + （通过且给了 `contract_id` 时）`parseTaskId`；
-        `status ∈ {CLEAN, REJECTED}`。**任何情况下都不抛异常给 broker。**
+        `status ∈ {SUCCESS, FAILED}`。**任何情况下都不抛异常给 broker。**
     """
     trace_id = uuid.uuid4().hex
     # 扩展名/文件名不是判据：内容类型由 magic/结构嗅探决定（§⑨-1）。
@@ -125,13 +125,13 @@ def scan_upload_task(
 
     expected = _EXPECTED_TYPE_BY_FILE_TYPE.get(str(file_type or "").upper())
     if expected is None:
-        result = ScanResult(REJECTED, None, REASON_UNSUPPORTED_TYPE)
+        result = ScanResult(FAILED, None, REASON_UNSUPPORTED_TYPE)
     else:
         try:
             data = _read_source_bytes(file_key, local_path)
         except Exception as exc:  # noqa: BLE001 - 拿不到内容就没有判据 → 必须阻断
             result = ScanResult(
-                REJECTED,
+                FAILED,
                 None,
                 f"{REASON_SOURCE_UNAVAILABLE}:{type(exc).__name__}",
             )
@@ -154,7 +154,7 @@ def scan_upload_task(
         try:
             payload["parseTaskId"] = dispatch_parse(file_key, contract_id)
         except Exception as exc:  # noqa: BLE001 - 派发失败也不能让扫描结论失真
-            payload["status"] = REJECTED
+            payload["status"] = FAILED
             payload["reason"] = f"{REASON_DISPATCH_FAILED}:{type(exc).__name__}"
             payload["parseTaskId"] = None
     return payload
