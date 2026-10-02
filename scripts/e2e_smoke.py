@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import os
 import subprocess
 import sys
 import time
@@ -371,6 +372,155 @@ def _check_rewrite(
 # ---------------------------------------------------------------------------
 # 主流程
 # ---------------------------------------------------------------------------
+
+def _bootstrap_auth(
+    client: httpx.Client,
+    base: str,
+    args: argparse.Namespace,
+    checks: _Tracker,
+) -> bool:
+    """T-D7-1：登录取 access token 并注入客户端；同时验证无凭据 401。
+
+    Returns:
+        True 表示链路已带 Bearer 运行；未提供凭据时返回 False（显式 DEGRADED）。
+    """
+    username = args.auth_username or os.getenv("CG_E2E_USERNAME", "")
+    password = args.auth_password or os.getenv("CG_E2E_PASSWORD", "")
+    if not username or not password:
+        checks.add(
+            "T-D7-1 认证（登录 + 401）",
+            "DEGRADED",
+            "未提供 --auth-username/--auth-password（或 CG_E2E_USERNAME/CG_E2E_PASSWORD）",
+        )
+        return False
+
+    probe = httpx.get(f"{base}/contracts?page=1&pageSize=1", timeout=args.timeout)
+    checks.add(
+        "T-D7-1 无凭据访问受保护端点 401",
+        "PASS" if probe.status_code == 401 else "FAIL",
+        f"HTTP {probe.status_code}",
+    )
+
+    response = client.post(
+        f"{base}/auth/login",
+        json={"username": username, "password": password},
+        headers={"X-Request-ID": uuid.uuid4().hex},
+    )
+    if response.status_code != 200:
+        checks.add("T-D7-1 POST /auth/login", "FAIL", f"HTTP {response.status_code}")
+        return False
+    token = (_data(response) or {}).get("accessToken")
+    if not isinstance(token, str) or not token:
+        checks.add("T-D7-1 POST /auth/login", "FAIL", "响应缺少 accessToken")
+        return False
+    client.headers["Authorization"] = f"Bearer {token}"
+    checks.add("T-D7-1 POST /auth/login", "PASS", "已取得 accessToken 并注入 Bearer")
+    return True
+
+
+def _check_idempotent_replay(
+    client: httpx.Client, base: str, checks: _Tracker
+) -> None:
+    """T-D7-3：同 X-Request-ID + 同 body 重放幂等；不同 body 冲突 409。"""
+    request_id = uuid.uuid4().hex
+    body = {"fileName": f"e2e-idempotent-{request_id[:8]}.docx", "fileType": "DOCX"}
+    first = client.post(
+        f"{base}/contracts/presign", json=body, headers={"X-Request-ID": request_id}
+    )
+    replay = client.post(
+        f"{base}/contracts/presign", json=body, headers={"X-Request-ID": request_id}
+    )
+    first_key = (_data(first) or {}).get("fileKey")
+    replay_key = (_data(replay) or {}).get("fileKey")
+    replayed = (
+        first.status_code == 200
+        and replay.status_code == 200
+        and bool(first_key)
+        and first_key == replay_key
+    )
+    checks.add(
+        "T-D7-3 幂等重放（同 key + 同 body）",
+        "PASS" if replayed else "FAIL",
+        f"HTTP {first.status_code}/{replay.status_code}，fileKey 一致={first_key == replay_key}",
+    )
+
+    conflict = client.post(
+        f"{base}/contracts/presign",
+        json={"fileName": "e2e-idempotent-conflict.docx", "fileType": "DOCX"},
+        headers={"X-Request-ID": request_id},
+    )
+    checks.add(
+        "T-D7-3 同 key 不同 body → 409",
+        "PASS" if conflict.status_code == 409 else "FAIL",
+        f"HTTP {conflict.status_code}",
+    )
+
+
+def _check_preview(
+    client: httpx.Client,
+    base: str,
+    contract_id: str,
+    args: argparse.Namespace,
+    checks: _Tracker,
+) -> None:
+    """T-D7-5：预览元数据可达并推进到 DONE（转换中显式 DEGRADED）。"""
+    deadline = time.monotonic() + args.preview_timeout
+    status_code = 0
+    payload: dict[str, Any] = {}
+    while time.monotonic() < deadline:
+        response = client.get(f"{base}/contracts/{contract_id}/preview")
+        status_code = response.status_code
+        if response.status_code == 200:
+            payload = _data(response) or {}
+            if payload.get("status") in {"DONE", "FAILED"}:
+                break
+        time.sleep(0.5)
+
+    state = payload.get("status")
+    if status_code == 200 and state == "DONE":
+        checks.add("T-D7-5 预览元数据 DONE", "PASS", f"status={state}")
+    elif status_code == 200 and state in {"PENDING", "RUNNING"}:
+        checks.add(
+            "T-D7-5 预览元数据 DONE",
+            "DEGRADED",
+            f"status={state}（{args.preview_timeout}s 内未就绪）",
+        )
+    else:
+        checks.add(
+            "T-D7-5 预览元数据 DONE",
+            "FAIL",
+            f"HTTP {status_code}，status={state}",
+        )
+
+
+def _check_task_recovery(
+    client: httpx.Client, base: str, task_id: str, checks: _Tracker
+) -> None:
+    """T-D7-6：任务终态可查询；对账 CLI（reconcile_tasks.py）可用。"""
+    response = client.get(f"{base}/tasks/{task_id}")
+    payload = _data(response) or {}
+    status = payload.get("status")
+    checks.add(
+        "T-D7-6 任务终态可查询",
+        "PASS" if response.status_code == 200 and status in _TERMINAL else "FAIL",
+        f"HTTP {response.status_code}，status={status}",
+    )
+
+    completed = subprocess.run(
+        [sys.executable, str(_REPO_ROOT / "scripts" / "reconcile_tasks.py"), "--help"],
+        cwd=_REPO_ROOT,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    checks.add(
+        "T-D7-6 任务对账 CLI 可用（reconcile_tasks.py --help）",
+        "PASS" if completed.returncode == 0 else "FAIL",
+        f"exit={completed.returncode}",
+    )
+
+
 def run(args: argparse.Namespace) -> int:
     checks = _Tracker()
     base = args.api_base_url.rstrip("/") + args.api_prefix
@@ -390,6 +540,9 @@ def run(args: argparse.Namespace) -> int:
             storage.make_bucket(args.bucket)
     except Exception as exc:
         raise EnvError(f"MinIO 不可用（{args.minio_endpoint}）：{exc}") from exc
+
+    # 0.2) T-D7-1 认证：登录取 Bearer 注入客户端（未给凭据显式 DEGRADED）
+    _bootstrap_auth(client, base, args, checks)
 
     fixture = Path(args.file).read_bytes() if args.file else build_fixture_docx()
     file_name = Path(args.file).name if args.file else "e2e-contract.docx"
@@ -624,6 +777,11 @@ def run(args: argparse.Namespace) -> int:
         checks=checks,
     )
 
+    # 10.5) T-D7 生产化路径（幂等 / 预览 / 任务恢复）
+    _check_idempotent_replay(client, base, checks)
+    _check_preview(client, base, contract_id, args, checks)
+    _check_task_recovery(client, base, task_id, checks)
+
     # 11) 回归脚本
     _regression(checks)
 
@@ -714,6 +872,22 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--allow-offline-rewrite",
         action="store_true",
         help="离线档允许 rewrite 显式 502 记为 DEGRADED；不得伪造 RewriteData",
+    )
+    parser.add_argument(
+        "--auth-username",
+        default=None,
+        help="T-D7-1：登录用户名（缺省读 CG_E2E_USERNAME；未提供则认证覆盖记 DEGRADED）",
+    )
+    parser.add_argument(
+        "--auth-password",
+        default=None,
+        help="T-D7-1：登录口令（缺省读 CG_E2E_PASSWORD）",
+    )
+    parser.add_argument(
+        "--preview-timeout",
+        type=float,
+        default=60.0,
+        help="T-D7-5：预览就绪轮询上限（秒）",
     )
     parser.add_argument("--timeout", type=float, default=120.0)
     parser.add_argument("--sse-timeout", type=float, default=5.0)
