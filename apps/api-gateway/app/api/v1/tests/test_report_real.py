@@ -103,12 +103,14 @@ class _FakeDto:
 def _report_record(
     contract_id: UUID,
     storage_path: str = "reports/c21.docx",
+    pdf_storage_path: str | None = None,
 ) -> SimpleNamespace:
     return SimpleNamespace(
         id=uuid4(),
         contract_id=contract_id,
         format="DOCX",
         storage_path=storage_path,
+        pdf_storage_path=pdf_storage_path,
         download_count=0,
         generated_at=datetime.now(UTC),
         status=s.Status.done,

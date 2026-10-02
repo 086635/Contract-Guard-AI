@@ -48,7 +48,7 @@ def _soffice_binary() -> str:
     return os.getenv("CG_SOFFICE_BIN", "soffice")
 
 
-def _timeout_s() -> float:
+def convert_timeout_s() -> float:
     """读取转换超时。"""
     return float(os.getenv("CG_CONVERT_TIMEOUT_S", str(DEFAULT_TIMEOUT_S)))
 
@@ -206,7 +206,7 @@ def convert_doc_task(
     work_dir = Path(tempfile.mkdtemp(prefix=f"cg-convert-{contract_id}-"))
     try:
         source = _stage_source(source_key, local_path, work_dir)
-        pdf = convert_document(source, work_dir, timeout_s=_timeout_s())
+        pdf = convert_document(source, work_dir, timeout_s=convert_timeout_s())
         object_key = preview_object_key(contract_id, pdf.name)
         _upload_pdf(object_key, pdf)
     except subprocess.TimeoutExpired:

@@ -133,22 +133,26 @@ export default function Report() {
     }
   };
 
-  const openDownload = () => {
-    if (!report?.downloadUrl) {
-      setError("报告下载地址尚未生成，请先生成报告。");
+  const openDownload = (format: "word" | "pdf") => {
+    // C72：两个按钮各用各的 URL，PDF 不得回退到 Word 地址（§⑨-1）。
+    const url = format === "pdf" ? report?.pdfDownloadUrl : (report?.wordDownloadUrl ?? report?.downloadUrl);
+    if (!url) {
+      setError(format === "pdf" ? "PDF 尚未生成，可点击「重新生成」后重试。" : "报告下载地址尚未生成，请先生成报告。");
       return;
     }
     try {
-      const parsed = new URL(report.downloadUrl, window.location.origin);
+      const parsed = new URL(url, window.location.origin);
       window.open(parsed.toString(), "_blank", "noopener,noreferrer");
     } catch {
-      setError("报告下载地址无效，请重新生成报告。");
+      setError(format === "pdf" ? "PDF 下载地址无效，请重新生成报告。" : "报告下载地址无效，请重新生成报告。");
     }
   };
 
   const generating = task?.status === "RUNNING" || report?.status === "RUNNING";
   const failed = task?.status === "FAILED" || report?.status === "FAILED";
-  const canDownload = Boolean(report?.downloadUrl) && !generating;
+  const canDownloadWord = Boolean(report?.wordDownloadUrl ?? report?.downloadUrl) && !generating;
+  const canDownloadPdf = Boolean(report) && !generating;
+  const pdfMissing = Boolean(report) && !report?.pdfDownloadUrl;
   const reportStateLabel = generating ? "报告生成中" : failed ? "生成失败" : report?.status === "DONE" ? "审核已完成" : "尚未生成";
 
   return (
@@ -162,7 +166,9 @@ export default function Report() {
         actions={
           <>
             <Button variant="secondary" icon={<Icon name="refresh" size={16} />} onClick={() => void regenerate()} disabled={generating}>{generating ? `生成中 ${Math.round((task?.percent ?? 0) * 100)}%` : "重新生成"}</Button>
-            <Button icon={<Icon name="download" size={16} />} onClick={openDownload} disabled={!canDownload}>下载报告</Button>
+            <Button variant="secondary" icon={<Icon name="download" size={16} />} onClick={() => openDownload("word")} disabled={!canDownloadWord}>下载 Word</Button>
+            <Button icon={<Icon name="download" size={16} />} onClick={() => openDownload("pdf")} disabled={!canDownloadPdf}>下载 PDF</Button>
+            {pdfMissing && <span className="report-export-hint">PDF 未生成</span>}
           </>
         }
       />

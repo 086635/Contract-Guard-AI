@@ -60,6 +60,7 @@ def _default_review_thresholds() -> dict[str, float]:
     """返回设置页默认人工复核阈值。"""
     return {"high": 0.85, "medium": 0.65, "low": 0.40}
 
+
 def _utc_now() -> datetime:
     """返回带 UTC 时区的当前时间。"""
     return datetime.now(UTC)
@@ -506,15 +507,11 @@ class AuditEvent(Base):
     id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True), primary_key=True, default=uuid4
     )
-    actor_id: Mapped[UUID | None] = mapped_column(
-        Uuid(as_uuid=True), nullable=True
-    )
+    actor_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True)
     actor_role: Mapped[Role | None] = mapped_column(
         _enum_type(Role, "audit_actor_role"), nullable=True
     )
-    action: Mapped[AuditAction] = mapped_column(
-        _enum_type(AuditAction, "audit_action")
-    )
+    action: Mapped[AuditAction] = mapped_column(_enum_type(AuditAction, "audit_action"))
     resource_type: Mapped[str] = mapped_column(String(64), nullable=False)
     resource_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     outcome: Mapped[AuditOutcome] = mapped_column(
@@ -555,6 +552,8 @@ class AuditReport(Base):
     )
     format: Mapped[str] = mapped_column(String(16), default="DOCX")
     storage_path: Mapped[str] = mapped_column(String(1024))
+    #: C72：PDF 派生对象 key；NULL = 该报告只有 DOCX（PDF 导出失败/历史数据）
+    pdf_storage_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     download_count: Mapped[int] = mapped_column(Integer, default=0)
     generated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utc_now

@@ -151,3 +151,5 @@ body { color: #252a36; background: #f5f6fa; }
 .standard-clause-meta { margin-left: auto; color: #9ba0ad; font-size: 11px; }
 .standard-clause-item p { margin: 8px 0 0; color: #5b6070; font-size: 12px; line-height: 1.6; white-space: pre-wrap; }
 .standard-clause-item-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+/* ---- C72 报告导出提示 ---- */
+.report-export-hint { align-self: center; color: #b4545f; font-size: 12px; }

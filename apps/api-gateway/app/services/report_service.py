@@ -41,11 +41,18 @@ class ReportUnavailableError(RuntimeError):
 class ReportService:
     """报告任务派发、结果落库和元数据读取。"""
 
-    def __init__(self, context: ServiceContext) -> None:
+    def __init__(
+        self,
+        context: ServiceContext,
+        *,
+        contracts: ContractRepository | None = None,
+        tasks: TaskRepository | None = None,
+        reports: ReportRepository | None = None,
+    ) -> None:
         self._context = context
-        self._contracts = ContractRepository(context.session)
-        self._tasks = TaskRepository(context.session)
-        self._reports = ReportRepository(context.session)
+        self._contracts = contracts or ContractRepository(context.session)
+        self._tasks = tasks or TaskRepository(context.session)
+        self._reports = reports or ReportRepository(context.session)
         self._results = ResultService(context)
 
     async def generate(self, contract_id: UUID) -> TaskProgress:
@@ -116,17 +123,32 @@ class ReportService:
         storage_path = _extract_storage_path(snapshot.result)
         if not storage_path:
             raise ReportUnavailableError("报告任务缺少 storagePath")
+        pdf_storage_path = _extract_optional_str(snapshot.result, "pdfStoragePath")
 
-        report = await self._reports.create(contract_id, "DOCX", storage_path)
+        report = await self._reports.create(
+            contract_id,
+            "DOCX",
+            storage_path,
+            pdf_storage_path=pdf_storage_path,
+        )
         await self._context.session.commit()
         return report
 
     def _to_report_data(self, contract_id: UUID, report: ReportRecord) -> ReportData:
-        """签发下载 URL 并映射 OpenAPI ReportData。"""
+        """签发双格式下载 URL 并映射 OpenAPI ReportData。
+
+        `downloadUrl` 保留旧语义（DOCX），`wordDownloadUrl` 与其指向同一对象；
+        PDF 未生成时 `pdfDownloadUrl=None`，不返回假 URL（C72 §⑥.2/§⑥.3）。
+        """
         try:
-            download_url = self._context.object_storage.presign_get(
+            word_url = self._context.object_storage.presign_get(
                 report.storage_path,
                 900,
+            )
+            pdf_url = (
+                self._context.object_storage.presign_get(report.pdf_storage_path, 900)
+                if report.pdf_storage_path
+                else None
             )
         except Exception as exc:
             raise ReportUnavailableError(str(exc)) from exc
@@ -134,7 +156,9 @@ class ReportService:
             reportId=str(report.id),
             contractId=str(contract_id),
             status=report.status,
-            downloadUrl=download_url,
+            downloadUrl=word_url,
+            wordDownloadUrl=word_url,
+            pdfDownloadUrl=pdf_url,
             generatedAt=report.generated_at,
         )
 
@@ -165,6 +189,16 @@ def _extract_storage_path(result: dict[str, Any] | None) -> str | None:
     if not isinstance(result, dict):
         return None
     value = result.get("storagePath")
+    if isinstance(value, str) and value:
+        return value
+    return None
+
+
+def _extract_optional_str(result: dict[str, Any] | None, key: str) -> str | None:
+    """只接受任务结果顶层的非空字符串字段（如 `pdfStoragePath`）。"""
+    if not isinstance(result, dict):
+        return None
+    value = result.get(key)
     if isinstance(value, str) and value:
         return value
     return None

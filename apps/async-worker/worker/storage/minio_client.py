@@ -20,6 +20,9 @@ from minio import Minio
 _DOCX_CONTENT_TYPE = (
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 )
+_PDF_CONTENT_TYPE = "application/pdf"
+#: 报告允许的对象扩展名 → MIME（唯一处：key 后缀与 content-type 必须一致）
+_REPORT_CONTENT_TYPES = {"docx": _DOCX_CONTENT_TYPE, "pdf": _PDF_CONTENT_TYPE}
 
 
 def get_minio_client() -> Minio:
@@ -35,34 +38,41 @@ def get_minio_client() -> Minio:
 def upload_report(
     contract_id: str,
     data: bytes,
-    content_type: str = _DOCX_CONTENT_TYPE,
+    content_type: str | None = None,
+    *,
+    extension: str = "docx",
 ) -> str:
-    """上传渲染报告并返回 object key。
+    """上传渲染报告并返回 object key（C72：同一入口支持 docx/pdf）。
 
     Args:
         contract_id: 合同 ID；用于构造 `reports/{contract_id}/...` key。
-        data: DOCX 字节内容。
-        content_type: 对象 MIME，默认 DOCX。
+        data: 报告字节内容。
+        content_type: 对象 MIME；缺省按 `extension` 推导。
+        extension: `docx`（默认，Word）或 `pdf`（PDF 导出）。
 
     Returns:
         MinIO object key，不包含 bucket 或预签名 URL。
 
     Raises:
-        ValueError: 合同 ID 非法或报告内容为空。
+        ValueError: 合同 ID 非法、报告内容为空或扩展名不支持。
     """
     _validate_contract_id(contract_id)
     if not data:
         raise ValueError("报告内容不能为空")
+    suffix = extension.lower().lstrip(".")
+    mime = _REPORT_CONTENT_TYPES.get(suffix)
+    if mime is None:
+        raise ValueError(f"不支持的报告扩展名：{extension}")
 
     bucket = os.getenv("CG_MINIO_BUCKET", "contracts")
     timestamp = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
-    key = f"reports/{contract_id}/{timestamp}_{uuid4().hex[:8]}.docx"
+    key = f"reports/{contract_id}/{timestamp}_{uuid4().hex[:8]}.{suffix}"
     get_minio_client().put_object(
         bucket,
         key,
         BytesIO(data),
         length=len(data),
-        content_type=content_type,
+        content_type=content_type or mime,
     )
     return key
 

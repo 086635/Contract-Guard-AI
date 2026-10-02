@@ -934,7 +934,11 @@ components:
         reportId: { type: string }
         contractId: { type: string }
         status: { type: string, enum: [RUNNING, DONE, FAILED] }
-        downloadUrl: { type: string, description: 报告下载地址（MinIO 预签名 URL） }
+        downloadUrl: { type: string, description: "报告下载地址（MinIO 预签名 URL；兼容字段，指向 DOCX）" }
+        wordDownloadUrl: { type: string, description: "Word(DOCX) 下载地址；与 downloadUrl 指向同一对象" }
+        pdfDownloadUrl:
+          type: ["string", "null"]
+          description: "PDF 下载地址；PDF 未生成时为 null（不返回假 URL）"
         generatedAt: { type: string, format: date-time }
 
     # =========================================================================

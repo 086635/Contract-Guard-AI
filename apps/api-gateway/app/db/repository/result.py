@@ -43,6 +43,7 @@ class ReportRecord(_PersistenceDto):
     contract_id: UUID
     format: str
     storage_path: str
+    pdf_storage_path: str | None = None
     download_count: int
     generated_at: datetime
     status: Status
@@ -348,12 +349,15 @@ class ReportRepository:
         contract_id: UUID,
         format: str,
         storage_path: str,
+        *,
+        pdf_storage_path: str | None = None,
     ) -> ReportRecord:
         """创建并 flush 报告记录。"""
         record = AuditReport(
             contract_id=contract_id,
             format=format,
             storage_path=storage_path,
+            pdf_storage_path=pdf_storage_path or None,
             download_count=0,
             status=Status.done,
         )
