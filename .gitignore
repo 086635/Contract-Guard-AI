@@ -58,3 +58,7 @@ data/bm25/
 /pytest_out.txt
 .workbuddy/
 .trae/
+
+# C75 Playwright 失败证据/报告（本地产物，不入库）
+apps/web-ui/test-results/
+apps/web-ui/playwright-report/

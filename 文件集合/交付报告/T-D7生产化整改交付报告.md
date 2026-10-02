@@ -72,7 +72,7 @@
 | 文档同步（模块总纲 / 0.§0.10 / 4-7） | ✅ | `test_docs_reference_4_7` / `test_docs_links_and_status` |
 | e2e_smoke 覆盖 T-D7 路径 | ✅（离线守卫） | `test_e2e_smoke_td7_paths` + `e2e_smoke.py --help` exit 0；**真实链路执行归 C75** |
 | 干净 checkout 可重复构建 | ⏳ | 输入已冻结（lock 文件 + gitignore + testpaths，`test_clean_checkout_build`）；真实干净构建归 C75/CI |
-| Playwright 浏览器 12 条主链路 | ⏳ **未做** | 归 **C75**（T-D7-10 的 P0 门禁项，未完成） |
+| Playwright 浏览器主链路 | ⏳ **未闭环** | C75 已落盘 13 条链路 + 种子 + CI；本机真实栈执行 4 条（登录 ✅ / 权限 ✅ / 登出 ✅ / 刷新需 TLS）；其余需 prod compose（worker/LibreOffice/真实模型） |
 
 ---
 
@@ -205,6 +205,8 @@ Milvus 集成（`CG_RAG_TEST_MILVUS_URI`）、真实 embedding（`CG_RAG_TEST_EM
 - **T-D7-9（P1）**：C70~C73 全部完成并回填。
 - **T-D7-10**：本卡完成「回归 + 生成物冻结 + 文档/卡片核销 + 批级报告」，**Playwright 与干净 checkout 验收未做** → 归 C75。
 - 因此本报告**不声明 T-D7 全部完成**；C75 完成后需在本文追加「发布冻结最终确认」段落并更新 §4/§8。
+
+C75 进展（2026-10-02）：Playwright 1.63.0 + Chromium 1243；`apps/web-ui/e2e/` 13 条链路 / 6 文件可枚举；真实栈（PG16 + Redis7 + uvicorn + Vite + Chromium）跑通登录/权限/登出 3 条；刷新恢复因 refresh cookie `secure=True` 需 HTTPS，其余链路需 prod compose。
 
 ---
 

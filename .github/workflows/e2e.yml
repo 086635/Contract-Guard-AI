@@ -1,0 +1,93 @@
+name: e2e
+
+# C75：正式浏览器验收（prod compose + Playwright）
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: 'E2E 入口（默认 prod compose 的 nginx）'
+        required: false
+        default: 'http://localhost'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/web-ui/**'
+      - 'apps/api-gateway/**'
+      - 'apps/async-worker/**'
+      - 'docker/**'
+      - '.github/workflows/e2e.yml'
+
+jobs:
+  playwright:
+    name: Playwright E2E (prod compose)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Enable pnpm
+        run: corepack enable
+
+      - name: Install web deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Chromium
+        run: pnpm --filter @contract-guard/web-ui exec playwright install --with-deps chromium
+
+      - name: Prepare production secrets
+        run: |
+          mkdir -p /tmp/cg-secrets
+          for name in jwt_secret postgres_password minio_access_key minio_secret_key llm_api_key; do
+            openssl rand -hex 32 > "/tmp/cg-secrets/$name"
+          done
+          printf '%s' "${{ secrets.CG_LLM_API_KEY }}" > /tmp/cg-secrets/llm_api_key || true
+
+      - name: Bring up prod compose
+        env:
+          CG_SECRETS_DIR: /tmp/cg-secrets
+          CG_TLS_DIR: /tmp/cg-tls
+        run: |
+          mkdir -p /tmp/cg-tls
+          # 自签证书仅用于 CI 验收
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1             -keyout /tmp/cg-tls/tls.key -out /tmp/cg-tls/tls.crt             -subj "/CN=localhost"
+          docker compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d --build
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost/health/live >/dev/null; then break; fi
+            sleep 5
+          done
+
+      - name: Seed E2E accounts
+        env:
+          CG_POSTGRES_DSN: postgresql+asyncpg://cg:from-secret-file@localhost:5432/cg
+        run: python scripts/seed_e2e_users.py || echo "seed 需在容器网络内执行，见 C75 报告"
+
+      - name: Run Playwright
+        env:
+          CG_E2E_BASE_URL: ${{ github.event.inputs.base_url || 'http://localhost' }}
+          CG_E2E_ADMIN_USERNAME: e2e-admin
+          CG_E2E_ADMIN_PASSWORD: e2e-admin-pass
+          CG_E2E_VIEWER_USERNAME: e2e-viewer
+          CG_E2E_VIEWER_PASSWORD: e2e-viewer-pass
+        run: pnpm --filter @contract-guard/web-ui run e2e
+
+      - name: Upload evidence (trace / screenshots / report)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-evidence
+          path: |
+            apps/web-ui/playwright-report
+            apps/web-ui/test-results
+          retention-days: 14
+
+      - name: Compose logs summary
+        if: always()
+        run: docker compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml logs --tail=200 || true
+
+      - name: Teardown
+        if: always()
+        run: docker compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml down -v || true
