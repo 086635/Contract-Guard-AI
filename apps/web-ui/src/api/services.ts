@@ -297,6 +297,31 @@ export const settingsApi = {
   async update(configId: string, body: SystemAuditConfiguration): Promise<SystemAuditConfiguration> { return unwrap(await httpClient.put<Envelope<SystemAuditConfiguration>>(`/settings/rules/${configId}`, body)); },
 };
 
+export const standardClauseApi = {
+  async list(params: { page?: number; pageSize?: number; query?: string; contractType?: Schemas["ContractType"]; isEnabled?: boolean } = {}): Promise<Schemas["StandardClauseListData"]> {
+    return unwrap(
+      await httpClient.get<Envelope<Schemas["StandardClauseListData"]>>("/admin/standard-clauses", {
+        params: {
+          page: params.page ?? 1,
+          pageSize: params.pageSize ?? 20,
+          query: params.query,
+          contractType: params.contractType,
+          isEnabled: params.isEnabled,
+        },
+      }),
+    );
+  },
+  async create(body: Schemas["StandardClauseCreateRequest"]): Promise<Schemas["StandardClause"]> {
+    return unwrap(await httpClient.post<Envelope<Schemas["StandardClause"]>>("/admin/standard-clauses", body));
+  },
+  async update(clauseId: string, body: Schemas["StandardClauseUpdateRequest"]): Promise<Schemas["StandardClause"]> {
+    return unwrap(await httpClient.patch<Envelope<Schemas["StandardClause"]>>(`/admin/standard-clauses/${clauseId}`, body));
+  },
+  async rebuildIndex(): Promise<TaskProgress> {
+    return unwrap(await httpClient.post<Envelope<TaskProgress>>("/admin/standard-clauses/rebuild", {}));
+  },
+};
+
 export const feedbackApi = {
   async list(
     params: {
