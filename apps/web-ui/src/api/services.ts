@@ -1,4 +1,5 @@
-import httpClient from "@/api/client";
+import httpClient, { registerApiErrorSchema, registerOperationSchema } from "@/api/client";
+import { schemas } from "@/api/generated/zod";
 import type { components } from "@/api/generated/types";
 
 type Schemas = components["schemas"];
@@ -24,11 +25,71 @@ const unwrap = <T>(response: { data: Envelope<T> }): T => {
 /** EventSource 端点返回裸 TaskProgress（而普通 HTTP 返回统一包络）。 */
 const apiBase = (import.meta.env.VITE_API_BASE_URL || "/api/v1").replace(/\/$/, "");
 
+// ============================================================================
+// C73：operationId → 生成 Zod Schema 注册表（唯一处；禁止手写第二套业务 Schema）
+//   · 响应拦截器按请求携带的 `_operationId` 选择 schema 校验业务 payload；
+//   · 错误体统一用 `ApiError` 校验（兼容期只上报形状漂移，保留 detail 回退）。
+// ============================================================================
+export const OPERATION_SCHEMAS = {
+  login: schemas.TokenResponse,
+  refresh: schemas.TokenResponse,
+  logout: schemas.LogoutResponse,
+  getCurrentUser: schemas.CurrentUserResponse,
+  listContracts: schemas.ContractListResponse,
+  getContract: schemas.ContractDetailResponse,
+  getElements: schemas.ElementListResponse,
+  getRisks: schemas.RiskListResponse,
+  getConflicts: schemas.ConflictListResponse,
+  getSeals: schemas.SealListResponse,
+  getParseStatus: schemas.ParseStatusResponse,
+  commitContract: schemas.CommitResultResponse,
+  presignUpload: schemas.PresignResponse,
+  uploadContract: schemas.ContractUploadResponse,
+  getContractPreview: schemas.PreviewResponse,
+  retryContractPreview: schemas.PreviewResponse,
+  getTask: schemas.TaskProgressResponse,
+  createTaskStreamToken: schemas.StreamTokenResponse,
+  getReport: schemas.ReportResponse,
+  generateReport: schemas.ReportGenerateResponse,
+  listRules: schemas.SettingsRulesResponse,
+  getRule: schemas.SettingsRuleResponse,
+  updateRule: schemas.SettingsRuleResponse,
+  listStandardClauses: schemas.StandardClauseListResponse,
+  createStandardClause: schemas.StandardClauseResponse,
+  updateStandardClause: schemas.StandardClauseResponse,
+  rebuildStandardClauseIndex: schemas.TaskProgressResponse,
+  listFeedback: schemas.FeedbackListResponse,
+  createFeedback: schemas.FeedbackResponse,
+  rewriteClause: schemas.RewriteResponse,
+} as const;
+
+/** C73 验收：P0 端点（合同详情 / 风险 / 上传 / 改写 / 报告 / 权限）必须全部登记。 */
+export const P0_OPERATION_IDS = [
+  "getContract",
+  "getRisks",
+  "getConflicts",
+  "getElements",
+  "presignUpload",
+  "uploadContract",
+  "rewriteClause",
+  "getReport",
+  "generateReport",
+  "login",
+  "refresh",
+  "getCurrentUser",
+] as const;
+
+registerApiErrorSchema(schemas.ApiError);
+for (const [operationId, schema] of Object.entries(OPERATION_SCHEMAS)) {
+  registerOperationSchema(operationId, schema);
+}
+
 export const authApi = {
   async login(body: LoginRequest): Promise<TokenData> {
     return unwrap(
       await httpClient.post<Envelope<TokenData>>("/auth/login", body, {
         withCredentials: true,
+        _operationId: "login",
       }),
     );
   },
@@ -36,6 +97,7 @@ export const authApi = {
     return unwrap(
       await httpClient.post<Envelope<TokenData>>("/auth/refresh", {}, {
         withCredentials: true,
+        _operationId: "refresh",
       }),
     );
   },
@@ -43,32 +105,33 @@ export const authApi = {
     return unwrap(
       await httpClient.post<Envelope<LogoutData>>("/auth/logout", {}, {
         withCredentials: true,
+        _operationId: "logout",
       }),
     );
   },
   async me(): Promise<CurrentUser> {
-    return unwrap(await httpClient.get<Envelope<CurrentUser>>("/auth/me"));
+    return unwrap(await httpClient.get<Envelope<CurrentUser>>("/auth/me", { _operationId: "getCurrentUser" }));
   },
 };
 
 export const contractApi = {
   async list(params: { page?: number; pageSize?: number; status?: Schemas["ContractStatus"]; contractType?: Schemas["ContractType"] } = {}): Promise<ContractListData> {
-    const response = await httpClient.get<Envelope<ContractListData>>("/contracts", { params: { page: params.page, page_size: params.pageSize, status: params.status, contract_type: params.contractType } });
+    const response = await httpClient.get<Envelope<ContractListData>>("/contracts", { _operationId: "listContracts", params: { page: params.page, page_size: params.pageSize, status: params.status, contract_type: params.contractType } });
     return unwrap(response);
   },
-  async detail(contractId: string): Promise<Contract> { return unwrap(await httpClient.get<Envelope<Contract>>(`/contracts/${contractId}`)); },
-  async elements(contractId: string): Promise<Schemas["ContractElement"][]> { return unwrap(await httpClient.get<Envelope<Schemas["ContractElement"][]>>(`/contracts/${contractId}/elements`)); },
-  async risks(contractId: string, level?: Schemas["RiskLevel"]): Promise<Schemas["EnhancedRiskItem"][]> { return unwrap(await httpClient.get<Envelope<Schemas["EnhancedRiskItem"][]>>(`/contracts/${contractId}/risks`, { params: { level } })); },
-  async conflicts(contractId: string): Promise<Schemas["CrossClauseConflict"][]> { return unwrap(await httpClient.get<Envelope<Schemas["CrossClauseConflict"][]>>(`/contracts/${contractId}/conflicts`)); },
-  async seals(contractId: string): Promise<Schemas["SealSignatureDetection"][]> { return unwrap(await httpClient.get<Envelope<Schemas["SealSignatureDetection"][]>>(`/contracts/${contractId}/seals`)); },
-  async parseStatus(contractId: string): Promise<TaskProgress> { return unwrap(await httpClient.get<Envelope<TaskProgress>>(`/contracts/${contractId}/parse-status`)); },
-  async commit(contractId: string, body: Schemas["CommitBody"]): Promise<Schemas["BatchResult"]> { return unwrap(await httpClient.post<Envelope<Schemas["BatchResult"]>>(`/contracts/${contractId}/commit`, body)); },
+  async detail(contractId: string): Promise<Contract> { return unwrap(await httpClient.get<Envelope<Contract>>(`/contracts/${contractId}`, { _operationId: "getContract" })); },
+  async elements(contractId: string): Promise<Schemas["ContractElement"][]> { return unwrap(await httpClient.get<Envelope<Schemas["ContractElement"][]>>(`/contracts/${contractId}/elements`, { _operationId: "getElements" })); },
+  async risks(contractId: string, level?: Schemas["RiskLevel"]): Promise<Schemas["EnhancedRiskItem"][]> { return unwrap(await httpClient.get<Envelope<Schemas["EnhancedRiskItem"][]>>(`/contracts/${contractId}/risks`, { _operationId: "getRisks", params: { level } })); },
+  async conflicts(contractId: string): Promise<Schemas["CrossClauseConflict"][]> { return unwrap(await httpClient.get<Envelope<Schemas["CrossClauseConflict"][]>>(`/contracts/${contractId}/conflicts`, { _operationId: "getConflicts" })); },
+  async seals(contractId: string): Promise<Schemas["SealSignatureDetection"][]> { return unwrap(await httpClient.get<Envelope<Schemas["SealSignatureDetection"][]>>(`/contracts/${contractId}/seals`, { _operationId: "getSeals" })); },
+  async parseStatus(contractId: string): Promise<TaskProgress> { return unwrap(await httpClient.get<Envelope<TaskProgress>>(`/contracts/${contractId}/parse-status`, { _operationId: "getParseStatus" })); },
+  async commit(contractId: string, body: Schemas["CommitBody"]): Promise<Schemas["BatchResult"]> { return unwrap(await httpClient.post<Envelope<Schemas["BatchResult"]>>(`/contracts/${contractId}/commit`, body, { _operationId: "commitContract" })); },
 };
 
 export const uploadApi = {
   async presign(fileName: string, fileType: FileType, sizeBytes?: number, contentType?: string): Promise<Schemas["PresignData"]> {
     // C56：sizeBytes/contentType 仅作服务端准入输入，服务端不复用其真实性判断。
-    return unwrap(await httpClient.post<Envelope<Schemas["PresignData"]>>("/contracts/presign", { fileName, fileType, sizeBytes, contentType }));
+    return unwrap(await httpClient.post<Envelope<Schemas["PresignData"]>>("/contracts/presign", { fileName, fileType, sizeBytes, contentType }, { _operationId: "presignUpload" }));
   },
   async directUpload(presignedUrl: string, file: File): Promise<string | null> {
     // 原样使用后端签发的 public presign URL；失败必须向调用方抛出，不得静默跳过。
@@ -81,17 +144,17 @@ export const uploadApi = {
     const etag = response.headers?.etag;
     return typeof etag === "string" && etag ? etag : null;
   },
-  async submit(body: UploadBody): Promise<TaskProgress> { return unwrap(await httpClient.post<Envelope<TaskProgress>>("/contracts/upload", body)); },
+  async submit(body: UploadBody): Promise<TaskProgress> { return unwrap(await httpClient.post<Envelope<TaskProgress>>("/contracts/upload", body, { _operationId: "uploadContract" })); },
 };
 
 export const previewApi = {
   /** 预览元数据 + 短期签名 URL（C58）。 */
   async get(contractId: string): Promise<Schemas["PreviewData"]> {
-    return unwrap(await httpClient.get<Envelope<Schemas["PreviewData"]>>(`/contracts/${contractId}/preview`));
+    return unwrap(await httpClient.get<Envelope<Schemas["PreviewData"]>>(`/contracts/${contractId}/preview`, { _operationId: "getContractPreview" }));
   },
   /** 重试 DOCX→PDF 预览转换（C59；仅 ADMIN/REVIEWER，X-Request-ID 幂等）。 */
   async retry(contractId: string): Promise<TaskProgress> {
-    return unwrap(await httpClient.post<Envelope<TaskProgress>>(`/contracts/${contractId}/preview/retry`));
+    return unwrap(await httpClient.post<Envelope<TaskProgress>>(`/contracts/${contractId}/preview/retry`, {}, { _operationId: "retryContractPreview" }));
   },
 };
 
@@ -258,10 +321,10 @@ export function createTaskSubscription(
 }
 
 export const taskApi = {
-  async get(taskId: string): Promise<TaskProgress> { return unwrap(await httpClient.get<Envelope<TaskProgress>>(`/tasks/${taskId}`)); },
+  async get(taskId: string): Promise<TaskProgress> { return unwrap(await httpClient.get<Envelope<TaskProgress>>(`/tasks/${taskId}`, { _operationId: "getTask" })); },
   /** 取短期 SSE 订阅令牌（C64；Token 只用于 EventSource URL，不写日志）。 */
   async issueStreamToken(taskId: string): Promise<Schemas["StreamTokenData"]> {
-    return unwrap(await httpClient.post<Envelope<Schemas["StreamTokenData"]>>(`/tasks/${taskId}/stream-token`, {}));
+    return unwrap(await httpClient.post<Envelope<Schemas["StreamTokenData"]>>(`/tasks/${taskId}/stream-token`, {}, { _operationId: "createTaskStreamToken" }));
   },
   subscribe(
     taskId: string,
@@ -287,20 +350,21 @@ export const taskApi = {
 };
 
 export const reportApi = {
-  async get(contractId: string): Promise<Schemas["ReportData"]> { return unwrap(await httpClient.get<Envelope<Schemas["ReportData"]>>(`/report/${contractId}`)); },
-  async generate(contractId: string): Promise<TaskProgress> { return unwrap(await httpClient.post<Envelope<TaskProgress>>(`/report/${contractId}/generate`, {})); },
+  async get(contractId: string): Promise<Schemas["ReportData"]> { return unwrap(await httpClient.get<Envelope<Schemas["ReportData"]>>(`/report/${contractId}`, { _operationId: "getReport" })); },
+  async generate(contractId: string): Promise<TaskProgress> { return unwrap(await httpClient.post<Envelope<TaskProgress>>(`/report/${contractId}/generate`, {}, { _operationId: "generateReport" })); },
 };
 
 export const settingsApi = {
-  async list(contractType?: Schemas["ContractType"]): Promise<SystemAuditConfiguration[]> { return unwrap(await httpClient.get<Envelope<SystemAuditConfiguration[]>>("/settings/rules", { params: { contract_type: contractType } })); },
-  async get(configId: string): Promise<SystemAuditConfiguration> { return unwrap(await httpClient.get<Envelope<SystemAuditConfiguration>>(`/settings/rules/${configId}`)); },
-  async update(configId: string, body: SystemAuditConfiguration): Promise<SystemAuditConfiguration> { return unwrap(await httpClient.put<Envelope<SystemAuditConfiguration>>(`/settings/rules/${configId}`, body)); },
+  async list(contractType?: Schemas["ContractType"]): Promise<SystemAuditConfiguration[]> { return unwrap(await httpClient.get<Envelope<SystemAuditConfiguration[]>>("/settings/rules", { _operationId: "listRules", params: { contract_type: contractType } })); },
+  async get(configId: string): Promise<SystemAuditConfiguration> { return unwrap(await httpClient.get<Envelope<SystemAuditConfiguration>>(`/settings/rules/${configId}`, { _operationId: "getRule" })); },
+  async update(configId: string, body: SystemAuditConfiguration): Promise<SystemAuditConfiguration> { return unwrap(await httpClient.put<Envelope<SystemAuditConfiguration>>(`/settings/rules/${configId}`, body, { _operationId: "updateRule" })); },
 };
 
 export const standardClauseApi = {
   async list(params: { page?: number; pageSize?: number; query?: string; contractType?: Schemas["ContractType"]; isEnabled?: boolean } = {}): Promise<Schemas["StandardClauseListData"]> {
     return unwrap(
       await httpClient.get<Envelope<Schemas["StandardClauseListData"]>>("/admin/standard-clauses", {
+        _operationId: "listStandardClauses",
         params: {
           page: params.page ?? 1,
           pageSize: params.pageSize ?? 20,
@@ -312,13 +376,13 @@ export const standardClauseApi = {
     );
   },
   async create(body: Schemas["StandardClauseCreateRequest"]): Promise<Schemas["StandardClause"]> {
-    return unwrap(await httpClient.post<Envelope<Schemas["StandardClause"]>>("/admin/standard-clauses", body));
+    return unwrap(await httpClient.post<Envelope<Schemas["StandardClause"]>>("/admin/standard-clauses", body, { _operationId: "createStandardClause" }));
   },
   async update(clauseId: string, body: Schemas["StandardClauseUpdateRequest"]): Promise<Schemas["StandardClause"]> {
-    return unwrap(await httpClient.patch<Envelope<Schemas["StandardClause"]>>(`/admin/standard-clauses/${clauseId}`, body));
+    return unwrap(await httpClient.patch<Envelope<Schemas["StandardClause"]>>(`/admin/standard-clauses/${clauseId}`, body, { _operationId: "updateStandardClause" }));
   },
   async rebuildIndex(): Promise<TaskProgress> {
-    return unwrap(await httpClient.post<Envelope<TaskProgress>>("/admin/standard-clauses/rebuild", {}));
+    return unwrap(await httpClient.post<Envelope<TaskProgress>>("/admin/standard-clauses/rebuild", {}, { _operationId: "rebuildStandardClauseIndex" }));
   },
 };
 
@@ -333,6 +397,7 @@ export const feedbackApi = {
     } = {},
   ): Promise<Schemas["FeedbackListData"]> {
     return unwrap(await httpClient.get<Envelope<Schemas["FeedbackListData"]>>("/feedback", {
+      _operationId: "listFeedback",
       params: {
         contractId: params.contractId,
         targetType: params.targetType,
@@ -342,9 +407,9 @@ export const feedbackApi = {
       },
     }));
   },
-  async create(body: FeedbackCreateBody): Promise<Schemas["FeedbackItem"]> { return unwrap(await httpClient.post<Envelope<Schemas["FeedbackItem"]>>("/feedback", body)); },
+  async create(body: FeedbackCreateBody): Promise<Schemas["FeedbackItem"]> { return unwrap(await httpClient.post<Envelope<Schemas["FeedbackItem"]>>("/feedback", body, { _operationId: "createFeedback" })); },
 };
 
 export const agentApi = {
-  async rewrite(body: AgentRewriteRequest): Promise<Schemas["RewriteData"]> { return unwrap(await httpClient.post<Envelope<Schemas["RewriteData"]>>("/agent/rewrite", body)); },
+  async rewrite(body: AgentRewriteRequest): Promise<Schemas["RewriteData"]> { return unwrap(await httpClient.post<Envelope<Schemas["RewriteData"]>>("/agent/rewrite", body, { _operationId: "rewriteClause" })); },
 };
