@@ -638,6 +638,34 @@ class ContractPreview(Base):
     )
 
 
+class StandardClause(Base):
+    """C70 标准条款库（人工维护源；检索索引由 C70 服务同步到 RAG collection）。"""
+
+    __tablename__ = "standard_clauses"
+    __table_args__ = (
+        Index("ix_standard_clauses_type_enabled", "contract_type", "is_enabled"),
+        Index("ix_standard_clauses_updated_at", "updated_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid4
+    )
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    contract_type: Mapped[ContractType] = mapped_column(
+        _enum_type(ContractType, "standard_clause_contract_type")
+    )
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    is_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    source: Mapped[str] = mapped_column(String(200), nullable=False, default="manual")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utc_now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utc_now, onupdate=_utc_now
+    )
+
+
 __all__ = [
     "AuditAction",
     "AuditEvent",
@@ -653,6 +681,7 @@ __all__ = [
     "ContractPreview",
     "SealDetection",
     "SettingsRule",
+    "StandardClause",
     "User",
     "UserFeedback",
 ]

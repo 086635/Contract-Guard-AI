@@ -78,7 +78,8 @@ def test_openapi_operation_inventory_matches_production_app() -> None:
     actual = _production_operations()
 
     # C58：+2（preview / preview-retry）；C64：+1（POST /tasks/{taskId}/stream-token）→ 31
-    assert len(expected) == 31
+    # C70：+4（GET/POST /admin/standard-clauses、POST …/rebuild、PATCH …/{clauseId}）→ 35
+    assert len(expected) == 35
     assert actual == expected
 
 

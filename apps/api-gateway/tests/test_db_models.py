@@ -26,6 +26,7 @@ from app.db.models import (
     ContractPreview,
     SealDetection,
     SettingsRule,
+    StandardClause,
     User,
     UserFeedback,
 )
@@ -53,6 +54,7 @@ EXPECTED_TABLES = {
     "contracts",
     "seal_detections",
     "settings_rules",
+    "standard_clauses",
     "user_feedbacks",
     "users",
 }
@@ -68,6 +70,7 @@ MODELS = (
     AuthSession,
     SealDetection,
     SettingsRule,
+    StandardClause,
     AuditReport,
     User,
     UserFeedback,

@@ -31,6 +31,7 @@ from app.services.ports import (
     TaskDispatcherPort,
 )
 from app.services.security import JwtService, TokenValidationError
+from app.services.standard_clause_service import StandardClauseService
 
 
 async def get_db() -> AsyncIterator[AsyncSession]:
@@ -87,6 +88,17 @@ async def get_audit_service(
 ) -> AuditService:
     """为路由组装审计服务；写失败由 AuditService 自行告警降级。"""
     return AuditService(db)
+
+
+async def get_standard_clause_service(
+    context: Annotated[ServiceContext, Depends(get_service_context)],
+) -> StandardClauseService:
+    """为标准条款库路由组装服务（PG 维护源 + RAG 索引写入）。
+
+    走 `get_service_context()` 取同一个请求会话：既满足「路由只依赖 ServiceContext」
+    的守卫（C17），也保证元数据事务与审计写入共用一条 session。
+    """
+    return StandardClauseService(context.session)
 
 
 _bearer_scheme = HTTPBearer(auto_error=False)
@@ -201,6 +213,7 @@ __all__ = [
     "get_object_storage",
     "get_progress_broker",
     "get_service_context",
+    "get_standard_clause_service",
     "get_task_dispatcher",
     "require_roles",
     "verify_origin",

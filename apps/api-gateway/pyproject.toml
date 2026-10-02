@@ -18,6 +18,7 @@ dependencies = [
     "minio>=7.2",
     "ai-engine",
     "doc-processor",
+    "rag-core",
 ]
 
 [dependency-groups]
@@ -33,3 +34,4 @@ packages = ["app"]
 [tool.uv.sources]
 ai-engine = { workspace = true }
 doc-processor = { workspace = true }
+rag-core = { workspace = true }

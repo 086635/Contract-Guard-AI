@@ -69,6 +69,12 @@ from app.services.security import (
     hash_refresh_token,
     verify_password,
 )
+from app.services.standard_clause_service import (
+    StandardClauseIndexer,
+    StandardClauseIndexError,
+    StandardClauseService,
+    StandardClauseValidationError,
+)
 from app.services.storage import MinioObjectStorage
 from app.services.task_service import TaskNotFoundError, TaskService
 
@@ -114,6 +120,10 @@ __all__ = [
     "RuleService",
     "RuleVersionConflictError",
     "ServiceContext",
+    "StandardClauseIndexError",
+    "StandardClauseIndexer",
+    "StandardClauseService",
+    "StandardClauseValidationError",
     "StoredObjectInfo",
     "TaskDispatcherPort",
     "TaskKind",

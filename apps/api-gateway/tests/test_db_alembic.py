@@ -34,6 +34,7 @@ EXPECTED_TABLES = {
     "contracts",
     "seal_detections",
     "settings_rules",
+    "standard_clauses",
     "user_feedbacks",
     "users",
 }
