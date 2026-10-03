@@ -122,3 +122,35 @@ def test_missing_gold_exits_2(tmp_path: Path) -> None:
         timeout=120,
     )
     assert proc.returncode == 2
+
+
+# ---------------------------------------------------------------------------
+# C80 / T-D8-5：要素 F1 只统计**核心词表**且 `isCustom=false` 的要素
+# ---------------------------------------------------------------------------
+def test_element_keys_counts_only_core(mod) -> None:
+    """别名归一；明细白名单、自定义标记、越界 key 一律不计入核心 F1。"""
+    result = {
+        "elements": [
+            {"key": "amount", "value": "100", "isCustom": False},
+            {"key": " contract_amount ", "value": "100", "isCustom": False},  # 别名→amount（去重）
+            {"key": "payment_method", "value": "月结", "isCustom": True},  # 明细 → 排除
+            {"key": "amount", "value": "999", "isCustom": True},  # 核心但自定义标记 → 排除
+            {"key": "invented_key_xyz", "value": "x", "isCustom": True},  # 越界 → 排除
+            {"key": "party_a", "value": "杭州启明科技有限公司", "isCustom": False},
+        ]
+    }
+    assert mod._element_keys(result) == {
+        ("amount", "100"),
+        ("party_a", "杭州启明科技有限公司"),
+    }
+
+
+def test_element_keys_ignores_empty_values(mod) -> None:
+    """值为 null/空的核心要素不计入（宁缺勿造）。"""
+    result = {
+        "elements": [
+            {"key": "party_a", "value": None, "isCustom": False},
+            {"key": "party_b", "value": "  ", "isCustom": False},
+        ]
+    }
+    assert mod._element_keys(result) == set()

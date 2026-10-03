@@ -31,6 +31,13 @@ from ai_engine.llm.structured import invoke_structured
 from ai_engine.prompts.loader import PromptTemplate
 from cg_observability import get_logger, log_event
 from rag_contracts.agent_tool import EMPTY_CONTEXT_HINT
+from rag_contracts.element_keys import (
+    ELEMENT_KEYS_PROMPT_BLOCK,
+    is_allowed_key,
+    is_core_key,
+    label_for,
+    normalize_key,
+)
 from rag_contracts.enums import ContractType, SourceType
 
 _LOGGER = get_logger("ai_engine.graphs.nodes")
@@ -241,7 +248,8 @@ def _normalize_element(item: Any) -> dict[str, Any] | None:
     """把单个要素收敛到 OpenAPI ContractElement 的 6 个字段。"""
     if not isinstance(item, Mapping):
         return None
-    key = str(item.get("key", "") or "").strip()
+    # C80：别名先归一到核心 key（如 contract_amount → amount），再判词表归属。
+    key = normalize_key(item.get("key", ""))
     if not key:
         return None
 
@@ -259,7 +267,8 @@ def _normalize_element(item: Any) -> dict[str, Any] | None:
         "value": None if value is None else str(value),
         "confidence": _confidence(item.get("confidence", 0.0)),
         "bbox": bbox,
-        "isCustom": bool(item.get("isCustom", item.get("is_custom", False))),
+        # C80 契约语义：核心词表 → isCustom=false；明细/其它 → true。
+        "isCustom": not is_core_key(key),
     }
 
 
@@ -298,16 +307,22 @@ def _clause_block(clauses: list[ClauseInput]) -> str:
     )
 
 
-def _draft_to_element(draft: _ElementDraft) -> dict[str, Any]:
-    """把 LLM 补漏草稿转成纯 dict，并强制禁止生成 bbox。"""
-    key = draft.key.strip()
+def _draft_to_element(draft: _ElementDraft) -> dict[str, Any] | None:
+    """把 LLM 补漏草稿转成纯 dict；**越界 key 返回 None**（由调用方丢弃并计数）。
+
+    C80：key 必须先经 `normalize_key` 归一（别名映射到核心），再校验是否在
+    「核心 ∪ 明细白名单」内；`isCustom` 按词表决定，不再硬编码 True。
+    """
+    key = normalize_key(draft.key)
+    if not key or not is_allowed_key(key):
+        return None
     return {
         "key": key,
-        "label": draft.label.strip() or key,
+        "label": draft.label.strip() or label_for(key, default=key),
         "value": draft.value,
         "confidence": _confidence(draft.confidence),
         "bbox": None,
-        "isCustom": True,
+        "isCustom": not is_core_key(key),
     }
 
 
@@ -441,7 +456,10 @@ def extract_node(state: AuditState, deps: GraphDeps) -> dict[str, Any]:
     attempted = False
     try:
         model = _resolve_llm(deps, "extract")
-        rendered = prompt.render(clause_block=_clause_block(clauses))
+        rendered = prompt.render(
+            clause_block=_clause_block(clauses),
+            element_keys=ELEMENT_KEYS_PROMPT_BLOCK,
+        )
         attempted = True
         value, warnings = invoke_structured(
             model,
@@ -461,12 +479,16 @@ def extract_node(state: AuditState, deps: GraphDeps) -> dict[str, Any]:
                 extra={"elements": [], "llm_calls": 1},
             )
 
-        drafts = [_draft_to_element(draft) for draft in value.elements]
+        raw_drafts = [_draft_to_element(draft) for draft in value.elements]
+        dropped = sum(1 for item in raw_drafts if item is None)
+        drafts = [item for item in raw_drafts if item is not None]
         elements, duplicates, invalid = _normalize_elements(drafts)
         result_warnings = [*budget_warnings, *warnings]
         if invalid:
             result_warnings.append(f"忽略 {invalid} 个缺少 key 的补漏要素")
-        status = "DEGRADED" if warnings or invalid else "OK"
+        if dropped:
+            result_warnings.append(f"忽略 {dropped} 个 key 不在词表内的补漏要素")
+        status = "DEGRADED" if warnings or invalid or dropped else "OK"
         return _finish_stage(
             state,
             stage,

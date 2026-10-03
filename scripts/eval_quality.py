@@ -48,6 +48,7 @@ for _path in (
 from ai_engine.agents.tools import build_rag_tool  # noqa: E402
 from ai_engine.graphs import GraphDeps, build_audit_graph, new_audit_state  # noqa: E402
 from ai_engine.prompts import load_default_library  # noqa: E402
+from rag_contracts.element_keys import is_core_key, normalize_key  # noqa: E402
 
 DEFAULT_GOLD = _REPO_ROOT / "scripts" / "data" / "quality_gold.jsonl"
 THRESHOLDS = {"classification": 0.85, "element_f1": 0.80, "risk": 0.75}
@@ -98,14 +99,22 @@ def micro_f1(gold: set, predicted: set) -> tuple[float, float, float]:
 
 
 def _element_keys(result: dict) -> set[tuple[str, str]]:
+    """系统产出的**核心要素**集合（C80 口径）。
+
+    只统计：① key 属核心词表（别名先归一）；② `isCustom=false`（非 LLM 自定义）；
+    ③ value 非空。明细白名单（`payment_method` 等）与自定义 key 一律不计入
+    赛题「关键要素抽取 F1」。
+    """
     out: set[tuple[str, str]] = set()
     for item in result.get("elements") or []:
         if not isinstance(item, dict):
             continue
-        key = str(item.get("key") or "").strip()
+        key = normalize_key(item.get("key"))
         value = normalize_value(item.get("value"))
-        if key and value:
-            out.add((key, value))
+        is_custom = bool(item.get("isCustom", item.get("is_custom", False)))
+        if not key or not value or not is_core_key(key) or is_custom:
+            continue
+        out.add((key, value))
     return out
 
 

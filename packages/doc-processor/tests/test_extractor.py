@@ -285,3 +285,25 @@ def test_contracts_unchanged() -> None:
         "confidence",
         "is_custom",
     ]
+
+
+# ---------------------------------------------------------------------------
+# C80 / T-D8-5：解析层 key 必须与要素词表唯一处一致（防漂移守卫）
+# ---------------------------------------------------------------------------
+def test_element_rule_keys_match_vocabulary() -> None:
+    """解析层 `_ELEMENT_RULES` 的 key 与 `rag_contracts.element_keys` 完全一致。"""
+    from doc_processor.parser.extractor import _ELEMENT_RULES, _VALUE_GROUP
+    from rag_contracts.element_keys import CORE_ELEMENT_LABELS
+
+    rule_keys = {key for key, *_ in _ELEMENT_RULES}
+    assert rule_keys == set(CORE_ELEMENT_LABELS)
+    assert set(_VALUE_GROUP) == set(CORE_ELEMENT_LABELS)
+
+
+def test_element_rule_labels_come_from_vocabulary() -> None:
+    """标签也取自词表（解析层不得再维护第二份 label）。"""
+    from doc_processor.parser.extractor import _ELEMENT_RULES
+    from rag_contracts.element_keys import CORE_ELEMENT_LABELS
+
+    for key, label, *_ in _ELEMENT_RULES:
+        assert label == CORE_ELEMENT_LABELS[key]

@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from cg_observability import ensure_trace_id, get_logger, log_event
+from rag_contracts.element_keys import CORE_ELEMENT_LABELS
 from rag_contracts.patterns import CLAUSE_HEAD_RE
 
 from ..config import OcrSettings, get_ocr_settings
@@ -29,31 +30,47 @@ _LOG = get_logger("doc_processor.parser.extractor")
 #: 甲方 / 乙方的抽取范围：只看前 N 页（合同要素集中在首部，避免正文里"甲方应……"被当成主体名）
 PARTY_PAGES = 2
 
-# 要素规则表（**唯一处**：表驱动，便于回归与扩展）
+# 要素规则表（**表驱动**，便于回归与扩展）
 #   (key, label, pattern, base_confidence)
+#   🔴 C80：**key 与 label 的唯一处是 `rag_contracts.element_keys`**；本表只承载
+#   正则与基础置信度（解析实现细节），不得再定义第二套词表。下方有一致性守卫。
 _ELEMENT_RULES: tuple[tuple[str, str, re.Pattern[str], float], ...] = (
-    ("party_a", "甲方", re.compile(r"甲\s*方[：:\s]*(.{2,40})"), 0.90),
-    ("party_b", "乙方", re.compile(r"乙\s*方[：:\s]*(.{2,40})"), 0.90),
+    ("party_a", CORE_ELEMENT_LABELS["party_a"], re.compile(r"甲\s*方[：:\s]*(.{2,40})"), 0.90),
+    ("party_b", CORE_ELEMENT_LABELS["party_b"], re.compile(r"乙\s*方[：:\s]*(.{2,40})"), 0.90),
     (
         "amount",
-        "合同金额",
+        CORE_ELEMENT_LABELS["amount"],
         re.compile(r"([¥￥]|人民币)?\s*([0-9][0-9,，]*(?:\.[0-9]{1,2})?)\s*(元|万元)"),
         0.85,
     ),
     (
         "sign_date",
-        "签订日期",
+        CORE_ELEMENT_LABELS["sign_date"],
         re.compile(r"\d{4}\s*年\s*\d{1,2}\s*月\s*\d{1,2}\s*日|\d{4}-\d{2}-\d{2}"),
         0.90,
     ),
     (
         "term",
-        "合同期限",
+        CORE_ELEMENT_LABELS["term"],
         re.compile(r"自.{2,40}?至.{2,40}|\d+\s*(?:个月|年)(?![0-9])"),
         0.70,
     ),
-    ("jurisdiction", "管辖地", re.compile(r".{2,30}(人民法院|仲裁委员会)"), 0.75),
+    (
+        "jurisdiction",
+        CORE_ELEMENT_LABELS["jurisdiction"],
+        re.compile(r".{2,30}(人民法院|仲裁委员会)"),
+        0.75,
+    ),
 )
+
+# 🔴 C80 一致性守卫：解析层 key 必须与 `rag_contracts.element_keys.CORE_ELEMENT_KEYS`
+# 完全一致（多、少、改名都在 import 期直接失败，杜绝词表再次漂移）。
+_RULE_KEYS = {key for key, *_ in _ELEMENT_RULES}
+if _RULE_KEYS != set(CORE_ELEMENT_LABELS):
+    raise RuntimeError(
+        "解析层要素 key 与 rag_contracts.element_keys 词表不一致："
+        f"rules={sorted(_RULE_KEYS)} vocab={sorted(CORE_ELEMENT_LABELS)}"
+    )
 
 #: 每个要素取正则的哪一组作为值（**唯一处**）：缺省 0 = 整段命中。
 #:   · 甲乙方：组 1（主体名，去掉标签）

@@ -214,7 +214,8 @@ def test_extract_llm_supplement_has_no_bbox(
     )
     assert result["llm_calls"] == 1
     assert result["elements"][0]["bbox"] is None
-    assert result["elements"][0]["isCustom"] is True
+    # C80：`term` 是核心词表 key → isCustom 必须为 False（不再是硬编码 True）
+    assert result["elements"][0]["isCustom"] is False
 
 
 def test_extract_missing_prompt_returns_empty() -> None:
@@ -267,3 +268,72 @@ def test_no_doc_processor_import() -> None:
         if isinstance(node, ast.ImportFrom) and node.module
     }
     assert not any(module.startswith("doc_processor") for module in imports)
+
+
+# ---------------------------------------------------------------------------
+# C80 / T-D8-5：要素 key 词表约束
+# ---------------------------------------------------------------------------
+def _extract_with_draft(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    draft: _ElementDraft,
+) -> dict:
+    """用给定的 LLM 草稿跑一次 extract_node（模板只需 clause_block 占位符）。"""
+    library = _write_prompt(tmp_path, "extract", "{{clause_block}}")
+    monkeypatch.setattr(
+        nodes,
+        "invoke_structured",
+        lambda *a, **k: (_ExtractBatch(elements=[draft]), []),
+    )
+    return extract_node(
+        _state(clauses=[_clause()]),
+        GraphDeps(llm=object(), prompt_lib=library),  # type: ignore[arg-type]
+    )
+
+
+def test_extract_llm_core_key_is_not_custom(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """核心词表 key → isCustom=False（可参与要素 F1）。"""
+    result = _extract_with_draft(
+        tmp_path, monkeypatch, _ElementDraft(key="amount", value="1,200.00")
+    )
+    element = result["elements"][0]
+    assert element["key"] == "amount"
+    assert element["isCustom"] is False
+
+
+def test_extract_llm_detail_key_is_custom(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """明细白名单 key → isCustom=True（仅展示，不计入核心 F1）。"""
+    result = _extract_with_draft(
+        tmp_path, monkeypatch, _ElementDraft(key="payment_method", value="月结")
+    )
+    element = result["elements"][0]
+    assert element["key"] == "payment_method"
+    assert element["isCustom"] is True
+
+
+def test_extract_llm_alias_key_is_normalized(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """别名（contract_amount）归一到核心 key，避免同概念两处。"""
+    result = _extract_with_draft(
+        tmp_path, monkeypatch, _ElementDraft(key=" contract_amount ", value="999")
+    )
+    element = result["elements"][0]
+    assert element["key"] == "amount"
+    assert element["isCustom"] is False
+
+
+def test_extract_llm_drops_out_of_vocab_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """不在词表内的 key 一律丢弃并计 warning（不得静默保留）。"""
+    result = _extract_with_draft(
+        tmp_path, monkeypatch, _ElementDraft(key="invented_key_xyz", value="x")
+    )
+    assert result["elements"] == []
+    assert any("不在词表内" in warning for warning in result["warnings"])
+    assert result["stage_log"][0]["status"] == "DEGRADED"

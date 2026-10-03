@@ -5,9 +5,16 @@
 条款块：
 {{clause_block}}
 
-输出：严格输出 JSON，顶层字段为 elements，每个元素只包含 key、label、value、confidence、is_custom。
+{{element_keys}}
+
+输出：严格输出 JSON，顶层字段为 elements；每个元素只包含 key、label、value、confidence、is_custom。
 
 约束：
+- key **必须取自上面的清单**，不得发明新 key；不在清单内的要素一律不要输出。
+- 核心 key 的 is_custom 必须为 false；明细 key 的 is_custom 必须为 true。
 - confidence 使用 0 到 1 的数值。
-- 不确定或原文没有的要素不要添加。
-- 不得编造主体、金额、日期或法条；需要标准依据但无法核对时标注【缺失标准对照】。
+- 不确定或原文没有的要素不要添加（宁缺勿造），也不要输出占位标记。
+- 不得编造主体、金额、日期或法条。
+
+输出形状示例（仅示意字段，不要照抄内容）：
+{"elements":[{"key":"party_a","label":"甲方","value":"杭州启明科技有限公司","confidence":0.95,"is_custom":false}]}

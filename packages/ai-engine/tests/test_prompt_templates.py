@@ -16,7 +16,7 @@ from ai_engine.prompts import (
 
 _PLACEHOLDERS = {
     "classify": {"contract_title", "clause_excerpt"},
-    "extract": {"clause_block"},
+    "extract": {"clause_block", "element_keys"},
     "risk": {
         "clause_label",
         "clause_text",
@@ -108,14 +108,19 @@ def test_templates_mention_json_and_missing_hint() -> None:
     for name in _ALL_NAMES:
         text = _prompt_text(name)
         assert "JSON" in text
-        assert "【缺失标准对照】" in text
+        # C80：`extract` 模板**有意**不再要求输出【缺失标准对照】——该标记会被当成
+        # 一个非词表要素（`standard_reference`）污染要素抽取；它只属于需要法条溯源
+        # 的风险/改写等模板。其余模板仍必须保留该提示。
+        if name != "extract":
+            assert "【缺失标准对照】" in text
 
 
 def test_optional_extract_template_if_present() -> None:
     if not _prompt_path("extract").is_file():
         pytest.skip("extract.prompt 为可选模板")
     placeholders = set(re.findall(r"\{\{(\w+)\}\}", _prompt_text("extract")))
-    assert placeholders == {"clause_block"}
+    # C80：extract 模板新增 `element_keys`（词表清单由代码注入，模板不硬编码 key）
+    assert placeholders == {"clause_block", "element_keys"}
 
 
 def test_prompt_names_are_ascii_snake() -> None:
