@@ -327,8 +327,11 @@ def test_scan_task_never_raises(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_scan_task_rejects_unknown_file_type() -> None:
-    """未登记的声明类型 → FAILED(ERR_UNSUPPORTED_FILE_TYPE)。"""
-    payload = _run("key", "x.png", "IMAGE", _FIXTURES / "native.pdf")
+    """未登记的声明类型 → FAILED(ERR_UNSUPPORTED_FILE_TYPE)。
+
+    ⚠️ T-D8-2 起 `IMAGE` **已是登记类型**（见下方图片用例），故这里改用仍未登记的类型。
+    """
+    payload = _run("key", "x.xlsx", "XLSX", _FIXTURES / "native.pdf")
 
     assert payload["status"] == FAILED
     assert payload["reason"] == "ERR_UNSUPPORTED_FILE_TYPE"
@@ -362,3 +365,56 @@ def test_scan_task_is_registered_in_celery_include() -> None:
     from worker.main import celery_app
 
     assert "worker.tasks.scan_upload" in celery_app.conf.include
+
+
+# ---------------------------------------------------------------------------
+# T-D8-2 / C77：图片输入（PNG / JPEG / TIFF）按**内容**识别
+# ---------------------------------------------------------------------------
+def _png() -> bytes:
+    """最小合法 PNG 头：8 字节签名 + 长度 + IHDR。"""
+    return b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\r" + b"IHDR" + b"\x00" * 32
+
+
+def _jpeg() -> bytes:
+    """最小合法 JPEG：SOI + APP0 + ... + EOI。"""
+    return b"\xff\xd8\xff\xe0" + b"\x00" * 64 + b"\xff\xd9"
+
+
+def _tiff() -> bytes:
+    """最小合法 TIFF：little-endian 魔数 II*\0。"""
+    return b"II*\x00" + b"\x00" * 64
+
+
+@pytest.mark.parametrize("payload", [_png(), _jpeg(), _tiff()])
+def test_image_magic_detected(payload: bytes) -> None:
+    """PNG / JPEG / TIFF 内容被识别为 IMAGE（不看扩展名）。"""
+    assert detect_document_type(payload) == "IMAGE"
+
+
+@pytest.mark.parametrize("payload", [_png(), _jpeg(), _tiff()])
+def test_image_scan_bytes_passes_for_image_type(payload: bytes) -> None:
+    """声明 IMAGE 且内容判据一致时，`scan_bytes` 放行（AV off 档）。"""
+    result = scan_bytes(payload, "IMAGE", mode="off")
+    assert result.status == SUCCESS
+    assert result.detected_type == "IMAGE"
+
+
+def test_image_magic_is_structurally_checked() -> None:
+    """只伪造魔数、结构不完整必须被拒（不能只认前几个字节）。"""
+    # PNG 魔数但不含 IHDR
+    assert detect_document_type(b"\x89PNG\r\n\x1a\n" + b"\x00" * 32) is None
+    # JPEG SOI 但没有 EOI 收尾
+    assert detect_document_type(b"\xff\xd8\xff" + b"\x00" * 32) is None
+
+
+def test_renamed_binary_is_not_image() -> None:
+    """可执行头改名成 .png 仍被内容判据拒绝。"""
+    assert detect_document_type(_forged_pdf()) is None
+    result = scan_bytes(_forged_pdf(), "IMAGE", mode="off")
+    assert result.status == FAILED
+    assert result.reason == REASON_MAGIC_MISMATCH
+
+
+def test_scan_upload_accepts_image_declared_type() -> None:
+    """`scan_upload_task` 的类型白名单已登记 IMAGE（否则会 ERR_UNSUPPORTED_FILE_TYPE）。"""
+    assert scan_module._EXPECTED_TYPE_BY_FILE_TYPE.get("IMAGE") == "IMAGE"

@@ -221,19 +221,37 @@ def test_extension_content_mismatch() -> None:
 
 
 def test_unsupported_file_type_rejected() -> None:
-    """未开放的 IMAGE 类型 → 415（当前安全边界只放行 PDF / DOCX）。"""
+    """声明类型与扩展名不自洽 → 415。
+
+    ⚠️ T-D8-2 起 `FileType.image` **已放行**，故本用例改用「声明 PDF 但文件名是 .png」
+    这一真正不自洽的组合；IMAGE 的放行由下一条用例覆盖。
+    """
     storage = FakeObjectStorage()
     service = _service(storage)
 
     error = _rejected(
         lambda: asyncio.run(
             service.presign_upload(
-                PresignRequest(fileName="scan.png", fileType=FileType.image)
+                PresignRequest(fileName="scan.png", fileType=FileType.pdf_native)
             )
         )
     )
 
     assert error.status_code == 415
+
+
+def test_image_file_type_accepted() -> None:
+    """T-D8-2：`IMAGE` 声明 + 图片扩展名放行（真实类型仍由 C57 魔数判定）。"""
+    storage = FakeObjectStorage()
+    service = _service(storage)
+
+    data = asyncio.run(
+        service.presign_upload(
+            PresignRequest(fileName="scan.png", fileType=FileType.image)
+        )
+    )
+
+    assert data.file_key
 
 
 def test_production_requires_size_bytes(monkeypatch: pytest.MonkeyPatch) -> None:

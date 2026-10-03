@@ -55,6 +55,8 @@ _ALLOWED_EXTENSIONS: dict[FileType, frozenset[str]] = {
     FileType.pdf_native: frozenset({".pdf"}),
     FileType.pdf_scanned: frozenset({".pdf"}),
     FileType.docx: frozenset({".docx"}),
+    # T-D8-2：图片输入（真实类型仍由 C57 魔数判定，扩展名只做自洽校验）
+    FileType.image: frozenset({".png", ".jpg", ".jpeg", ".tif", ".tiff"}),
 }
 
 

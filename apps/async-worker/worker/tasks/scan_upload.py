@@ -44,6 +44,8 @@ _EXPECTED_TYPE_BY_FILE_TYPE: dict[str, str] = {
     "PDF_NATIVE": "PDF",
     "PDF_SCANNED": "PDF",
     "DOCX": "DOCX",
+    # T-D8-2：图片（PNG/JPEG/TIFF）与声明类型一一对应
+    "IMAGE": "IMAGE",
 }
 
 

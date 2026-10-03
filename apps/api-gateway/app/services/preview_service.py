@@ -45,10 +45,13 @@ PREVIEW_URL_TTL_SECONDS = 900
 
 _PDF_SUFFIXES = frozenset({".pdf"})
 _DOCX_SUFFIXES = frozenset({".docx"})
+#: T-D8-2：图片原文即预览底图（与 PDF 同款"直接用原文"路径）。
+_IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".tif", ".tiff"})
 
-#: 预览来源类型（唯一处）：`PDF` 直接用原文，`DOCX` 需经 `convert` 队列。
+#: 预览来源类型（唯一处）：`PDF` / `IMAGE` 直接用原文，`DOCX` 需经 `convert` 队列。
 SOURCE_PDF = "PDF"
 SOURCE_DOCX = "DOCX"
+SOURCE_IMAGE = "IMAGE"
 
 
 _LOG = get_logger("api_gateway.services.preview")
@@ -274,13 +277,15 @@ def source_kind_of(filename: str) -> str | None:
         return SOURCE_PDF
     if suffix in _DOCX_SUFFIXES:
         return SOURCE_DOCX
+    if suffix in _IMAGE_SUFFIXES:
+        return SOURCE_IMAGE
     return None
 
 
 def initial_preview_status(filename: str) -> PreviewStatus:
-    """返回该来源类型的**初始**预览状态（PDF 立即 DONE，DOCX 待转换）。"""
+    """返回该来源类型的**初始**预览状态（PDF / 图片立即 DONE，DOCX 待转换）。"""
     kind = source_kind_of(filename)
-    if kind == SOURCE_PDF:
+    if kind in (SOURCE_PDF, SOURCE_IMAGE):
         return PreviewStatus.done
     if kind == SOURCE_DOCX:
         return PreviewStatus.pending
@@ -288,8 +293,8 @@ def initial_preview_status(filename: str) -> PreviewStatus:
 
 
 def preview_object_key_for(contract: ContractDetail) -> str | None:
-    """PDF 的预览对象就是原文对象；其它来源等待 C59 写入派生对象。"""
-    if source_kind_of(contract.filename) == SOURCE_PDF:
+    """PDF / 图片的预览对象就是原文对象；DOCX 等待 C59 写入派生对象。"""
+    if source_kind_of(contract.filename) in (SOURCE_PDF, SOURCE_IMAGE):
         return contract.storage_path
     return None
 
@@ -607,6 +612,7 @@ class PreviewService:
 __all__ = [
     "PREVIEW_URL_TTL_SECONDS",
     "SOURCE_DOCX",
+    "SOURCE_IMAGE",
     "SOURCE_PDF",
     "PreviewService",
     "initial_preview_status",

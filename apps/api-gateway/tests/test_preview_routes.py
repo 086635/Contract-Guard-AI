@@ -686,3 +686,31 @@ async def _insert_contract(session: AsyncSession, contract: ContractDetail) -> N
         )
     )
     await session.commit()
+
+
+# ---------------------------------------------------------------------------
+# T-D8-2 / C77：图片（PNG/JPEG/TIFF）上传白名单 + 原图预览
+# ---------------------------------------------------------------------------
+def test_image_upload_whitelisted() -> None:
+    """服务端准入放行图片扩展名（真实类型仍由 C57 魔数判定）。"""
+    from app.generated.schemas import FileType
+    from app.services.contract_service import _ALLOWED_EXTENSIONS
+
+    allowed = _ALLOWED_EXTENSIONS[FileType.image]
+    assert {".png", ".jpg", ".jpeg", ".tif", ".tiff"} <= allowed
+
+
+def test_image_preview_is_done_with_original_object() -> None:
+    """图片原文即预览：初始状态 DONE，预览对象=原图 storage_path。"""
+    from app.services.preview_service import SOURCE_IMAGE
+
+    contract = _contract("扫描件.png")
+    assert source_kind_of("扫描件.png") == SOURCE_IMAGE
+    assert initial_preview_status("扫描件.png") is PreviewStatus.done
+    assert preview_object_key_for(contract) == contract.storage_path
+
+
+def test_unknown_suffix_still_fails_preview() -> None:
+    """未支持后缀保持 FAILED，不被图片改动顺带放行。"""
+    assert source_kind_of("x.txt") is None
+    assert initial_preview_status("x.txt") is PreviewStatus.failed

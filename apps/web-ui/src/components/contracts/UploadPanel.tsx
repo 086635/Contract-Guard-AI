@@ -13,7 +13,16 @@ type UploadState = "idle" | "uploading" | "parsing" | "done" | "failed";
 const MAX_FILE_SIZE = 50 * 1024 * 1024;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-const fileTypeOf = (file: File): FileType => file.name.toLowerCase().endsWith(".docx") ? "DOCX" : "PDF_NATIVE";
+// T-D8-2：图片（PNG/JPEG/TIFF）与 PDF/DOCX 并列作为合法输入；真实类型由服务端魔数判定。
+const IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".tif", ".tiff"];
+const ACCEPT_ATTR = ".pdf,.docx,.png,.jpg,.jpeg,.tif,.tiff";
+const SUPPORTED_NAME_RE = /\.(pdf|docx|png|jpg|jpeg|tif|tiff)$/i;
+
+const fileTypeOf = (file: File): FileType => {
+  const name = file.name.toLowerCase();
+  if (name.endsWith(".docx")) return "DOCX";
+  return IMAGE_EXTENSIONS.some((ext) => name.endsWith(ext)) ? "IMAGE" : "PDF_NATIVE";
+};
 
 const contractIdOf = (progress: TaskProgress | null): string | null => {
   const result = progress?.result as Record<string, unknown> | null | undefined;
@@ -75,10 +84,10 @@ export default function UploadPanel({ onClose, onCreated }: UploadPanelProps) {
     setError(null);
     setProgress(null);
     setState("idle");
-    const valid = /\.(pdf|docx)$/i.test(candidate.name) && candidate.size <= MAX_FILE_SIZE;
+    const valid = SUPPORTED_NAME_RE.test(candidate.name) && candidate.size <= MAX_FILE_SIZE;
     if (!valid) {
       setFile(null);
-      setError(candidate.size > MAX_FILE_SIZE ? "文件超过 50 MB，请压缩后重试。" : "仅支持 PDF 或 DOCX 文件。");
+      setError(candidate.size > MAX_FILE_SIZE ? "文件超过 50 MB，请压缩后重试。" : "仅支持 PDF、DOCX 或图片（PNG/JPEG/TIFF）文件。");
       return;
     }
     setFile(candidate);
@@ -164,7 +173,7 @@ export default function UploadPanel({ onClose, onCreated }: UploadPanelProps) {
           <div>
             <div className="eyebrow">NEW REVIEW</div>
             <h2>{done ? "解析任务已完成" : submitting ? "正在上传并解析" : "上传新合同"}</h2>
-            <p>{done ? "合同已完成解析，可以进入审核工作台查看结果。" : "支持 PDF、DOCX，单文件不超过 50 MB"}</p>
+            <p>{done ? "合同已完成解析，可以进入审核工作台查看结果。" : "支持 PDF、DOCX、图片（PNG/JPEG/TIFF），单文件不超过 50 MB"}</p>
           </div>
           <button className="close-button" onClick={close} aria-label="关闭"><Icon name="x" size={20} /></button>
         </div>
@@ -175,10 +184,10 @@ export default function UploadPanel({ onClose, onCreated }: UploadPanelProps) {
           onDrop={(event) => { event.preventDefault(); setDragging(false); chooseFile(event.dataTransfer.files[0]); }}
           onClick={() => inputRef.current?.click()}
         >
-          <input ref={inputRef} type="file" accept=".pdf,.docx" hidden onChange={(event) => chooseFile(event.target.files?.[0])} />
+          <input ref={inputRef} type="file" accept={ACCEPT_ATTR} hidden onChange={(event) => chooseFile(event.target.files?.[0])} />
           <div className="upload-circle"><Icon name={done ? "check" : submitting ? "clock" : "upload"} size={23} /></div>
           {done ? <><b>已完成解析</b><span>{file?.name}</span></> : file ? <><b>{file.name}</b><span>{submitting ? `解析进度 ${Math.round((progress?.percent ?? 0) * 100)}%` : "文件已就绪，点击可重新选择"}</span></> : <><b>拖拽文件至此处</b><span>或点击选择本地文件</span></>}
-          <small>PDF / DOCX</small>
+          <small>PDF / DOCX / 图片</small>
         </div>
         {submitting && <div className="upload-progress"><span><i style={{ width: `${Math.max(4, (progress?.percent ?? 0) * 100)}%` }} /></span><b>{Math.round((progress?.percent ?? 0) * 100)}%</b><small>{progress?.stage ?? (state === "uploading" ? "准备上传" : "准备解析")}</small></div>}
         {error && <div className="upload-error"><Icon name="activity" size={15} /><span>{error}</span></div>}

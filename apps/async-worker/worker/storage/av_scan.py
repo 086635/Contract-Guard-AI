@@ -37,6 +37,14 @@ ZIP_MAGICS = (b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08")
 DOCX_CONTENT_TYPES = "[Content_Types].xml"
 DOCX_MAIN_PART = "word/document.xml"
 
+#: 图片魔数（T-D8-2 / C77）：合同照片与扫描图片按 `IMAGE` 走 OCR 支路。
+#: 与 PDF/DOCX 同一原则——**内容判据优先，扩展名只做声明自洽校验**。
+PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+PNG_IHDR = b"IHDR"
+JPEG_MAGIC = b"\xff\xd8\xff"
+JPEG_EOI = b"\xff\xd9"
+TIFF_MAGICS = (b"II*\x00", b"MM\x00*")
+
 #: PDF 尾部标记：真实 PDF 以 `%%EOF` 收尾（允许尾随空白）。
 _PDF_TAIL_WINDOW = 2048
 
@@ -74,7 +82,21 @@ def detect_document_type(data: bytes) -> str | None:
         return "PDF" if PDF_MAGIC and _pdf_is_closed(data) else None
     if data[:4] in ZIP_MAGICS and _looks_like_docx(data):
         return "DOCX"
+    if _looks_like_image(data):
+        return "IMAGE"
     return None
+
+
+def _looks_like_image(data: bytes) -> bool:
+    """图片结构校验：PNG 必须含 IHDR、JPEG 必须以 EOI 收尾、TIFF 认头。
+
+    只认魔数会被"改名的任意文件"骗过，故都带一层最小结构校验。
+    """
+    if data.startswith(PNG_MAGIC):
+        return data[12:16] == PNG_IHDR
+    if data.startswith(JPEG_MAGIC):
+        return data.rstrip().endswith(JPEG_EOI)
+    return data.startswith(TIFF_MAGICS)
 
 
 def _pdf_is_closed(data: bytes) -> bool:
