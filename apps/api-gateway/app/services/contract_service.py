@@ -17,6 +17,7 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy.exc import IntegrityError
 
 from app.config import settings
 from app.db.repository.auth import UserRecord
@@ -115,17 +116,33 @@ class ContractService:
         if not file_hash:
             file_hash = hashlib.sha256(body.file_key.encode("utf-8")).hexdigest()
 
-        contract = await self._contracts.create(
-            ContractCreate(
-                filename=body.file_name,
-                file_size=max(0, object_info.size),
-                file_hash=file_hash,
-                storage_path=body.file_key,
-                status=ContractStatus.parsing,
-                created_by_id=user.id if user is not None else None,
-                legacy=False,
+        # C81：同一文件（同哈希）重复上传 → 友好 409，而不是让唯一约束冒泡成 500。
+        #   `contracts_file_hash_key` 是既有去重约束（E2E 靠每次改字节规避）。
+        if await self._contracts.get_by_file_hash(file_hash) is not None:
+            raise UploadObjectError(
+                409,
+                "ERR_FILE_ALREADY_UPLOADED：该文件此前已上传过（平台按文件哈希去重），"
+                "请改用其它文件或修改文件后重传",
             )
-        )
+        try:
+            contract = await self._contracts.create(
+                ContractCreate(
+                    filename=body.file_name,
+                    file_size=max(0, object_info.size),
+                    file_hash=file_hash,
+                    storage_path=body.file_key,
+                    status=ContractStatus.parsing,
+                    created_by_id=user.id if user is not None else None,
+                    legacy=False,
+                )
+            )
+        except IntegrityError as exc:
+            # 并发下同哈希同时插入：兜底映射成同一个 409。
+            raise UploadObjectError(
+                409,
+                "ERR_FILE_ALREADY_UPLOADED：该文件此前已上传过（平台按文件哈希去重），"
+                "请改用其它文件或修改文件后重传",
+            ) from exc
         task_kind, task_args = _dispatch_target(body, str(contract.id))
         # C62：**派发前**先落可恢复任务行；派发失败立即置终态，避免留下幽灵 RUNNING。
         task = await self._tasks.create(contract.id, task_kind.name, None)

@@ -199,6 +199,15 @@ class ContractRepository:
             return None
         return ContractDetail.model_validate(record)
 
+    async def get_by_file_hash(self, file_hash: str) -> ContractDetail | None:
+        """按文件哈希读取合同（用于重复上传的友好拒绝，不泄露给非属主）。"""
+        record = await self._session.scalar(
+            select(Contract).where(Contract.file_hash == file_hash)
+        )
+        if record is None:
+            return None
+        return ContractDetail.model_validate(record)
+
     async def create(self, meta: ContractCreate) -> ContractDetail:
         """创建并 flush 合同记录。"""
         payload = meta.model_dump(exclude_none=True)

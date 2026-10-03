@@ -267,8 +267,13 @@ httpClient.interceptors.response.use(
       console.warn(`[api] ${traceId}`, logDetail);
     }
 
-    // ApiError.message 优先；detail 只作为兼容回退，不在业务组件中分叉判断。
-    const userMessage = payload?.message ?? payload?.detail;
+    // ApiError.message 优先；detail 只作为兼容回退。
+    // 例外：409 的 message 是状态级兜底（"数据冲突"），具体原因（如"该文件此前已上传过"）
+    // 在 detail 里更有信息量，故 409 优先展示 detail。
+    const userMessage =
+      error.response.status === 409 && payload?.detail
+        ? payload.detail
+        : (payload?.message ?? payload?.detail);
     if (userMessage) error.message = userMessage;
     if (payload) {
       Object.defineProperty(error, "code", { value: payload.code, configurable: true, enumerable: false });

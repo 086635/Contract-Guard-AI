@@ -333,3 +333,29 @@ def test_av_mode_clamav_dispatches_scan_first(monkeypatch: pytest.MonkeyPatch) -
 def test_scan_upload_is_registered_task_kind() -> None:
     """`scan_upload` 必须是网关允许派发的登记任务名（防拼写漂移）。"""
     assert TaskKind("scan_upload") is TaskKind.SCAN_UPLOAD
+
+
+# ---------------------------------------------------------------------------
+# 重复文件（同哈希）→ 409，而不是让唯一约束冒泡成 500
+# ---------------------------------------------------------------------------
+def test_duplicate_file_hash_rejected_as_409(monkeypatch: pytest.MonkeyPatch) -> None:
+    """同一文件重复上传 → 409 `ERR_FILE_ALREADY_UPLOADED`（对象复核之后、写库之前）。"""
+    storage = FakeObjectStorage(etag='"dup-hash-1"')
+    service = _service(storage)
+
+    class _ExistingRepository:
+        """替身：`get_by_file_hash` 命中已有合同（模拟重复上传）。"""
+
+        async def get_by_file_hash(self, file_hash: str):
+            del file_hash
+            return object()
+
+    monkeypatch.setattr(service, "_contracts", _ExistingRepository())
+    body = _upload_body("spec.docx")
+
+    error = _rejected(lambda: asyncio.run(service.upload(body)))
+
+    assert error.status_code == 409
+    assert "ERR_FILE_ALREADY_UPLOADED" in error.detail
+    # 已通过对象存储在确（说明拒绝发生在写库阶段，而不是更早的参数校验）
+    assert storage.stat_calls == [body.file_key]
