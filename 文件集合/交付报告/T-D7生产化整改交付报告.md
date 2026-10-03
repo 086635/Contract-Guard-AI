@@ -1,13 +1,16 @@
-# T-D7 生产化整改交付报告（批级 · C74 → C75-B）
+# T-D7 生产化整改交付报告（批级 · T-D7 完成）
 
-> 交付日期：**2026-10-02**（C75-A / C75-C① / C75-B 增量：**2026-10-03**）　分支：`codex/td7-productionization`
+> 交付日期：**2026-10-02**（C75-A / C75-C① / C75-B / C75-C② 增量：**2026-10-03**）　分支：`codex/td7-productionization`　冻结提交：**`efa9d88`**
 > 范围：`文件集合/codex/4.C74T-D7回归与文档收口.md`（T-D7-10）
 > 父文档：`文件集合/codex/4-7正式部署差距与工程化整改.md` §⑥.11 / §⑦.1 / §⑧.1
 > commit 范围：`79e4a05`（C44）→ C74
 > **结论摘要：P0 工作包 T-D7-1~T-D7-8 均有落地与测试证据；P1 工作包 T-D7-9 四卡完成；
 > C75-A 已关闭 1 项 P0 契约缺口与 P1-1 生成物漂移；C75-C① 已关闭 P1-2~P1-5；
-> **C75-B 已在 prod compose（HTTPS + worker/LibreOffice + 真实 DeepSeek）上连续两轮 13/13 浏览器链路全绿，
-> 关闭 D7-I20**。仅剩 **C75-C②（发布冻结 / D7-I19）**，因此本报告仍不声明「T-D7 全部完成」。**
+> **C75-B 已在 prod compose（HTTPS + worker/LibreOffice + 真实 DeepSeek）上连续两轮 13/13 浏览器链路全绿，关闭 D7-I20**；
+> **C75-C② 已完成工作树冻结（提交 `efa9d88`，工作树干净）、真实 PG16 迁移 upgrade/downgrade 演练、
+> 独立目录 clone 镜像构建、生成物哈希零漂移，关闭 D7-I19。**
+> **T-D7 十个工作包（T-D7-1 ~ T-D7-10）全部完成，本报告声明「T-D7 完成」**；残留 R1（worker 2 GiB 上限
+> OOMKilled）与 R2（Qdrant collection 未建致检索降级）为生产容量/数据面问题，已登记归属 C67 / C55。
 > 本报告是交付说明，不是实现依据。
 
 ---
@@ -67,7 +70,10 @@
 
 | 冻结项 | 状态 | 证据 / 说明 |
 |---|---|---|
-| 全量 pytest ≥ 基线 | ✅ | 见 §7.1（891 passed / 52 skipped / 0 failed；非沙箱完整门禁） |
+| 全量 pytest ≥ 基线 | ✅ | 见 §7.1（**897 passed / 53 skipped / 0 failed**；非沙箱完整门禁） |
+| 工作树冻结（D7-I19） | ✅ | 冻结提交 **`efa9d88`**；`git status` 干净；`docker/secrets/` 已入 `.gitignore`，提交不含 secrets/.env |
+| 迁移 upgrade/downgrade 演练 | ✅ | 真实 **PG16** `test_postgres_upgrade_downgrade` passed（2.93s）+ SQLite 四段式 |
+| 独立 clone 镜像构建 | ✅ | 独立目录 clone（HEAD=`efa9d88`，worktree 干净）→ compose config exit 0 → `contract-guard-api` / `contract-guard-worker` 镜像构建 exit 0 |
 | OpenAPI 生成物零漂移 | ✅ | `tests/release/test_generated_artifacts.py::test_openapi_generation_drift`（35 operationId / 31 路径 1:1） |
 | 生成物哈希登记 | ✅ | §6 哈希表（`test_generated_hash_stable` 校验） |
 | 组件卡状态与代码一致 | ✅ | `test_all_td7_cards_have_evidence_or_pending`（32 张卡逐卡核销） |
@@ -113,10 +119,11 @@
 | C72 | `bbb85ba` | 报告双格式导出（DOCX/PDF 独立下载） | ✅ |
 | C73 | `c413936` | Zod 运行时响应校验（operationId 注册表） | ✅ |
 | C74 | 本卡 | 批级回归 + 文档收口 + release 守卫测试 | ✅ |
-| C75 | — | Playwright E2E + 正式部署验收 | ⏳ 仅剩 C75-C②（发布冻结） |
+| C75 | — | Playwright E2E + 正式部署验收 | ✅ **T-D7-10 闭环** |
 | C75-A | 本轮工作树（待提交） | contracts 归属字段/0015 迁移/IDOR 404/OpenAPI 生成物 | ✅ |
 | C75-C① | 本轮工作树（待提交） | 守卫空转修复+负例自证 / 转换任务行+扫描拒绝 FILE_REJECTED 审计 / reconciler compose 旁车 / 前端包体评估 | ✅ |
 | C75-B | 本轮工作树（待提交） | prod compose 13/13 浏览器链路（全绿×2）+ 链路 6 判因 + 干净构建 + 证据归档；关闭 D7-I20 | ✅ |
+| C75-C② | `efa9d88`（冻结提交） | 工作树提交冻结（60 文件，排除 secrets/.env）+ 真实 PG16 迁移 upgrade/downgrade 演练 + 独立目录 clone 镜像构建 + 生成物哈希零漂移 + release 守卫 8 passed；关闭 D7-I19 | ✅ |
 
 ---
 
