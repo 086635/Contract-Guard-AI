@@ -411,5 +411,7 @@ export const feedbackApi = {
 };
 
 export const agentApi = {
-  async rewrite(body: AgentRewriteRequest): Promise<Schemas["RewriteData"]> { return unwrap(await httpClient.post<Envelope<Schemas["RewriteData"]>>("/agent/rewrite", body, { _operationId: "rewriteClause" })); },
+  // 改写走真实 LLM，端到端实测可达 ~46s（CG_LLM_TIMEOUT_S=60 本身已高于全局 30s），
+  // 必须显式放宽超时，否则前端会先于后端超时并弹出「重试生成」。
+  async rewrite(body: AgentRewriteRequest): Promise<Schemas["RewriteData"]> { return unwrap(await httpClient.post<Envelope<Schemas["RewriteData"]>>("/agent/rewrite", body, { _operationId: "rewriteClause", timeout: 180_000 })); },
 };

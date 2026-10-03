@@ -28,7 +28,7 @@ from app.services.context import ServiceContext
 from app.services.dispatch import TaskKind
 from cg_observability import get_logger, get_trace_id, log_event
 from rag_contracts.chunk import BBox, ContractChunk
-from rag_contracts.enums import ChunkType, SourceType
+from rag_contracts.enums import ChunkType, ContractType, SourceType
 
 _LOG = get_logger("api_gateway.services.ingestion")
 
@@ -340,6 +340,27 @@ class IngestionService:
         risks, conflicts, warnings = self._build_audit_results(snapshot.result)
         if risks or conflicts:
             await self._risks.bulk_upsert(contract_id, [*risks, *conflicts])
+
+        # T-D8-3：分类结果回写（幂等；缺失或非法一律不阻断审核收敛）。
+        raw_type = (
+            snapshot.result.get("contractType")
+            if isinstance(snapshot.result, dict)
+            else None
+        )
+        if raw_type:
+            try:
+                await self._contracts.update_contract_type(
+                    contract_id, ContractType(raw_type)
+                )
+            except (ValueError, LookupError):
+                log_event(
+                    _LOG,
+                    "ingestion.audit.contract_type_invalid",
+                    level="WARNING",
+                    trace_id=get_trace_id(),
+                    contract_id=str(contract_id),
+                )
+        if risks or conflicts or raw_type:
             await self._context.session.commit()
 
         log_event(

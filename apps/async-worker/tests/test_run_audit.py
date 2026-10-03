@@ -286,3 +286,30 @@ def test_no_api_gateway_import() -> None:
         source = path.read_text(encoding="utf-8")
         assert "from app." not in source
         assert "import app." not in source
+
+
+def test_payload_carries_classified_contract_type() -> None:
+    """T-D8-3：`classify_node` 产出的类型必须随审核结果信封回传（供网关回写）。"""
+    from rag_contracts.enums import ContractType
+
+    for status, expected in (("SUCCESS", "PURCHASE"), ("FAILED", "PURCHASE")):
+        payload = run_audit_module._payload(
+            contract_id="c-1",
+            trace_id="t-1",
+            status=status,
+            state={"contract_type": ContractType.PURCHASE, "warnings": [], "stage_log": []},
+            started=0.0,
+        )
+        assert payload["contractType"] == expected
+
+
+def test_payload_contract_type_is_none_when_classification_skipped() -> None:
+    """分类被跳过（无条款/无模板）时，信封里的 contractType 为 None，而不是伪造值。"""
+    payload = run_audit_module._payload(
+        contract_id="c-1",
+        trace_id="t-1",
+        status="SUCCESS",
+        state={"contract_type": None, "warnings": [], "stage_log": []},
+        started=0.0,
+    )
+    assert payload["contractType"] is None

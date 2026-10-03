@@ -121,6 +121,8 @@ def _audit_result(contract_id: UUID) -> dict[str, Any]:
     return {
         "contractId": str(contract_id),
         "traceId": "trace-audit-1",
+        # T-D8-3：分类节点产出随信封回传
+        "contractType": "PURCHASE",
         "status": "SUCCESS",
         "risks": [_risk().model_dump(mode="json", by_alias=True)],
         "conflicts": [_conflict().model_dump(mode="json", by_alias=True)],
@@ -204,6 +206,11 @@ async def _exercise_ingestion_audit(dsn: str, schema: str) -> None:
             )
             assert [item.id for item in loaded_conflicts] == ["conflict-c23-1"]
             assert loaded_conflicts[0].level == s.RiskLevel.medium
+
+            # T-D8-3：分类结果必须回写 contracts.contract_type（幂等）
+            refreshed = await contracts.get(contract.id)
+            assert refreshed is not None
+            assert refreshed.contract_type.value == "PURCHASE"
 
             # ② 幂等：重复 finalize 不重复建行
             assert await IngestionService(ctx).finalize_audit(contract.id) is True

@@ -221,6 +221,26 @@ class ContractRepository:
         record.updated_at = datetime.now(UTC)
         await self._session.flush()
 
+    async def update_contract_type(
+        self,
+        contract_id: UUID,
+        contract_type: ContractType,
+    ) -> bool:
+        """回写合同类型（T-D8-3 分类结果；幂等）。
+
+        Returns:
+            True 表示发生了变更并已 flush；False 表示值相同（无需写）。
+        """
+        record = await self._session.get(Contract, contract_id)
+        if record is None:
+            raise LookupError(f"合同不存在: {contract_id}")
+        if record.contract_type == contract_type:
+            return False
+        record.contract_type = contract_type
+        record.updated_at = datetime.now(UTC)
+        await self._session.flush()
+        return True
+
     async def increment_version(self, contract_id: UUID) -> int:
         """增加合同版本并返回新版本。"""
         record = await self._session.get(Contract, contract_id)

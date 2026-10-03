@@ -55,6 +55,9 @@ def _payload(
 ) -> dict[str, Any]:
     warnings = list(state.get("warnings", []))
     stage_log = list(state.get("stage_log", []))
+    # T-D8-3：分类节点产出随信封回传，供网关回写 `contracts.contract_type`。
+    raw_contract_type = state.get("contract_type")
+    contract_type = getattr(raw_contract_type, "value", raw_contract_type)
     effective_status = status
     if effective_status == "SUCCESS":
         stage_statuses = {
@@ -68,6 +71,7 @@ def _payload(
         return {
             "contractId": contract_id,
             "traceId": trace_id,
+            "contractType": contract_type,
             "status": "FAILED",
             "risks": [],
             "conflicts": [],
@@ -81,6 +85,7 @@ def _payload(
     return {
         "contractId": contract_id,
         "traceId": trace_id,
+        "contractType": contract_type,
         "status": effective_status,
         "risks": _serialize_risks(state),
         "conflicts": _serialize_conflicts(state),
