@@ -54,7 +54,7 @@ class FakeCelery:
     """Celery client 测试替身。"""
 
     def __init__(self) -> None:
-        self.calls: list[tuple[str, list[object]]] = []
+        self.calls: list[tuple[str, list[object], str | None, str | None]] = []
 
     def send_task(
         self,
@@ -62,8 +62,9 @@ class FakeCelery:
         *,
         args: list[object],
         task_id: str | None = None,
+        queue: str | None = None,
     ) -> SimpleNamespace:
-        self.calls.append((name, args, task_id))
+        self.calls.append((name, args, task_id, queue))
         return SimpleNamespace(id=f"task-{len(self.calls)}")
 
     def AsyncResult(self, task_id: str) -> SimpleNamespace:
@@ -194,6 +195,32 @@ def test_minio_storage_builds_internal_and_public_clients_from_settings(
     assert regions == ["us-east-1", "us-east-1"]
 
 
+def test_minio_storage_uses_independent_public_tls_setting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.services import storage as storage_module
+
+    secure_values: list[bool] = []
+
+    class RecordingMinio:
+        def __init__(self, endpoint: str, **kwargs: object) -> None:
+            secure_values.append(bool(kwargs["secure"]))
+
+    monkeypatch.setattr(storage_module, "Minio", RecordingMinio)
+    monkeypatch.setattr(storage_module.settings, "minio_endpoint", "minio:9000")
+    monkeypatch.setattr(
+        storage_module.settings,
+        "minio_public_endpoint",
+        "127.0.0.1:9005",
+    )
+    monkeypatch.setattr(storage_module.settings, "minio_secure", False)
+    monkeypatch.setattr(storage_module.settings, "minio_public_secure", True)
+
+    storage_module.MinioObjectStorage()
+
+    assert secure_values == [False, True]
+
+
 def test_celery_dispatcher_only_sends_registered_tasks() -> None:
     client = FakeCelery()
     dispatcher = CeleryTaskDispatcher(client=client)  # type: ignore[arg-type]
@@ -206,12 +233,23 @@ def test_celery_dispatcher_only_sends_registered_tasks() -> None:
         )
         == "task-1"
     )
-    assert client.calls == [("parse_doc", ["key", "contract-1"], "request-1")]
+    assert client.calls == [("parse_doc", ["key", "contract-1"], "request-1", None)]
     status = dispatcher.get_status("task-1")
     assert status is not None
     assert status.status == "RUNNING"
     assert status.stage == "parsing"
     assert status.percent == 0.5
+
+    assert (
+        dispatcher.send(TaskKind.CONVERT_DOC, args=("contract-1", "source.docx"))
+        == "task-2"
+    )
+    assert client.calls[-1] == (
+        "convert_doc",
+        ["contract-1", "source.docx"],
+        None,
+        "convert",
+    )
 
     with pytest.raises(ValueError, match="未登记"):
         dispatcher.send("unknown_task")

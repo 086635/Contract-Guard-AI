@@ -12,10 +12,12 @@ from __future__ import annotations
 
 from uuid import UUID
 
+from app.db.repository.auth import UserRecord
 from app.db.repository.contract import (
     CommitItemRecord,
     CommitRepository,
     ContractRepository,
+    owner_scope,
 )
 from app.generated.schemas import BatchResult, CommitBody, FailedItem
 from app.services.context import ServiceContext
@@ -48,15 +50,25 @@ class CommitService:
         contract_id: UUID,
         body: CommitBody,
         request_id: str,
+        user: UserRecord | None = None,
     ) -> BatchResult:
         """提交采纳结果并返回局部成功结果。"""
+        owner_id, include_all = owner_scope(user)
+        if owner_id is None:
+            contract = await self._contracts.get(contract_id)
+        else:
+            contract = await self._contracts.get(
+                contract_id,
+                owner_id=owner_id,
+                include_all=include_all,
+            )
+        if contract is None:
+            raise ContractNotFoundError(str(contract_id))
+
         existing = await self._commits.list_by_request(request_id)
         if existing:
             return self._to_batch(existing)
 
-        contract = await self._contracts.get(contract_id)
-        if contract is None:
-            raise ContractNotFoundError(str(contract_id))
         if body.version is not None and body.version != contract.version:
             raise CommitVersionConflictError(
                 f"version {body.version} != {contract.version}"

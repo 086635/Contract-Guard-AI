@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import sqlite3
 from contextlib import redirect_stdout
+from datetime import UTC, datetime
 from io import StringIO
 from pathlib import Path
 from uuid import uuid4
@@ -18,8 +20,22 @@ from uuid import uuid4
 import pytest
 from alembic import command
 from alembic.config import Config
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.db.models import _AUDIT_TASK_TYPES, DEFAULT_MAX_ATTEMPTS, AuditTask
+from app.api.deps import get_current_user, get_db
+from app.api.v1 import audit as audit_router
+from app.db.models import (
+    _AUDIT_TASK_TYPES,
+    DEFAULT_MAX_ATTEMPTS,
+    AuditAction,
+    AuditEvent,
+    AuditTask,
+    Base,
+)
+from app.db.repository.auth import UserRecord
 from app.db.repository.contract import (
     RETRY_BACKOFF_BASE_S,
     RETRY_BACKOFF_CAP_S,
@@ -28,7 +44,11 @@ from app.db.repository.contract import (
     TaskRecord,
     TaskRepository,
 )
-from app.generated.schemas import ContractStatus, Status
+from app.generated.schemas import ContractStatus, Role, Status
+from app.services.audit_service import AuditService
+from app.services.context import ServiceContext
+from app.services.ports import TaskStatusSnapshot
+from app.services.task_service import TaskService
 from rag_contracts.enums import ContractType
 from tests.service_testkit import (
     create_schema,
@@ -202,6 +222,16 @@ def _offline_sql(action: str, revision: str) -> str:
     return buffer.getvalue()
 
 
+def _sqlite_compatible_sql(sql: str) -> str:
+    """SQLite 不执行 ADD/DROP CONSTRAINT DDL；其余迁移 SQL 原样执行。"""
+    return re.sub(
+        r"ALTER TABLE [a-z_]+ (?:ADD|DROP) CONSTRAINT .*?;\n?",
+        "",
+        sql,
+        flags=re.S,
+    )
+
+
 def _audit_task_columns(connection: sqlite3.Connection) -> set[str]:
     return {row[1] for row in connection.execute("PRAGMA table_info(audit_tasks)")}
 
@@ -222,7 +252,7 @@ def test_task_migration_roundtrip() -> None:
 
     connection = sqlite3.connect(":memory:")
     try:
-        connection.executescript(upgrade_sql)
+        connection.executescript(_sqlite_compatible_sql(upgrade_sql))
         columns = _audit_task_columns(connection)
         assert set(RELIABILITY_FIELDS) <= columns
 
@@ -236,7 +266,7 @@ def test_task_migration_roundtrip() -> None:
         }
         assert {"ix_audit_tasks_contract_type", "ix_audit_tasks_status"} <= indexes
 
-        connection.executescript(downgrade_sql)
+        connection.executescript(_sqlite_compatible_sql(downgrade_sql))
         after = _audit_task_columns(connection)
         assert after.isdisjoint(RELIABILITY_FIELDS)
         rolled_back_ddl = _audit_task_ddl(connection)
@@ -306,6 +336,163 @@ async def _exercise_task_repository(dsn: str) -> None:
 
             reread = await tasks.get(created.id)
             assert reread is not None and reread.error_code == "DISPATCH_FAILED"
+    finally:
+        await engine.dispose()
+        await drop_schema(dsn, schema)
+
+
+# --------------------------------------------------------------------------
+# C75-C① P1-3：扫描拒绝 → 任务行收敛 + FILE_REJECTED 审计（离线 aiosqlite）
+# --------------------------------------------------------------------------
+class _ScanSnapshotDispatcher:
+    """只实现 get_status 的派发替身；扫描结论以「信封失败」返回。"""
+
+    def __init__(self, snapshot: TaskStatusSnapshot) -> None:
+        self._snapshot = snapshot
+
+    def send(self, *args: object, **kwargs: object) -> str:
+        raise AssertionError("读路径不派发任务")
+
+    def get_status(self, task_id: str) -> TaskStatusSnapshot | None:
+        del task_id
+        return self._snapshot
+
+
+def _admin_record() -> UserRecord:
+    now = datetime.now(UTC)
+    return UserRecord(
+        id=uuid4(),
+        username="scan-audit-admin",
+        role=Role.admin,
+        is_active=True,
+        display_name="Scan Audit Admin",
+        last_login_at=None,
+        created_at=now,
+        updated_at=now,
+    )
+
+
+async def _seed_rejected_scan(session):
+    """建一个已派发 `SCAN_UPLOAD` 的合同+任务行（扫描结论由替身给出）。"""
+    contract = await ContractRepository(session).create(
+        ContractCreate(
+            filename="eicar.pdf",
+            file_size=1024,
+            file_hash="scan-reject-hash",
+            storage_path="contracts/2026/10/eicar.pdf",
+            status=ContractStatus.parsing,
+            contract_type=ContractType.OTHER,
+        )
+    )
+    task = await TaskRepository(session).create(
+        contract.id, "SCAN_UPLOAD", "celery-scan-1"
+    )
+    await session.commit()
+    return contract, task
+
+
+def _scan_context(session) -> ServiceContext:
+    """读路径上下文：派发替身固定返回「信封失败」的扫描结论。"""
+    return ServiceContext(
+        session=session,
+        object_storage=object(),  # type: ignore[arg-type]
+        task_dispatcher=_ScanSnapshotDispatcher(  # type: ignore[arg-type]
+            TaskStatusSnapshot(
+                status="DONE",
+                stage="scanned",
+                percent=1.0,
+                result={"status": "FAILED", "reason": "MAGIC_MISMATCH"},
+            )
+        ),
+        progress_broker=object(),  # type: ignore[arg-type]
+    )
+
+
+def test_scan_reject_writes_file_rejected_audit() -> None:
+    """扫描拒绝：任务行收敛 FAILED + FILE_REJECTED 审计，且 ADMIN 查询可见、幂等。"""
+
+    async def scenario() -> None:
+        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+        async with factory() as session:
+            contract, task = await _seed_rejected_scan(session)
+            service = TaskService(_scan_context(session))
+
+            progress = await service.get(task.id)
+            assert progress is not None and progress.status is Status.failed
+
+            # 任务行必须收敛为终态，否则会被 reconciler 误判成 STALE_TASK
+            refreshed = await TaskRepository(session).get(task.id)
+            assert refreshed is not None and refreshed.status is Status.failed
+
+            # 幂等：重复轮询不新增第二条审计
+            await service.get(task.id)
+
+            rows = (
+                await session.scalars(
+                    select(AuditEvent).where(
+                        AuditEvent.action == AuditAction.file_rejected
+                    )
+                )
+            ).all()
+            assert len(rows) == 1
+            assert rows[0].resource_type == "CONTRACT"
+            assert rows[0].resource_id == str(contract.id)
+            assert rows[0].event_metadata["reason"] == "MAGIC_MISMATCH"
+
+            # 与端点同一条查询路径：按 action 过滤必须命中且只有一条
+            records, total = await AuditService(session).list(
+                action=AuditAction.file_rejected
+            )
+            assert total == 1
+            assert records[0].resource_id == str(contract.id)
+        await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.skipif(
+    not POSTGRES_DSN,
+    reason="未设置 CG_POSTGRES_DSN，跳过 C75-C① 扫描拒绝审计端点 PostgreSQL 集成测试",
+)
+def test_scan_reject_audit_query_admin_endpoint() -> None:
+    """ADMIN 经 `GET /audit/events?action=FILE_REJECTED` 能查到扫描拒绝事件。"""
+    assert POSTGRES_DSN is not None
+    asyncio.run(_exercise_scan_reject_endpoint(POSTGRES_DSN))
+
+
+async def _exercise_scan_reject_endpoint(dsn: str) -> None:
+    schema = new_schema_name("cg_c75_scan")
+    await create_schema(dsn, schema)
+    engine = schema_engine(dsn, schema)
+    factory = session_factory(engine)
+    try:
+        await migrate(dsn, schema)
+        async with factory() as session:
+            contract, task = await _seed_rejected_scan(session)
+            await TaskService(_scan_context(session)).get(task.id)
+
+            app = FastAPI()
+            app.include_router(audit_router.router, prefix="/api/v1")
+            app.dependency_overrides[get_current_user] = _admin_record
+
+            async def override_db():
+                yield session
+
+            app.dependency_overrides[get_db] = override_db
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.get(
+                    "/api/v1/audit/events", params={"action": "FILE_REJECTED"}
+                )
+            assert response.status_code == 200, response.text
+            data = response.json()["data"]
+            assert data["total"] == 1
+            assert data["items"][0]["action"] == "FILE_REJECTED"
+            assert data["items"][0]["resourceId"] == str(contract.id)
     finally:
         await engine.dispose()
         await drop_schema(dsn, schema)

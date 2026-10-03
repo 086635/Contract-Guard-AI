@@ -71,6 +71,7 @@ async def list_contracts(
             page_size,
             contract_type=contract_type,
             status=status,
+            user=user,
         )
     except ValueError as exc:
         raise HTTPException(
@@ -125,7 +126,7 @@ async def upload_contract(
 ) -> ContractUploadResponse:
     """触发解析任务（上传三步法 步骤3，§5.3）。需 X-Request-ID 幂等。含对象复核（C56）。"""
     try:
-        data = await ContractService(context).upload(body)
+        data = await ContractService(context).upload(body, user)
     except UploadObjectError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
     await write_audit_event(
@@ -157,7 +158,7 @@ async def get_contract_preview(
 ) -> PreviewResponse:
     """文档预览元数据与短期预览 URL（C58）。合同不存在 → 404（不泄露存在性）。"""
     try:
-        data = await PreviewService(context).get(contract_id)
+        data = await PreviewService(context).get(contract_id, user)
     except ContractNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -199,9 +200,9 @@ async def retry_contract_preview(
 
     仅 ADMIN/REVIEWER 可触发；结果只暴露预览状态摘要，不暴露内部对象 key。
     """
-    del user, x_request_id  # 幂等由全局 X-Request-ID 中间件保证；此处只用作用户门槛
+    del x_request_id  # 幂等由全局 X-Request-ID 中间件保证；user 用于归属校验
     try:
-        progress = await PreviewService(context).retry(contract_id)
+        progress = await PreviewService(context).retry(contract_id, user)
     except ContractNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -223,7 +224,7 @@ async def get_contract(
     context: ServiceContext = Depends(get_service_context),
 ) -> ContractDetailResponse:
     """合同详情。"""
-    contract = await ContractService(context).get(contract_id)
+    contract = await ContractService(context).get(contract_id, user)
     if contract is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -251,11 +252,12 @@ async def get_contract(
 )
 async def get_parse_status(
     contract_id: UUID,
+    user: Annotated[UserRecord, Depends(get_current_user)],
     context: ServiceContext = Depends(get_service_context),
 ) -> ParseStatusResponse:
     """解析状态轮询（§5.2-B）。"""
     try:
-        progress = await ResultService(context).parse_status(contract_id)
+        progress = await ResultService(context).parse_status(contract_id, user)
     except ContractNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -276,11 +278,12 @@ async def get_parse_status(
 )
 async def get_elements(
     contract_id: UUID,
+    user: Annotated[UserRecord, Depends(get_current_user)],
     context: ServiceContext = Depends(get_service_context),
 ) -> ElementListResponse:
     """要素抽取（§5.2-C）。"""
     try:
-        elements = await ResultService(context).elements(contract_id)
+        elements = await ResultService(context).elements(contract_id, user)
     except ContractNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -296,12 +299,13 @@ async def get_elements(
 )
 async def get_risks(
     contract_id: UUID,
+    user: Annotated[UserRecord, Depends(get_current_user)],
     level: str | None = None,
     context: ServiceContext = Depends(get_service_context),
 ) -> RiskListResponse:
     """风险列表（§5.2-D / §8.4 EnhancedRiskItem）。"""
     try:
-        risks = await ResultService(context).risks(contract_id, level)
+        risks = await ResultService(context).risks(contract_id, level, user)
     except ContractNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -322,11 +326,12 @@ async def get_risks(
 )
 async def get_conflicts(
     contract_id: UUID,
+    user: Annotated[UserRecord, Depends(get_current_user)],
     context: ServiceContext = Depends(get_service_context),
 ) -> ConflictListResponse:
     """跨条款矛盾（§5.2-E / §8.2）。"""
     try:
-        conflicts = await ResultService(context).conflicts(contract_id)
+        conflicts = await ResultService(context).conflicts(contract_id, user)
     except ContractNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -342,11 +347,12 @@ async def get_conflicts(
 )
 async def get_seals(
     contract_id: UUID,
+    user: Annotated[UserRecord, Depends(get_current_user)],
     context: ServiceContext = Depends(get_service_context),
 ) -> SealListResponse:
     """印章签名合规（§5.2-F / §8.1）。"""
     try:
-        seals = await ResultService(context).seals(contract_id)
+        seals = await ResultService(context).seals(contract_id, user)
     except ContractNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -375,6 +381,7 @@ async def commit_contract(
             contract_id,
             body,
             x_request_id,
+            user,
         )
     except ContractNotFoundError as exc:
         raise HTTPException(

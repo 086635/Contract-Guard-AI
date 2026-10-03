@@ -199,6 +199,43 @@ services:
       retries: 5
       start_period: 15s
 
+  # ---------------------------------------------------------------------------
+  # 任务对账旁车（C63 / C75-C① P1-4）：按固定间隔调用既有 CLI（compose cron 方案）。
+  #   与 api 同镜像（Dockerfile.api 已 COPY scripts/）；只读写 audit_tasks + 重派发，
+  #   **不发布任何宿主端口**。间隔用 CG_RECONCILE_INTERVAL_S 覆盖（默认 60s）。
+  #   退出码 0/1 都继续下一轮：1 表示本轮有任务被判 FAILED（日志留痕，不静默吞掉）。
+  # ---------------------------------------------------------------------------
+  reconciler:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api
+    environment:
+      CG_POSTGRES_DSN: postgresql+asyncpg://cg:cg@postgres:5432/cg
+      CG_REDIS_URL: redis://redis:6379/0
+      CG_QDRANT_URL: http://qdrant:6333
+      CG_MINIO_ENDPOINT: minio:9000
+      CG_MINIO_REGION: us-east-1
+      CG_MINIO_ACCESS_KEY: minioadmin
+      CG_MINIO_SECRET_KEY: minioadmin
+      CG_CELERY_BROKER: redis://redis:6379/1
+      CG_CELERY_BACKEND: redis://redis:6379/2
+      CG_RECONCILE_INTERVAL_S: ${CG_RECONCILE_INTERVAL_S:-60}
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      minio: { condition: service_healthy }
+      minio-init: { condition: service_completed_successfully }
+    command:
+      - sh
+      - -c
+      - >
+        while true; do
+          uv run --package api-gateway python scripts/reconcile_tasks.py;
+          echo "reconcile exit=$$?";
+          sleep "$${CG_RECONCILE_INTERVAL_S:-60}";
+        done
+
   worker:
     build:
       context: ..

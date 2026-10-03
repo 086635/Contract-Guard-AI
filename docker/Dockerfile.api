@@ -8,6 +8,8 @@ WORKDIR /app
 COPY pyproject.toml ./
 COPY packages ./packages
 COPY apps ./apps
+# 任务对账旁车（C75-C①）复用既有 CLI：把 scripts/ 一起打进镜像
+COPY scripts ./scripts
 
 # 安装 api-gateway 及其工作区依赖（含 ai-engine / doc-processor）
 RUN uv sync --no-dev --package api-gateway

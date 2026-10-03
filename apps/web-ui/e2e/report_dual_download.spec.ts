@@ -7,7 +7,7 @@ const PDF_MAGIC = [0x25, 0x50, 0x44, 0x46, 0x2d];
 
 test("链路 9｜生成报告并下载独立 Word（魔数 PK）", async ({ page }) => {
   await login(page, "admin");
-  const contractId = await uploadAndEnterAudit(page, "e2e-native.pdf");
+  const contractId = await uploadAndEnterAudit(page, "e2e-audit.pdf");
   await openReportPage(page, contractId);
 
   const word = page.getByRole("button", { name: "下载 Word" });
@@ -20,7 +20,7 @@ test("链路 9｜生成报告并下载独立 Word（魔数 PK）", async ({ page
 
 test("链路 10｜下载独立 PDF（魔数 %PDF-）", async ({ page }) => {
   await login(page, "admin");
-  const contractId = await uploadAndEnterAudit(page, "e2e-native.pdf");
+  const contractId = await uploadAndEnterAudit(page, "e2e-audit.pdf");
   await openReportPage(page, contractId);
 
   const pdf = page.getByRole("button", { name: "下载 PDF" });

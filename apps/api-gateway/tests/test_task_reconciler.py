@@ -454,6 +454,53 @@ def test_reconcile_cli_entrypoint() -> None:
 
 
 # --------------------------------------------------------------------------
+# C75-C1 P1-4：reconciler 定时编排（compose 旁车）
+# --------------------------------------------------------------------------
+def _load_compose(path: Path):
+    """读 compose YAML；`!override` 等 compose 自有标签按原值折叠。"""
+    yaml = pytest.importorskip("yaml")
+
+    class _Loader(yaml.SafeLoader):
+        pass
+
+    def _ignore(loader, _tag_suffix, node):
+        if isinstance(node, yaml.SequenceNode):
+            return loader.construct_sequence(node, deep=True)
+        if isinstance(node, yaml.MappingNode):
+            return loader.construct_mapping(node, deep=True)
+        return loader.construct_scalar(node)
+
+    _Loader.add_multi_constructor("!", _ignore)
+    return yaml.load(path.read_text(encoding="utf-8"), Loader=_Loader)
+
+
+def test_reconciler_scheduled_run() -> None:
+    """P1-4：compose 注册 reconciler 旁车，按间隔循环跑既有 CLI 且不发布端口。"""
+    base = _load_compose(REPO_ROOT / "docker" / "docker-compose.yml")
+    service = base["services"]["reconciler"]
+
+    command = service["command"]
+    rendered = "\n".join(command) if isinstance(command, list) else str(command)
+    assert "scripts/reconcile_tasks.py" in rendered
+    assert "while true" in rendered and "sleep" in rendered
+    assert "CG_RECONCILE_INTERVAL_S" in service["environment"]
+    assert not service.get("ports")
+
+    # 复用既有 CLI，而不是在容器里另写第二套对账逻辑
+    assert (REPO_ROOT / "scripts" / "reconcile_tasks.py").is_file()
+    dockerfile = (REPO_ROOT / "docker" / "Dockerfile.api").read_text(encoding="utf-8")
+    assert "COPY scripts ./scripts" in dockerfile
+
+    prod = _load_compose(REPO_ROOT / "docker" / "docker-compose.prod.yml")
+    hardened = prod["services"]["reconciler"]
+    assert hardened["restart"] == "unless-stopped"
+    assert hardened["ports"] == []
+    assert hardened["logging"]["driver"] == "json-file"
+    assert hardened.get("secrets")
+    assert hardened["deploy"]["resources"]["limits"]["memory"]
+
+
+# --------------------------------------------------------------------------
 # 真实 PostgreSQL：SQL 过滤与原子抢锁
 # --------------------------------------------------------------------------
 @pytest.mark.skipif(

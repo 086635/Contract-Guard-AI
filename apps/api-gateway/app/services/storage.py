@@ -30,21 +30,23 @@ class MinioObjectStorage:
         bucket: str | None = None,
     ) -> None:
         self._internal_client = client or self._build_client(
-            settings.minio_endpoint
+            settings.minio_endpoint,
+            secure=settings.minio_secure,
         )
         self._public_client = public_client or self._build_client(
-            settings.resolved_minio_public_endpoint
+            settings.resolved_minio_public_endpoint,
+            secure=settings.minio_public_secure,
         )
         self._bucket = bucket or settings.minio_bucket
 
     @staticmethod
-    def _build_client(endpoint: str) -> Minio:
+    def _build_client(endpoint: str, *, secure: bool) -> Minio:
         """按 endpoint 构建独立签名的 MinIO client。"""
         return Minio(
             endpoint=endpoint,
             access_key=settings.minio_access_key.get_secret_value(),
             secret_key=settings.minio_secret_key.get_secret_value(),
-            secure=settings.minio_secure,
+            secure=secure,
             region=settings.minio_region,
         )
 

@@ -69,6 +69,7 @@ export default function Audit() {
       previewApi.get(selectedId),
     ]);
     const [detail, extracted, riskItems, conflictItems, sealItems, status, previewData] = results;
+    const failures: unknown[] = [];
     if (detail.status === "fulfilled") setContract(detail.value);
     if (extracted.status === "fulfilled") setElements(extracted.value);
     if (riskItems.status === "fulfilled") {
@@ -78,9 +79,20 @@ export default function Audit() {
     if (conflictItems.status === "fulfilled") setConflicts(conflictItems.value);
     if (sealItems.status === "fulfilled") setSeals(sealItems.value);
     if (status.status === "fulfilled") setParseStatus(status.value);
-    if (previewData.status === "fulfilled") setPreview(previewData.value);
+    if (previewData.status === "fulfilled") {
+      let nextPreview = previewData.value;
+      // DOCX 首次为 PENDING：GET 只建元数据，必须调用幂等 retry 才会派发转换任务。
+      if (nextPreview.status === "PENDING") {
+        try {
+          await previewApi.retry(selectedId);
+          nextPreview = await previewApi.get(selectedId);
+        } catch (reason) {
+          failures.push(reason);
+        }
+      }
+      setPreview(nextPreview);
+    }
 
-    const failures: unknown[] = [];
     results.forEach((result) => {
       if (result.status === "rejected") failures.push(result.reason);
     });

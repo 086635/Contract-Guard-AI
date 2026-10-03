@@ -143,6 +143,30 @@ def test_rewrite_end_to_end_stub(monkeypatch: pytest.MonkeyPatch) -> None:
     assert response.citations
 
 
+def test_rewrite_normalizes_llm_citation_source_type(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    graph = _FakeRewriteGraph()
+    draft = _draft()
+    draft.citations[0].sourceType = "知识库检索结果"
+    monkeypatch.setattr(
+        rewrite_graph_module, "invoke_structured", lambda *a, **k: (draft, [])
+    )
+    monkeypatch.setattr(
+        "ai_engine.graphs.rewrite_graph.build_rewrite_graph",
+        lambda deps: graph,
+    )
+    monkeypatch.setattr("ai_engine.agents.rewriter.build_rag_tool", lambda: object())
+    monkeypatch.setattr(
+        "ai_engine.agents.rewriter.load_default_library",
+        lambda: object(),
+    )
+
+    response = rewrite_clause(_request())
+
+    assert response.citations[0].sourceType == "STANDARD_CLAUSE"
+
+
 def test_thread_id_composition(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, Any] = {}
     monkeypatch.setattr(

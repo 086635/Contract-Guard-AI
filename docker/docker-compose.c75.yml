@@ -1,0 +1,102 @@
+# =============================================================================
+# C75 正式验收 overlay（叠加在 docker-compose.yml + docker-compose.prod.yml 之上）
+#
+# 用途：在 prod overlay（仅 nginx 对外、Docker Secrets、安全头/限流）之上，
+#       为本地/CI 提供可浏览器访问的 HTTPS 入口与 TLS MinIO 入口。
+#
+# 用法（仓库根目录）：
+#   CG_SECRETS_DIR=... CG_TLS_DIR=... CG_POSTGRES_PASSWORD=... \
+#   docker compose --env-file .env -p cg-c75 \
+#     -f docker/docker-compose.yml -f docker/docker-compose.prod.yml \
+#     -f docker/docker-compose.c75.yml up -d --build
+#
+# 说明：
+#   · nginx 仍使用 prod 配置，仅替换 CSP 的 connect-src 以允许验收 MinIO origin；
+#   · MinIO 保持内网 HTTP，nginx 在 9005 终止 TLS 后转发给 MinIO；
+#   · 真实 LLM（DeepSeek）与本地 embedding（ollama bge-m3）由 --env-file 注入；
+#   · `CG_UPLOAD_AV_MODE=off` 仅用于本地验收（生产由 C53 门禁强制 clamav）。
+# =============================================================================
+services:
+  # 验收 overlay 补齐 secrets → Postgres 口令接线（prod overlay 未把 POSTGRES_PASSWORD_FILE
+  # 接到 postgres 服务；首次初始化时必须与 cg_postgres_password secret 一致）。
+  postgres:
+    environment:
+      POSTGRES_PASSWORD: ${CG_POSTGRES_PASSWORD:?C75 验收需要 CG_POSTGRES_PASSWORD}
+
+  # 不把 MinIO 直接暴露给宿主；浏览器访问 nginx 的 9005 TLS 入口。
+  #
+  # ⚠️ 密钥接线（2026-10-03 实测修复）：
+  #   base compose 把 minio 的 entrypoint 覆盖为 /bin/sh -c（直接 exec minio server），
+  #   官方 entrypoint 里读取 MINIO_ROOT_*_FILE 的逻辑被绕过 → 镜像自带的
+  #   MINIO_ROOT_USER_FILE=access_key 形同虚设，MinIO 回退到 base 硬编码的
+  #   MINIO_ROOT_USER=minioadmin；而 api/worker 读到的是同一套 secret 文件里的真实密钥
+  #   （c75-minio_access_key-…）→ 两侧不一致 → 浏览器 PUT 预签名 URL 恒被拒 403。
+  #   这里把与 api/worker 完全相同的 secret 挂进 minio，并在 command 中显式读入。
+  minio:
+    ports: !override []
+    secrets:
+      - source: cg_minio_access_key
+        target: access_key
+      - source: cg_minio_secret_key
+        target: secret_key
+    command:
+      - "export MINIO_API_CORS_ALLOW_ORIGIN=$$(cat /config/minio-cors.json | tr -d '[]\"') && export MINIO_ROOT_USER=$$(cat /run/secrets/access_key) && export MINIO_ROOT_PASSWORD=$$(cat /run/secrets/secret_key) && exec minio server /data --console-address ':9001'"
+
+  # minio-init 同样要用真实密钥（base 里硬编码的 minioadmin 会 403 建不了桶）。
+  minio-init:
+    secrets:
+      - source: cg_minio_access_key
+        target: access_key
+      - source: cg_minio_secret_key
+        target: secret_key
+    command:
+      - "mc alias set local http://minio:9000 \"$$(cat /run/secrets/access_key)\" \"$$(cat /run/secrets/secret_key)\" && mc mb --ignore-existing local/contracts"
+
+  api:
+    environment:
+      CG_UPLOAD_AV_MODE: "off"
+      # embed 超时放宽到 60s：ollama bge-m3 冷启动加载模型实测 ~7s，
+      # 默认 3000ms 会在加载完成前断连，形成"每次都超时"的活锁（2026-10-03 实测）。
+      CG_RAG_EMBED_TIMEOUT_MS: ${CG_RAG_EMBED_TIMEOUT_MS:-60000}
+      CG_CORS_ORIGINS: '["https://localhost:8443","https://127.0.0.1:8443"]'
+      CG_LLM_PROVIDER: ${CG_LLM_PROVIDER:-deepseek}
+      CG_LLM_MODEL: ${CG_LLM_MODEL:-deepseek-chat}
+      CG_LLM_BASE_URL: ${CG_LLM_BASE_URL:-https://api.deepseek.com/v1}
+      CG_LLM_API_KEY: ${CG_LLM_API_KEY:-}
+      CG_RAG_EMBED_MODE: ${CG_RAG_EMBED_MODE:-http}
+      CG_RAG_EMBED_BASE_URL: ${CG_RAG_EMBED_BASE_URL:-http://host.docker.internal:11434}
+      CG_RAG_EMBED_MODEL: ${CG_RAG_EMBED_MODEL:-bge-m3}
+      CG_RAG_RERANK_ENABLED: "false"
+      CG_MINIO_PUBLIC_ENDPOINT: ${CG_MINIO_PUBLIC_ENDPOINT:-127.0.0.1:9005}
+      CG_MINIO_SECURE: "false"
+      CG_MINIO_PUBLIC_SECURE: "true"
+
+  worker:
+    environment:
+      CG_UPLOAD_AV_MODE: "off"
+      # 同 api：60s embed 超时，规避 bge-m3 冷启动活锁
+      CG_RAG_EMBED_TIMEOUT_MS: ${CG_RAG_EMBED_TIMEOUT_MS:-60000}
+      CG_LLM_PROVIDER: ${CG_LLM_PROVIDER:-deepseek}
+      CG_LLM_MODEL: ${CG_LLM_MODEL:-deepseek-chat}
+      CG_LLM_BASE_URL: ${CG_LLM_BASE_URL:-https://api.deepseek.com/v1}
+      CG_LLM_API_KEY: ${CG_LLM_API_KEY:-}
+      CG_RAG_EMBED_MODE: ${CG_RAG_EMBED_MODE:-http}
+      CG_RAG_EMBED_BASE_URL: ${CG_RAG_EMBED_BASE_URL:-http://host.docker.internal:11434}
+      CG_RAG_EMBED_MODEL: ${CG_RAG_EMBED_MODEL:-bge-m3}
+      CG_RAG_RERANK_ENABLED: "false"
+
+  worker-convert:
+    environment:
+      CG_UPLOAD_AV_MODE: "off"
+      CG_RAG_EMBED_TIMEOUT_MS: ${CG_RAG_EMBED_TIMEOUT_MS:-60000}
+      CG_LLM_PROVIDER: ${CG_LLM_PROVIDER:-deepseek}
+      CG_LLM_API_KEY: ${CG_LLM_API_KEY:-}
+      CG_RAG_EMBED_MODE: ${CG_RAG_EMBED_MODE:-http}
+      CG_RAG_EMBED_BASE_URL: ${CG_RAG_EMBED_BASE_URL:-http://host.docker.internal:11434}
+      CG_RAG_EMBED_MODEL: ${CG_RAG_EMBED_MODEL:-bge-m3}
+
+  nginx:
+    ports: !override ["8090:80", "8443:443", "9005:9005"]
+    volumes: !override
+      - ./nginx.c75.conf:/etc/nginx/conf.d/default.conf:ro
+      - ${CG_TLS_DIR:-./tls}:/etc/nginx/certs:ro

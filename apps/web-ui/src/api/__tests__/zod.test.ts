@@ -68,6 +68,12 @@ describe("C73 zod runtime validation", () => {
         envelope({ taskId: "t-1", stage: "done", percent: 1, status: "DONE" }),
       ),
     ).toBeNull();
+    expect(
+      validateOperationResponse(
+        "retryContractPreview",
+        envelope({ taskId: "t-1", stage: "converting", percent: 0, status: "RUNNING" }),
+      ),
+    ).toBeNull();
     // 未登记的 operationId 不校验（例如未接线的管理端点）
     expect(validateOperationResponse("notRegistered", { whatever: true })).toBeNull();
   });

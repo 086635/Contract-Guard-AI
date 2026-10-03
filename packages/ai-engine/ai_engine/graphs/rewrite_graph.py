@@ -25,6 +25,22 @@ from rag_contracts.enums import SourceType
 
 REWRITE_STAGES: tuple[str, ...] = ("prepare", "rewrite", "finalize")
 
+_ALLOWED_CITATION_SOURCE_TYPES = {item.value for item in SourceType}
+_CITATION_SOURCE_ALIASES = {
+    "知识库检索结果": SourceType.STANDARD_CLAUSE.value,
+    "标准条款": SourceType.STANDARD_CLAUSE.value,
+    "法律法规": SourceType.LAW_ARTICLE.value,
+    "法条": SourceType.LAW_ARTICLE.value,
+    "判例": SourceType.PRECEDENT.value,
+}
+
+
+def _normalize_citation(citation: PreciseCitation) -> PreciseCitation:
+    """把 LLM 的自由文本来源收敛到契约枚举；未知来源按标准条款处理。"""
+    raw = citation.sourceType.strip()
+    normalized = raw.upper() if raw.upper() in _ALLOWED_CITATION_SOURCE_TYPES else _CITATION_SOURCE_ALIASES.get(raw, SourceType.STANDARD_CLAUSE.value)
+    return citation.model_copy(update={"sourceType": normalized})
+
 
 class _RewriteDraft(BaseModel):
     after: str
@@ -163,9 +179,9 @@ def rewrite_node(state: RewriteState, deps: GraphDeps) -> dict[str, Any]:
         rag_citations = (
             rag_context.get("citations", []) if isinstance(rag_context, dict) else []
         )
-        citations = list(value.citations)
+        citations = [_normalize_citation(citation) for citation in value.citations]
         for item in rag_citations:
-            citation = PreciseCitation.model_validate(item)
+            citation = _normalize_citation(PreciseCitation.model_validate(item))
             if citation not in citations:
                 citations.append(citation)
         return _finish_stage(

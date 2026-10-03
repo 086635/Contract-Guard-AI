@@ -21,7 +21,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID
 
-from app.db.repository.contract import ContractDetail, ContractRepository
+from app.db.repository.auth import UserRecord
+from app.db.repository.contract import (
+    ContractDetail,
+    ContractRepository,
+    TaskRepository,
+    owner_scope,
+)
 from app.db.repository.preview import PreviewRecord, PreviewRepository
 from app.db.repository.result import ElementRepository
 from app.generated.schemas import PreviewData, PreviewStatus, Status, TaskProgress
@@ -299,6 +305,7 @@ class PreviewService:
         contracts: ContractRepository | None = None,
         elements: ElementRepository | None = None,
         ingestion: IngestionService | None = None,
+        tasks: TaskRepository | None = None,
     ) -> None:
         """构造服务。
 
@@ -310,10 +317,15 @@ class PreviewService:
         self._previews = previews or PreviewRepository(context.session)
         self._elements = elements or ElementRepository(context.session)
         self._ingestion = ingestion or IngestionService(context)
+        self._tasks = tasks or TaskRepository(context.session)
 
-    async def get(self, contract_id: UUID) -> PreviewData:
+    async def get(
+        self,
+        contract_id: UUID,
+        user: UserRecord | None = None,
+    ) -> PreviewData:
         """读取预览元数据；缺失时按来源类型初始化一行（幂等）。"""
-        contract = await self._require_contract(contract_id)
+        contract = await self._require_contract(contract_id, user)
         record = await self._previews.get_by_contract(contract_id)
         if record is None:
             record = await self._initialize(contract)
@@ -325,9 +337,13 @@ class PreviewService:
             await self._context.session.commit()
         return self._to_preview_data(record)
 
-    async def retry(self, contract_id: UUID) -> TaskProgress:
+    async def retry(
+        self,
+        contract_id: UUID,
+        user: UserRecord | None = None,
+    ) -> TaskProgress:
         """重试预览转换派发（幂等：在飞任务不重复派发）。"""
-        contract = await self._require_contract(contract_id)
+        contract = await self._require_contract(contract_id, user)
         record = await self._previews.get_by_contract(contract_id)
         if record is None:
             record = await self._initialize(contract)
@@ -342,10 +358,27 @@ class PreviewService:
             )
 
         # 参数顺序即 C59 §⑤ 的跨进程契约：`convert_doc(contract_id, source_key)`。
-        celery_task_id = self._context.task_dispatcher.send(
-            TaskKind.CONVERT_DOC,
-            args=(str(contract_id), contract.storage_path),
+        # C75-C①：**派发前**先落可恢复任务行（与 `ContractService.upload` 同一模式），
+        # 否则转换任务只活在预览行里：stale 对账扫不到、失败无 row 可收敛。
+        task = await self._tasks.create(
+            contract_id,
+            TaskKind.CONVERT_DOC.name,
+            None,
         )
+        try:
+            celery_task_id = self._context.task_dispatcher.send(
+                TaskKind.CONVERT_DOC,
+                args=(str(contract_id), contract.storage_path),
+            )
+        except Exception as exc:
+            await self._tasks.mark_failed(
+                task.id,
+                error_code="DISPATCH_FAILED",
+                error_message=type(exc).__name__,
+            )
+            await self._context.session.commit()
+            raise
+        await self._tasks.attach_celery_task_id(task.id, celery_task_id)
         record = await self._previews.mark_running(record.id, celery_task_id)
         await self._context.session.commit()
         return self._to_progress(
@@ -497,9 +530,21 @@ class PreviewService:
             warnings=tuple(warnings),
         )
 
-    async def _require_contract(self, contract_id: UUID) -> ContractDetail:
-        """读取合同；不存在抛 `ContractNotFoundError`（路由统一映射 404）。"""
-        contract = await self._contracts.get(contract_id)
+    async def _require_contract(
+        self,
+        contract_id: UUID,
+        user: UserRecord | None = None,
+    ) -> ContractDetail:
+        """读取合同；不存在/越权都抛 `ContractNotFoundError`（路由统一映射 404）。"""
+        owner_id, include_all = owner_scope(user)
+        if owner_id is None:
+            contract = await self._contracts.get(contract_id)
+        else:
+            contract = await self._contracts.get(
+                contract_id,
+                owner_id=owner_id,
+                include_all=include_all,
+            )
         if contract is None:
             raise ContractNotFoundError(str(contract_id))
         return contract

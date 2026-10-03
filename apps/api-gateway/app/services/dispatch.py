@@ -52,10 +52,16 @@ class CeleryTaskDispatcher:
         except ValueError as exc:
             raise ValueError(f"未登记的任务名: {task_name}") from exc
 
+        queue = (
+            settings.celery_convert_queue
+            if task_kind is TaskKind.CONVERT_DOC
+            else None
+        )
         result = self._client.send_task(
             task_kind.value,
             args=list(args),
             task_id=task_id,
+            queue=queue,
         )
         return str(result.id)
 

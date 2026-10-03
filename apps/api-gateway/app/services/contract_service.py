@@ -19,10 +19,12 @@ from uuid import UUID, uuid4
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.config import settings
+from app.db.repository.auth import UserRecord
 from app.db.repository.contract import (
     ContractCreate,
     ContractRepository,
     TaskRepository,
+    owner_scope,
 )
 from app.db.repository.result import (
     ElementRepository,
@@ -91,7 +93,11 @@ class ContractService:
             contentType=body.content_type,
         )
 
-    async def upload(self, body: UploadBody) -> TaskProgress:
+    async def upload(
+        self,
+        body: UploadBody,
+        user: UserRecord | None = None,
+    ) -> TaskProgress:
         """复核对象后创建合同/任务并派发解析（C56）。"""
         # 先复核 key 形态再触碰对象存储：非法 key 不得触发 bucket 访问。
         validate_upload_object(body.file_key)
@@ -114,6 +120,8 @@ class ContractService:
                 file_hash=file_hash,
                 storage_path=body.file_key,
                 status=ContractStatus.parsing,
+                created_by_id=user.id if user is not None else None,
+                legacy=False,
             )
         )
         task_kind, task_args = _dispatch_target(body, str(contract.id))
@@ -149,15 +157,19 @@ class ContractService:
         *,
         contract_type: str | None = None,
         status: str | None = None,
+        user: UserRecord | None = None,
     ) -> tuple[list[s.ContractSummary], int]:
         """分页聚合合同摘要。"""
         parsed_type = ContractType(contract_type) if contract_type is not None else None
         parsed_status = s.ContractStatus(status) if status is not None else None
+        owner_id, include_all = owner_scope(user)
         details, total = await self._contracts.list(
             page,
             page_size,
             contract_type=parsed_type,
             status=parsed_status,
+            owner_id=owner_id,
+            include_all=include_all,
         )
         summaries = []
         for detail in details:
@@ -166,9 +178,18 @@ class ContractService:
             summaries.append(ContractProjector.summary(detail, risks, conflicts))
         return summaries, total
 
-    async def get(self, contract_id: UUID) -> s.Contract | None:
+    async def get(
+        self,
+        contract_id: UUID,
+        user: UserRecord | None = None,
+    ) -> s.Contract | None:
         """聚合单合同完整详情。"""
-        detail = await self._contracts.get(contract_id)
+        owner_id, include_all = owner_scope(user)
+        detail = await self._contracts.get(
+            contract_id,
+            owner_id=owner_id,
+            include_all=include_all,
+        )
         if detail is None:
             return None
         elements = await self._elements.list_by_contract(contract_id)

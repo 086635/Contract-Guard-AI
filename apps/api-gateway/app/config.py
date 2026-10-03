@@ -105,6 +105,7 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     celery_broker: str = "redis://localhost:6379/1"
     celery_backend: str = "redis://localhost:6379/2"
+    celery_convert_queue: str = "convert"
     qdrant_url: str = "http://localhost:6333"
     minio_endpoint: str = "localhost:9000"
     minio_public_endpoint: str | None = None
@@ -113,6 +114,8 @@ class Settings(BaseSettings):
     minio_secret_key: SecretStr = SecretStr("minioadmin")
     minio_bucket: str = "contracts"
     minio_secure: bool = False
+    #: 公开预签名 endpoint 的 TLS；内网 MinIO 仍可走 HTTP（C75 由 nginx 终止 TLS）。
+    minio_public_secure: bool = False
 
     # ---- 生产 Secret 注入（C66）----
     #: 指向部署方挂载的 secret 文件（Docker secret / 受控文件，权限由部署方控制）。

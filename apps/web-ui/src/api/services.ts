@@ -46,7 +46,7 @@ export const OPERATION_SCHEMAS = {
   presignUpload: schemas.PresignResponse,
   uploadContract: schemas.ContractUploadResponse,
   getContractPreview: schemas.PreviewResponse,
-  retryContractPreview: schemas.PreviewResponse,
+  retryContractPreview: schemas.ContractUploadResponse,
   getTask: schemas.TaskProgressResponse,
   createTaskStreamToken: schemas.StreamTokenResponse,
   getReport: schemas.ReportResponse,

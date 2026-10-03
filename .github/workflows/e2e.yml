@@ -1,13 +1,13 @@
 name: e2e
 
-# C75：正式浏览器验收（prod compose + Playwright）
+# C75：正式浏览器验收（prod compose + C75 TLS/MinIO overlay + Playwright）
 on:
   workflow_dispatch:
     inputs:
       base_url:
-        description: 'E2E 入口（默认 prod compose 的 nginx）'
+        description: 'E2E 入口（默认 prod compose 的 HTTPS nginx）'
         required: false
-        default: 'http://localhost'
+        default: 'https://localhost:8443'
   push:
     branches: [main]
     paths:
@@ -53,21 +53,26 @@ jobs:
         run: |
           mkdir -p /tmp/cg-tls
           # 自签证书仅用于 CI 验收
-          openssl req -x509 -newkey rsa:2048 -nodes -days 1             -keyout /tmp/cg-tls/tls.key -out /tmp/cg-tls/tls.crt             -subj "/CN=localhost"
-          docker compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d --build
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1             -keyout /tmp/cg-tls/server.key -out /tmp/cg-tls/server.crt             -subj "/CN=localhost"
+          export CG_POSTGRES_PASSWORD=$(cat /tmp/cg-secrets/postgres_password)
+          docker compose -f docker/docker-compose.yml             -f docker/docker-compose.prod.yml             -f docker/docker-compose.c75.yml up -d --build
           for i in $(seq 1 60); do
-            if curl -fsS http://localhost/health/live >/dev/null; then break; fi
+            if curl -kfsS https://localhost:8443/health/live >/dev/null; then break; fi
             sleep 5
           done
 
       - name: Seed E2E accounts
         env:
-          CG_POSTGRES_DSN: postgresql+asyncpg://cg:from-secret-file@localhost:5432/cg
-        run: python scripts/seed_e2e_users.py || echo "seed 需在容器网络内执行，见 C75 报告"
+          CG_SECRETS_DIR: /tmp/cg-secrets
+          CG_TLS_DIR: /tmp/cg-tls
+        run: |
+          export CG_POSTGRES_PASSWORD=$(cat /tmp/cg-secrets/postgres_password)
+          docker compose -f docker/docker-compose.yml             -f docker/docker-compose.prod.yml             -f docker/docker-compose.c75.yml             cp scripts/seed_e2e_users.py api:/app/seed_e2e_users.py
+          docker compose -f docker/docker-compose.yml             -f docker/docker-compose.prod.yml             -f docker/docker-compose.c75.yml             exec -T api uv run --package api-gateway python /app/seed_e2e_users.py
 
       - name: Run Playwright
         env:
-          CG_E2E_BASE_URL: ${{ github.event.inputs.base_url || 'http://localhost' }}
+          CG_E2E_BASE_URL: ${{ github.event.inputs.base_url || 'https://localhost:8443' }}
           CG_E2E_ADMIN_USERNAME: e2e-admin
           CG_E2E_ADMIN_PASSWORD: e2e-admin-pass
           CG_E2E_VIEWER_USERNAME: e2e-viewer
@@ -86,8 +91,18 @@ jobs:
 
       - name: Compose logs summary
         if: always()
-        run: docker compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml logs --tail=200 || true
+        env:
+          CG_SECRETS_DIR: /tmp/cg-secrets
+          CG_TLS_DIR: /tmp/cg-tls
+        run: |
+          export CG_POSTGRES_PASSWORD=$(cat /tmp/cg-secrets/postgres_password)
+          docker compose -f docker/docker-compose.yml             -f docker/docker-compose.prod.yml             -f docker/docker-compose.c75.yml logs --tail=200 || true
 
       - name: Teardown
         if: always()
-        run: docker compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml down -v || true
+        env:
+          CG_SECRETS_DIR: /tmp/cg-secrets
+          CG_TLS_DIR: /tmp/cg-tls
+        run: |
+          export CG_POSTGRES_PASSWORD=$(cat /tmp/cg-secrets/postgres_password)
+          docker compose -f docker/docker-compose.yml             -f docker/docker-compose.prod.yml             -f docker/docker-compose.c75.yml down -v || true

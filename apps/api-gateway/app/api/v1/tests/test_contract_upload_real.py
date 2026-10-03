@@ -23,6 +23,7 @@ from tests.service_testkit import (
 
 from app.api.deps import get_service_context
 from app.api.v1 import contracts as contracts_router
+from app.db.models import User
 from app.db.repository.contract import ContractRepository, TaskRepository
 from app.services.ports import StoredObjectInfo
 
@@ -97,7 +98,20 @@ async def _exercise_upload(dsn: str) -> None:
             )
             app = FastAPI()
             app.include_router(contracts_router.router, prefix="/api/v1")
-            install_test_auth(app, session)
+            auth_user = install_test_auth(app, session)
+            session.add(
+                User(
+                    id=auth_user.id,
+                    username=auth_user.username,
+                    password_hash="test-hash",
+                    role=auth_user.role,
+                    is_active=True,
+                    display_name=auth_user.display_name,
+                    created_at=auth_user.created_at,
+                    updated_at=auth_user.updated_at,
+                )
+            )
+            await session.flush()
             app.dependency_overrides[get_service_context] = lambda: context
             transport = ASGITransport(app=app)
             async with AsyncClient(
@@ -141,6 +155,8 @@ async def _exercise_upload(dsn: str) -> None:
                 assert contract.storage_path == file_key
                 assert contract.file_size == 4096
                 assert contract.file_hash == "etag-c10"
+                assert contract.created_by_id == auth_user.id
+                assert contract.legacy is False
                 assert task is not None
                 assert task.task_type == "PARSE_DOC"
                 assert task.celery_task_id == "celery-c10-1"

@@ -18,6 +18,9 @@ from collections.abc import Sequence
 from typing import Any
 from uuid import UUID
 
+from sqlalchemy import select
+
+from app.db.models import Contract
 from app.db.repository.contract import ContractRepository, TaskRepository
 from app.db.repository.result import ElementRepository, RiskRepository, SealRepository
 from app.generated import schemas as s
@@ -356,6 +359,11 @@ class IngestionService:
         clause_payload: list[dict[str, Any]],
     ) -> str | None:
         """派发 `run_audit` 并建 `audit_tasks` 行（幂等：已有任务行即复用）。"""
+        # 同一合同的多个结果 GET 会并发触发本方法；锁定合同行，确保
+        # “查最新任务 → 首次派发”成为事务内临界区。
+        await self._context.session.execute(
+            select(Contract.id).where(Contract.id == contract_id).with_for_update()
+        )
         existing = await self._tasks.get_latest_by_contract(
             contract_id,
             TaskKind.RUN_AUDIT.name,

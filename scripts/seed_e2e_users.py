@@ -107,11 +107,27 @@ async def _seed(session_factory) -> None:
         await session.commit()
 
 
+def _inject_password(dsn: str, password: str | None) -> str:
+    """与 `app.config` 同款语义：`CG_POSTGRES_PASSWORD_FILE` 覆盖 DSN 口令位。"""
+    if not password or "://" not in dsn or "@" not in dsn:
+        return dsn
+    scheme, rest = dsn.split("://", 1)
+    credentials, host = rest.split("@", 1)
+    user = credentials.split(":", 1)[0]
+    return f"{scheme}://{user}:{password}@{host}"
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="C75 E2E 测试账号种子/清理")
     parser.add_argument("--dsn", default=os.getenv("CG_POSTGRES_DSN", ""))
     parser.add_argument("--cleanup", action="store_true", help="只删除测试账号")
     args = parser.parse_args(argv)
+
+    password_file = os.getenv("CG_POSTGRES_PASSWORD_FILE", "")
+    if password_file and Path(password_file).is_file():
+        args.dsn = _inject_password(
+            args.dsn, Path(password_file).read_text(encoding="utf-8").strip()
+        )
 
     if not args.dsn:
         print("[seed] 缺少 --dsn 或 CG_POSTGRES_DSN", file=sys.stderr)

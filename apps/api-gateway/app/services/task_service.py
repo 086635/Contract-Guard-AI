@@ -15,10 +15,19 @@ from uuid import UUID
 
 from pydantic import ValidationError
 
+from app.db.models import AuditAction, AuditOutcome
 from app.db.repository.auth import UserRecord
-from app.db.repository.contract import TaskRecord, TaskRepository
+from app.db.repository.contract import (
+    ContractRepository,
+    TaskRecord,
+    TaskRepository,
+    owner_scope,
+)
 from app.generated.schemas import Status, StreamTokenData, TaskProgress
+from app.services.audit_service import AuditService
 from app.services.context import ServiceContext
+from app.services.dispatch import TaskKind
+from app.services.ports import TaskStatusSnapshot
 from app.services.security import JwtService, StreamTokenClaims
 from app.services.sse import format_sse
 from cg_observability import get_logger, log_event
@@ -51,10 +60,12 @@ class TaskService:
         *,
         jwt: JwtService | None = None,
         tasks: TaskRepository | None = None,
+        contracts: ContractRepository | None = None,
     ) -> None:
-        """构造服务；`jwt` / `tasks` 可注入（测试用固定时钟与内存仓储，保持离线可测）。"""
+        """构造服务；`jwt` / `tasks` / `contracts` 可注入（测试用固定时钟与内存仓储）。"""
         self._context = context
         self._tasks = tasks or TaskRepository(context.session)
+        self._contracts = contracts or ContractRepository(context.session)
         self._jwt = jwt or JwtService.from_settings()
 
     async def assert_access(
@@ -62,15 +73,23 @@ class TaskService:
         task_id: UUID,
         user: UserRecord | None = None,
     ) -> TaskRecord:
-        """任务访问权（**唯一处**）：任务不存在 → `TaskNotFoundError`（路由映射 404，不泄露存在性）。
+        """任务访问权（**唯一处**）：任务不存在或合同越权都抛 `TaskNotFoundError`。
 
-        当前口径：单租户私有化部署下，**已认证用户可见全部合同**，因此这里只校验任务存在。
-        `user` 是预留的归属扩展位：一旦 `contracts` 增加归属字段（母文档 `4-7 §⑤.11` 的
-        `created_by_id`，目前尚未落库），**只改这一处**即可收紧为「仅任务归属人可见」。
+        `user=None` 仅限内部/受控调用；路由传入当前用户后，普通用户只能访问自己合同的任务，
+        ADMIN 可跨归属。越权统一表现为 404，不泄露合同或任务是否存在。
         """
         record = await self._tasks.get(task_id)
         if record is None:
             raise TaskNotFoundError(str(task_id))
+        if user is not None:
+            owner_id, include_all = owner_scope(user)
+            contract = await self._contracts.get(
+                record.contract_id,
+                owner_id=owner_id,
+                include_all=include_all,
+            )
+            if contract is None:
+                raise TaskNotFoundError(str(task_id))
         return record
 
     async def issue_stream_token(
@@ -103,6 +122,10 @@ class TaskService:
         )
         if record is None and snapshot is None:
             return None
+
+        if record is not None and snapshot is not None:
+            # C75-C①：`scan_upload` 拒绝是「信封失败」（Celery 状态仍 DONE）。
+            await self._converge_rejected_scan(record, snapshot)
 
         status = record.status if record is not None else Status.running
         stage = record.stage if record is not None else "processing"
@@ -163,6 +186,45 @@ class TaskService:
             yield format_sse(event.model_dump(mode="json", by_alias=True))
             if event.status in _TERMINAL_STATUSES:
                 break
+
+    async def _converge_rejected_scan(
+        self,
+        record: TaskRecord,
+        snapshot: TaskStatusSnapshot,
+    ) -> None:
+        """扫描拒绝：任务行收敛为 FAILED 并写 `FILE_REJECTED` 审计（幂等）。
+
+        `scan_upload` 以信封装载结论（`status=FAILED`，但 Celery 状态仍是 DONE），
+        网关只在轮询/SSE 首次读到快照时才知道拒绝。若不在此收敛，`audit_tasks`
+        会永远停在 RUNNING，被 C63 reconciler 误判成 STALE_TASK，且审计缺一条拒绝记录。
+        幂等性由 `record.status is not RUNNING` 保证：重复轮询不会再写第二条。
+        """
+        if record.task_type != TaskKind.SCAN_UPLOAD.name:
+            return
+        if record.status is not Status.running:
+            return
+        result = snapshot.result if isinstance(snapshot.result, dict) else {}
+        if snapshot.status != "FAILED" and result.get("status") != "FAILED":
+            return
+        reason = result.get("reason")
+        await self._tasks.update_status(
+            record.id,
+            Status.failed,
+            error_message=reason if isinstance(reason, str) else None,
+        )
+        await AuditService(self._context.session).write_event(
+            AuditAction.file_rejected,
+            "CONTRACT",
+            AuditOutcome.failure,
+            resource_id=str(record.contract_id),
+            metadata={
+                "contractId": str(record.contract_id),
+                "taskId": str(record.id),
+                "status": Status.failed.value,
+                "reason": reason,
+            },
+        )
+        await self._context.session.commit()
 
     @staticmethod
     def _record_result(record: TaskRecord | None) -> dict[str, object] | None:

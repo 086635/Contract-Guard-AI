@@ -19,7 +19,8 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import DEFAULT_MAX_ATTEMPTS, AuditTask, Contract, ContractCommit
-from app.generated.schemas import ContractStatus, Status
+from app.db.repository.auth import UserRecord
+from app.generated.schemas import ContractStatus, Role, Status
 from rag_contracts.enums import ContractType
 
 
@@ -27,6 +28,13 @@ class _PersistenceDto(BaseModel):
     """仓储层 DTO 基类。"""
 
     model_config = ConfigDict(from_attributes=True)
+
+
+def owner_scope(user: UserRecord | None) -> tuple[UUID | None, bool]:
+    """归属过滤的唯一策略：内部调用/ADMIN 可跨归属，普通用户只看自己的合同。"""
+    if user is None or user.role is Role.admin:
+        return None, True
+    return user.id, False
 
 
 class ContractCreate(_PersistenceDto):
@@ -39,6 +47,8 @@ class ContractCreate(_PersistenceDto):
     storage_path: str
     status: ContractStatus = ContractStatus.uploading
     contract_type: ContractType = ContractType.OTHER
+    created_by_id: UUID | None = None
+    legacy: bool = False
 
 
 class ContractSummary(_PersistenceDto):
@@ -62,6 +72,8 @@ class ContractDetail(_PersistenceDto):
     status: ContractStatus
     contract_type: ContractType
     version: int
+    created_by_id: UUID | None = None
+    legacy: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -132,6 +144,8 @@ class ContractRepository:
         *,
         contract_type: ContractType | None = None,
         status: ContractStatus | None = None,
+        owner_id: UUID | None = None,
+        include_all: bool = True,
     ) -> tuple[list[ContractSummary], int]:
         """分页返回合同摘要与总数。"""
         if page < 1:
@@ -144,6 +158,8 @@ class ContractRepository:
             filters.append(Contract.contract_type == contract_type)
         if status is not None:
             filters.append(Contract.status == status)
+        if owner_id is not None and not include_all:
+            filters.append(Contract.created_by_id == owner_id)
 
         count_statement = select(func.count()).select_from(Contract)
         if filters:
@@ -162,9 +178,23 @@ class ContractRepository:
             total or 0
         )
 
-    async def get(self, contract_id: UUID) -> ContractDetail | None:
-        """按主键读取合同。"""
-        record = await self._session.get(Contract, contract_id)
+    async def get(
+        self,
+        contract_id: UUID,
+        *,
+        owner_id: UUID | None = None,
+        include_all: bool = True,
+    ) -> ContractDetail | None:
+        """按主键读取合同；普通用户启用归属过滤，越权按不存在处理。"""
+        if owner_id is None or include_all:
+            record = await self._session.get(Contract, contract_id)
+        else:
+            record = await self._session.scalar(
+                select(Contract).where(
+                    Contract.id == contract_id,
+                    Contract.created_by_id == owner_id,
+                )
+            )
         if record is None:
             return None
         return ContractDetail.model_validate(record)

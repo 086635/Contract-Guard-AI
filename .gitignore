@@ -62,3 +62,6 @@ data/bm25/
 # C75 Playwright 失败证据/报告（本地产物，不入库）
 apps/web-ui/test-results/
 apps/web-ui/playwright-report/
+
+# C75-C② 冻结红线：部署 secrets 目录一律不入库（只保留 .gitkeep 语义的目录说明）
+docker/secrets/

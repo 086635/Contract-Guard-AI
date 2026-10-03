@@ -64,12 +64,26 @@ class FakeSession:
         return None
 
 
+class _TaskRow:
+    """最小任务属性替身（TaskService 只读字段）。"""
+
+    def __init__(self, **values: Any) -> None:
+        self.__dict__.update(values)
+
+
 class FakeTaskRepository:
     def __init__(self, rows: list[Any]) -> None:
-        self.rows = {row["id"]: row for row in rows}
+        self.rows = {row["id"]: _TaskRow(**row) for row in rows}
 
     async def get(self, task_id: UUID) -> Any:
         return self.rows.get(task_id)
+
+
+class FakeContractRepository:
+    """归属测试替身：存在由路由/任务层显式控制，此处只返回非空合同。"""
+
+    async def get(self, contract_id: UUID, **kwargs: Any) -> Any:
+        return _TaskRow(id=contract_id)
 
 
 def _user(user_id: UUID | None = None, *, username: str = "u1") -> UserRecord:
@@ -116,7 +130,12 @@ def _service(
         task_dispatcher=cast(Any, object()),
         progress_broker=cast(Any, object()),
     )
-    return TaskService(context, jwt=jwt, tasks=cast(Any, FakeTaskRepository(rows)))
+    return TaskService(
+        context,
+        jwt=jwt,
+        tasks=cast(Any, FakeTaskRepository(rows)),
+        contracts=cast(Any, FakeContractRepository()),
+    )
 
 
 # --------------------------------------------------------------------------

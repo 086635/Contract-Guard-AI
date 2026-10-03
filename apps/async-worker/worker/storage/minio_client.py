@@ -13,6 +13,7 @@ from __future__ import annotations
 import os
 from datetime import UTC, datetime
 from io import BytesIO
+from pathlib import Path
 from uuid import uuid4
 
 from minio import Minio
@@ -25,12 +26,26 @@ _PDF_CONTENT_TYPE = "application/pdf"
 _REPORT_CONTENT_TYPES = {"docx": _DOCX_CONTENT_TYPE, "pdf": _PDF_CONTENT_TYPE}
 
 
+def _secret_value(name: str, default: str) -> str:
+    """读取连接凭据；`*_FILE` 优先于显式 env，空文件/不可读直接失败。"""
+    file_path = os.getenv(f"{name}_FILE", "").strip()
+    if file_path:
+        try:
+            value = Path(file_path).read_text(encoding="utf-8").strip()
+        except OSError as exc:
+            raise RuntimeError(f"{name}_FILE 不可读") from exc
+        if not value:
+            raise RuntimeError(f"{name}_FILE 为空")
+        return value
+    return os.getenv(name, default)
+
+
 def get_minio_client() -> Minio:
     """按环境变量构建 MinIO 客户端（与 api-gateway 同源配置）。"""
     return Minio(
         endpoint=os.getenv("CG_MINIO_ENDPOINT", "localhost:9000"),
-        access_key=os.getenv("CG_MINIO_ACCESS_KEY", "minioadmin"),
-        secret_key=os.getenv("CG_MINIO_SECRET_KEY", "minioadmin"),
+        access_key=_secret_value("CG_MINIO_ACCESS_KEY", "minioadmin"),
+        secret_key=_secret_value("CG_MINIO_SECRET_KEY", "minioadmin"),
         secure=os.getenv("CG_MINIO_SECURE", "false").lower() == "true",
     )
 

@@ -503,6 +503,8 @@ components:
         typeConfidence: { type: number, minimum: 0, maximum: 1 }
         status: { $ref: "#/components/schemas/ContractStatus" }
         version: { type: integer, description: 当前版本（乐观锁） }
+        createdById: { type: ["string", "null"], description: 合同归属用户；旧数据为空 }
+        legacy: { type: boolean, default: false, description: 旧数据是否未完成归属迁移 }
         currentVersionId: { type: string }
         elements:
           type: array

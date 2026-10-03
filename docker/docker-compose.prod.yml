@@ -137,6 +137,20 @@ services:
       retries: 5
       start_period: 15s
 
+  reconciler:
+    restart: unless-stopped
+    ports: !override []
+    environment:
+      CG_POSTGRES_DSN: postgresql+asyncpg://cg:from-secret-file@postgres:5432/cg
+      <<: *cg-secret-env
+    secrets: *cg-secret-mounts
+    logging: *cg-logging
+    deploy:
+      resources:
+        limits:
+          cpus: "${CG_RECONCILE_CPUS:-0.5}"
+          memory: ${CG_RECONCILE_MEMORY:-512m}
+
   worker:
     restart: unless-stopped
     environment:

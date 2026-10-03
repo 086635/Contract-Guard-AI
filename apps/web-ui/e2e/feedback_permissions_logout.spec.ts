@@ -1,19 +1,21 @@
 import { expect, test } from "@playwright/test";
 
-import { login, logout, uploadAndEnterAudit } from "./helpers";
+import { login, logout, refreshUntilVisible, uploadAndEnterAudit } from "./helpers";
 
 test("链路 11｜反馈提交后可在反馈中心查询", async ({ page }) => {
   await login(page, "admin");
-  await uploadAndEnterAudit(page, "e2e-native.pdf");
+  const contractId = await uploadAndEnterAudit(page, "e2e-audit.pdf");
 
-  await page.getByLabel("反馈").first().click();
+  const feedback = page.getByLabel("反馈").first();
+  await refreshUntilVisible(page, feedback);
+  await feedback.click();
   const note = page.getByPlaceholder("说明判断依据，或填写正确的风险描述");
   await note.fill("C75 E2E 反馈样例");
-  await page.getByRole("button", { name: "提交反馈" }).click();
+  await page.getByRole("button", { name: "提交反馈", exact: true }).click();
   await expect(page.getByText(/反馈已提交/)).toBeVisible({ timeout: 30_000 });
 
   await page.goto("/feedback");
-  await expect(page.getByText("C75 E2E 反馈样例").first()).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByText(contractId, { exact: false }).first()).toBeVisible({ timeout: 60_000 });
 });
 
 test("链路 12｜VIEWER 权限：设置入口隐藏且直连被拒", async ({ page }) => {

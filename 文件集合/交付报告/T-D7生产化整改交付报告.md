@@ -1,12 +1,14 @@
-# T-D7 生产化整改交付报告（批级 · C74）
+# T-D7 生产化整改交付报告（批级 · C74 → C75-B）
 
-> 交付日期：**2026-10-02**　分支：`codex/td7-productionization`
+> 交付日期：**2026-10-02**（C75-A / C75-C① / C75-B 增量：**2026-10-03**）　分支：`codex/td7-productionization`
 > 范围：`文件集合/codex/4.C74T-D7回归与文档收口.md`（T-D7-10）
 > 父文档：`文件集合/codex/4-7正式部署差距与工程化整改.md` §⑥.11 / §⑦.1 / §⑧.1
 > commit 范围：`79e4a05`（C44）→ C74
 > **结论摘要：P0 工作包 T-D7-1~T-D7-8 均有落地与测试证据；P1 工作包 T-D7-9 四卡完成；
-> 但 T-D7-10 尚未闭环（C75 Playwright/正式部署验收待执行），且存在 1 项 P0 契约缺口与 5 项 P1 残余，
-> 因此本报告不声明「T-D7 全部完成」。** 本报告是交付说明，不是实现依据。
+> C75-A 已关闭 1 项 P0 契约缺口与 P1-1 生成物漂移；C75-C① 已关闭 P1-2~P1-5；
+> **C75-B 已在 prod compose（HTTPS + worker/LibreOffice + 真实 DeepSeek）上连续两轮 13/13 浏览器链路全绿，
+> 关闭 D7-I20**。仅剩 **C75-C②（发布冻结 / D7-I19）**，因此本报告仍不声明「T-D7 全部完成」。**
+> 本报告是交付说明，不是实现依据。
 
 ---
 
@@ -14,7 +16,7 @@
 
 | 工作包 | 主题 | 状态 | 关键证据 |
 |---|---|---|---|
-| T-D7-1 | 认证 / RBAC / 账号模型 | ✅ 落地（含 1 项 P0 缺口，见 §8） | C44~C48；`test_auth_routes.py` 等；真实 PG 登录/刷新/登出 |
+| T-D7-1 | 认证 / RBAC / 账号模型 | ✅ 完成（C75-A 关闭 P0-1） | C44~C48 + C75-A；owner 迁移/IDOR 404/PG16 验证 |
 | T-D7-2 | 审计事件与查询 | ✅ | C49~C50；append-only + 脱敏 + ADMIN-only |
 | T-D7-3 | 统一错误 / 幂等 | ✅ | C51~C52；错误矩阵 + Redis 幂等（重放/409/503） |
 | T-D7-4 | 生产 LLM / RAG 语义门禁 | ✅ | C53~C55；真实 DeepSeek Diff、bge-m3 召回、精排对比 |
@@ -23,7 +25,7 @@
 | T-D7-7 | 上传安全 | ✅ | C56~C57；大小/类型/key、magic sniff、ClamAV |
 | T-D7-8 | 生产部署与运维 | ✅ | C66~C69；secrets、prod overlay、TLS/限流、备份恢复演练 |
 | T-D7-9 | 产品闭环（P1） | ✅ | C70~C73；标准条款库、双格式导出、Zod 运行时校验 |
-| T-D7-10 | 发布冻结与浏览器验收 | ⚠️ **未闭环** | C74（本卡）完成回归与文档收口；**C75 Playwright/干净 checkout 待执行** |
+| T-D7-10 | 发布冻结与浏览器验收 | ⚠️ **未闭环** | C74 完成回归/收口；C75-A 已闭环；**C75-B 全量 13 条与 C75-C 冻结待执行** |
 
 ---
 
@@ -65,14 +67,14 @@
 
 | 冻结项 | 状态 | 证据 / 说明 |
 |---|---|---|
-| 全量 pytest ≥ 基线 | ✅ | 见 §7.1（877 passed / 52 skipped / 2 failed，2 failed 为环境假红） |
+| 全量 pytest ≥ 基线 | ✅ | 见 §7.1（891 passed / 52 skipped / 0 failed；非沙箱完整门禁） |
 | OpenAPI 生成物零漂移 | ✅ | `tests/release/test_generated_artifacts.py::test_openapi_generation_drift`（35 operationId / 31 路径 1:1） |
 | 生成物哈希登记 | ✅ | §6 哈希表（`test_generated_hash_stable` 校验） |
 | 组件卡状态与代码一致 | ✅ | `test_all_td7_cards_have_evidence_or_pending`（32 张卡逐卡核销） |
 | 文档同步（模块总纲 / 0.§0.10 / 4-7） | ✅ | `test_docs_reference_4_7` / `test_docs_links_and_status` |
 | e2e_smoke 覆盖 T-D7 路径 | ✅（离线守卫） | `test_e2e_smoke_td7_paths` + `e2e_smoke.py --help` exit 0；**真实链路执行归 C75** |
-| 干净 checkout 可重复构建 | ⏳ | 输入已冻结（lock 文件 + gitignore + testpaths，`test_clean_checkout_build`）；真实干净构建归 C75/CI |
-| Playwright 浏览器主链路 | ⏳ **未闭环** | C75 已落盘 13 条链路 + 种子 + CI；本机真实栈执行 4 条（登录 ✅ / 权限 ✅ / 登出 ✅ / 刷新需 TLS）；其余需 prod compose（worker/LibreOffice/真实模型） |
+| 干净 checkout 可重复构建 | ✅ | `docker compose config`（base + prod overlay）exit 0；`test_clean_checkout_build` 通过（release 守卫 8 passed） |
+| Playwright 浏览器主链路 | ✅ **已闭环（D7-I20 关闭）** | prod compose（8443 HTTPS + worker/LibreOffice + 真实 DeepSeek）**13/13 passed 连续两轮（5.2 min，workers=1）**；`playwright-report/results.json` sha256 `c647416d85cf`（13/0/0/0） |
 
 ---
 
@@ -111,7 +113,10 @@
 | C72 | `bbb85ba` | 报告双格式导出（DOCX/PDF 独立下载） | ✅ |
 | C73 | `c413936` | Zod 运行时响应校验（operationId 注册表） | ✅ |
 | C74 | 本卡 | 批级回归 + 文档收口 + release 守卫测试 | ✅ |
-| C75 | — | Playwright E2E + 正式部署验收 | ⏳ 待实施 |
+| C75 | — | Playwright E2E + 正式部署验收 | ⏳ 仅剩 C75-C②（发布冻结） |
+| C75-A | 本轮工作树（待提交） | contracts 归属字段/0015 迁移/IDOR 404/OpenAPI 生成物 | ✅ |
+| C75-C① | 本轮工作树（待提交） | 守卫空转修复+负例自证 / 转换任务行+扫描拒绝 FILE_REJECTED 审计 / reconciler compose 旁车 / 前端包体评估 | ✅ |
+| C75-B | 本轮工作树（待提交） | prod compose 13/13 浏览器链路（全绿×2）+ 链路 6 判因 + 干净构建 + 证据归档；关闭 D7-I20 | ✅ |
 
 ---
 
@@ -121,10 +126,10 @@
 
 | 产物 | sha256（前 12 位） |
 |---|---|
-| `packages/schema/openapi.yaml` | 256792006123 |
-| `apps/api-gateway/app/generated/schemas.py` | 69967a19856b |
-| `apps/web-ui/src/api/generated/types.ts` | 713b31896ac1 |
-| `apps/web-ui/src/api/generated/zod.ts` | 75d5767349a1 |
+| `packages/schema/openapi.yaml` | cf439d599bd0 |
+| `apps/api-gateway/app/generated/schemas.py` | d257abe8af5c |
+| `apps/web-ui/src/api/generated/types.ts` | a75069a764cf |
+| `apps/web-ui/src/api/generated/zod.ts` | 96260b88d7fa |
 
 > 生成物被 `.gitignore` 忽略：干净 checkout 需先 `pnpm --filter @contract-guard/schema gen`；
 > `tests/release/test_generated_hash_stable` 会在哈希漂移时报错并要求重新登记。
@@ -133,13 +138,27 @@
 
 ## 7. 全量回归门禁
 
-### 7.1 pytest（2026-10-02，`D:\aanacoda1\python.exe -m pytest --basetemp=... -p no:cacheprovider`）
+### 7.1 pytest（2026-10-03，`D:\aanacoda1\python.exe -m pytest --basetemp=... -p no:cacheprovider`）
 
 ```text
-877 passed, 52 skipped, 2 failed in 161.35s
+891 passed, 52 skipped in 171.16s        # C75-A（2026-10-03）
+897 passed, 53 skipped in 182.04s        # C75-C①（2026-10-03）
 ```
 
-（C73 基线 869/52/2 → C74 新增 8 条 release 守卫全绿；其余数字未变。）
+### 7.1b Playwright 浏览器验收（2026-10-03，`CG_E2E_BASE_URL=https://localhost:8443`）
+
+```text
+13 passed (5.2m)   — 连续两轮；结果与证据：apps/web-ui/playwright-report/results.json
+                     （expected=13 / unexpected=0 / flaky=0 / skipped=0 / duration=310.2s；
+                       sha256= c647416d85cf…）
+```
+
+链路 6 判因为**环境**（HTTP 下 `refresh` cookie `secure=True` 不发 + 短链路连续登录撞 nginx `cg_login` 5 次/分限流 → 503），
+非业务代码缺陷；改用 8443 HTTPS 入口 + E2E 登录节流后稳定通过。
+
+（C74 基线 877/52/2 → C75-A 新增 8 条离线归属/路由/迁移测试，并复用 PG16 集成 5 passed；
+C75-C① 新增 6 条离线用例 + 1 条 PG-gated 扫描拒绝审计端点用例，skip 52→53 属设计内；非沙箱完整门禁 0 failed。
+C75-C① 另在真 PG16 上执行 `test_scan_reject_audit_query_admin_endpoint`（`GET /api/v1/audit/events?action=FILE_REJECTED`，total=1）。）
 
 ### 7.2 其它门禁
 
@@ -179,14 +198,12 @@ Milvus 集成（`CG_RAG_TEST_MILVUS_URI`）、真实 embedding（`CG_RAG_TEST_EM
 
 | # | 项 | 依据 | 归属 / 建议 |
 |---|---|---|---|
-| P0-1 | **`contracts` 缺少 `created_by_id` / `legacy` 归属字段与迁移** | `4-7 §⑤.11`（迁移顺序含「contracts 归属字段」；老合同必须打 `legacy` 标记）、§⑦.1 T-D7-1 | T-D7-1（C44~C47 收尾）：新增列 + 迁移 + 归属写入；C64 的 `TaskService.assert_access` 已预留 `user` 参数，补列后即可收紧跨用户可见性 |
 | P0-2 | **Playwright 浏览器 E2E（12 条主链路）与正式部署验收未执行** | `4-7 §⑥.11` D7-I20、§⑦.1 T-D7-10 | **C75**（下一卡） |
 
 ### 8.2 P1（可延期，但必须登记）
 
 | # | 项 | 影响 | 归属 |
 |---|---|---|---|
-| P1-1 | `AuditAction.TASK_RECOVERED` 在 DB/CHECK 存在，OpenAPI 枚举缺失 | `GET /audit/events?action=TASK_RECOVERED` 会 422 | 建议随 C74 后续小卡或 C75 一并补 OpenAPI 枚举（需 `pnpm gen`） |
 | P1-2 | `test_all_v1_routes_except_login_refresh_require_auth` 恒为空断言 | 该守卫实际未生效（路径前缀判断问题） | 测试整改（跨卡） |
 | P1-3 | 转换任务未写 `audit_tasks` 行；扫描拒绝未写 `FILE_REJECTED` 审计 | 审计完整性缺口（D7-I15 期望「所有拒绝事件写审计」） | C57/C59 收尾 |
 | P1-4 | `TaskReconciler` 未定时编排（无 cron/Beat/compose 服务） | stale 回收目前只能手工/脚本触发 | C63 卡片原归 C67（未做），建议并入后续运维卡 |
@@ -201,12 +218,14 @@ Milvus 集成（`CG_RAG_TEST_MILVUS_URI`）、真实 embedding（`CG_RAG_TEST_EM
 
 ## 9. 结论
 
-- **T-D7-1 ~ T-D7-8（P0）**：均有落地代码、单测/真实服务证据与卡片回填；**但 P0-1（contracts 归属字段）仍未闭环**，故 T-D7-1 不能算完整收口。
+- **T-D7-1 ~ T-D7-8（P0）**：均有落地代码、单测/真实服务证据与卡片回填；C75-A 已关闭 P0-1（contracts 归属、迁移、IDOR、生成物），T-D7-1 完整收口。
 - **T-D7-9（P1）**：C70~C73 全部完成并回填。
 - **T-D7-10**：本卡完成「回归 + 生成物冻结 + 文档/卡片核销 + 批级报告」，**Playwright 与干净 checkout 验收未做** → 归 C75。
-- 因此本报告**不声明 T-D7 全部完成**；C75 完成后需在本文追加「发布冻结最终确认」段落并更新 §4/§8。
+- 因此本报告**不声明 T-D7 全部完成**；C75-B/C 完成后需在本文追加「发布冻结最终确认」段落并更新 §4/§8。
 
-C75 进展（2026-10-02）：Playwright 1.63.0 + Chromium 1243；`apps/web-ui/e2e/` 13 条链路 / 6 文件可枚举；真实栈（PG16 + Redis7 + uvicorn + Vite + Chromium）跑通登录/权限/登出 3 条；刷新恢复因 refresh cookie `secure=True` 需 HTTPS，其余链路需 prod compose。
+C75-A 增量（2026-10-03）：contracts owner/legacy、Alembic 0015、上传写 owner、详情/任务/SSE 404、OpenAPI 生成物与哈希已闭环；离线 8 passed、PG16 5 passed、非沙箱全量 891/52/0。
+
+C75-B 进展（历史）：Playwright 1.63.0 + Chromium 1243；`apps/web-ui/e2e/` 13 条链路 / 6 文件可枚举；真实栈跑通登录/权限/登出等单条链路；全量 13 条仍需 C75-B 收口。
 
 ---
 

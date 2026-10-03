@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, cast
 from uuid import UUID, uuid4
@@ -77,9 +78,10 @@ class FakeObjectStorage:
 class FakeDispatcher:
     """Celery 派发替身。"""
 
-    def __init__(self) -> None:
+    def __init__(self, *, fail: bool = False) -> None:
         self.calls: list[tuple[str, tuple[object, ...]]] = []
         self.snapshot: TaskStatusSnapshot | None = None
+        self._fail = fail
 
     def send(
         self,
@@ -90,11 +92,59 @@ class FakeDispatcher:
     ) -> str:
         del task_id
         self.calls.append((str(task_name), args))
+        if self._fail:
+            raise ConnectionError("broker down")
         return "celery-convert-1"
 
     def get_status(self, task_id: str) -> TaskStatusSnapshot | None:
         del task_id
         return self.snapshot
+
+
+@dataclass(frozen=True, slots=True)
+class _FakeTaskRecord:
+    """任务行最小投影：服务层只用 `.id`。"""
+
+    id: UUID
+
+
+class FakeTaskRepository:
+    """记录 C59 转换任务建行/回填的内存替身（对齐 TaskRepository 签名）。"""
+
+    def __init__(self) -> None:
+        self.created: list[tuple[UUID, str, str | None]] = []
+        self.attached: list[tuple[UUID, str]] = []
+        self.failed: list[tuple[UUID, str, str | None]] = []
+
+    async def create(
+        self,
+        contract_id: UUID,
+        task_type: str,
+        celery_task_id: str | None,
+        *,
+        max_attempts: int = 3,
+    ) -> _FakeTaskRecord:
+        del max_attempts
+        self.created.append((contract_id, task_type, celery_task_id))
+        return _FakeTaskRecord(id=uuid4())
+
+    async def attach_celery_task_id(
+        self,
+        task_id: UUID,
+        celery_task_id: str,
+    ) -> _FakeTaskRecord:
+        self.attached.append((task_id, celery_task_id))
+        return _FakeTaskRecord(id=task_id)
+
+    async def mark_failed(
+        self,
+        task_id: UUID,
+        *,
+        error_code: str,
+        error_message: str | None = None,
+    ) -> _FakeTaskRecord:
+        self.failed.append((task_id, error_code, error_message))
+        return _FakeTaskRecord(id=task_id)
 
 
 class FakeSession:
@@ -237,10 +287,12 @@ def _service(
     previews: FakePreviewRepository | None = None,
     storage: FakeObjectStorage | None = None,
     dispatcher: FakeDispatcher | None = None,
+    tasks: FakeTaskRepository | None = None,
 ) -> tuple[PreviewService, FakePreviewRepository, FakeObjectStorage, FakeDispatcher]:
     previews = previews if previews is not None else FakePreviewRepository()
     storage = storage if storage is not None else FakeObjectStorage()
     dispatcher = dispatcher if dispatcher is not None else FakeDispatcher()
+    tasks = tasks if tasks is not None else FakeTaskRepository()
     context = ServiceContext(
         session=cast(AsyncSession, FakeSession()),
         object_storage=storage,  # type: ignore[arg-type]
@@ -251,6 +303,7 @@ def _service(
         context,
         previews=previews,  # type: ignore[arg-type]
         contracts=FakeContractRepository(contract),  # type: ignore[arg-type]
+        tasks=tasks,  # type: ignore[arg-type]
     )
     return service, previews, storage, dispatcher
 
@@ -333,6 +386,39 @@ def test_preview_retry_idempotent() -> None:
     ]
     assert first.task_id == second.task_id == "celery-convert-1"
     assert first.status is Status.running and second.status is Status.running
+
+
+def test_convert_task_dispatches_audit_task_row() -> None:
+    """C75-C① P1-3：转换派发前先落 `audit_tasks` 行，成功后回填 Celery id。"""
+    contract = _contract("采购合同.docx")
+    tasks = FakeTaskRepository()
+    service, previews, _, _dispatcher = _service(contract, tasks=tasks)
+
+    progress = asyncio.run(service.retry(contract.id))
+
+    assert tasks.created == [(contract.id, "CONVERT_DOC", None)]
+    assert len(tasks.attached) == 1 and tasks.attached[0][1] == "celery-convert-1"
+    assert tasks.failed == []
+    assert progress.task_id == "celery-convert-1"
+    assert next(iter(previews.rows.values())).convert_task_id == "celery-convert-1"
+
+
+def test_convert_dispatch_failure_marks_task_failed() -> None:
+    """派发失败必须立即把任务行收敛为 FAILED（不留幽灵 RUNNING）。"""
+    contract = _contract("采购合同.docx")
+    tasks = FakeTaskRepository()
+    service, _, _, _ = _service(
+        contract,
+        dispatcher=FakeDispatcher(fail=True),
+        tasks=tasks,
+    )
+
+    with pytest.raises(ConnectionError):
+        asyncio.run(service.retry(contract.id))
+
+    assert tasks.created == [(contract.id, "CONVERT_DOC", None)]
+    assert tasks.attached == []
+    assert len(tasks.failed) == 1 and tasks.failed[0][1] == "DISPATCH_FAILED"
 
 
 def test_preview_retry_skips_when_done() -> None:

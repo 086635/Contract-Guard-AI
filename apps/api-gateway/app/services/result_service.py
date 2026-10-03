@@ -12,7 +12,8 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from app.db.repository.contract import ContractRepository, TaskRepository
+from app.db.repository.auth import UserRecord
+from app.db.repository.contract import ContractRepository, TaskRepository, owner_scope
 from app.db.repository.result import (
     ElementRepository,
     RiskRepository,
@@ -44,9 +45,13 @@ class ResultService:
         self._risks = RiskRepository(context.session)
         self._seals = SealRepository(context.session)
 
-    async def parse_status(self, contract_id: UUID) -> TaskProgress | None:
+    async def parse_status(
+        self,
+        contract_id: UUID,
+        user: UserRecord | None = None,
+    ) -> TaskProgress | None:
         """读取合同最新解析任务进度。"""
-        await self._require_contract(contract_id)
+        await self._require_contract(contract_id, user)
         await IngestionService(self._context).finalize_parse(contract_id)
         task = await self._tasks.get_latest_by_contract(
             contract_id,
@@ -65,9 +70,13 @@ class ResultService:
             result=result,
         )
 
-    async def elements(self, contract_id: UUID) -> list[ContractElement]:
+    async def elements(
+        self,
+        contract_id: UUID,
+        user: UserRecord | None = None,
+    ) -> list[ContractElement]:
         """读取切片并投影为 API element。"""
-        await self._require_contract(contract_id)
+        await self._require_contract(contract_id, user)
         await IngestionService(self._context).finalize_parse(contract_id)
         chunks = await self._elements.list_by_contract(contract_id)
         return list(ContractProjector.elements(chunks))
@@ -76,27 +85,49 @@ class ResultService:
         self,
         contract_id: UUID,
         level: str | RiskLevel | None,
+        user: UserRecord | None = None,
     ) -> list[EnhancedRiskItem]:
         """读取风险列表。"""
-        await self._require_contract(contract_id)
+        await self._require_contract(contract_id, user)
         await IngestionService(self._context).finalize_audit(contract_id)
         parsed_level = RiskLevel(level.upper()) if isinstance(level, str) else level
         return await self._risks.list_by_contract(contract_id, parsed_level)
 
-    async def conflicts(self, contract_id: UUID) -> list[CrossClauseConflict]:
+    async def conflicts(
+        self,
+        contract_id: UUID,
+        user: UserRecord | None = None,
+    ) -> list[CrossClauseConflict]:
         """读取跨条款矛盾。"""
-        await self._require_contract(contract_id)
+        await self._require_contract(contract_id, user)
         await IngestionService(self._context).finalize_audit(contract_id)
         return await self._risks.list_conflicts_by_contract(contract_id)
 
-    async def seals(self, contract_id: UUID) -> list[SealSignatureDetection]:
+    async def seals(
+        self,
+        contract_id: UUID,
+        user: UserRecord | None = None,
+    ) -> list[SealSignatureDetection]:
         """读取印章检测结果。"""
-        await self._require_contract(contract_id)
+        await self._require_contract(contract_id, user)
         await IngestionService(self._context).finalize_parse(contract_id)
         return await self._seals.list_by_contract(contract_id)
 
-    async def _require_contract(self, contract_id: UUID) -> None:
-        if await self._contracts.get(contract_id) is None:
+    async def _require_contract(
+        self,
+        contract_id: UUID,
+        user: UserRecord | None = None,
+    ) -> None:
+        owner_id, include_all = owner_scope(user)
+        if owner_id is None:
+            contract = await self._contracts.get(contract_id)
+        else:
+            contract = await self._contracts.get(
+                contract_id,
+                owner_id=owner_id,
+                include_all=include_all,
+            )
+        if contract is None:
             raise ContractNotFoundError(str(contract_id))
 
 

@@ -95,6 +95,39 @@ def test_upload_report_rejects_invalid_contract_id(
         upload_report(contract_id, b"data")
 
 
+def test_minio_client_honors_secret_files(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    access_file = tmp_path / "access_key"
+    secret_file = tmp_path / "secret_key"
+    access_file.write_text("file-access\n", encoding="utf-8")
+    secret_file.write_text("file-secret\n", encoding="utf-8")
+    monkeypatch.setenv("CG_MINIO_ACCESS_KEY", "env-access")
+    monkeypatch.setenv("CG_MINIO_SECRET_KEY", "env-secret")
+    monkeypatch.setenv("CG_MINIO_ACCESS_KEY_FILE", str(access_file))
+    monkeypatch.setenv("CG_MINIO_SECRET_KEY_FILE", str(secret_file))
+    captured: dict[str, object] = {}
+
+    def fake_minio(**kwargs: object) -> object:
+        captured.update(kwargs)
+        return object()
+
+    monkeypatch.setattr(minio_module, "Minio", fake_minio)
+    minio_module.get_minio_client()
+
+    assert captured["access_key"] == "file-access"
+    assert captured["secret_key"] == "file-secret"
+
+
+def test_minio_client_rejects_empty_secret_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    empty = tmp_path / "empty"
+    empty.write_text("\n", encoding="utf-8")
+    monkeypatch.setenv("CG_MINIO_ACCESS_KEY_FILE", str(empty))
+
+    with pytest.raises(RuntimeError, match="CG_MINIO_ACCESS_KEY_FILE 为空"):
+        minio_module.get_minio_client()
+
+
 def test_storage_package_exports_upload_report() -> None:
     assert upload_report is minio_module.upload_report
 

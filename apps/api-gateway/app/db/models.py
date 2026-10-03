@@ -140,6 +140,7 @@ class Contract(Base):
     __table_args__ = (
         Index("ix_contracts_status", "status"),
         Index("ix_contracts_contract_type", "contract_type"),
+        Index("ix_contracts_created_by_id", "created_by_id"),
     )
 
     id: Mapped[UUID] = mapped_column(
@@ -158,6 +159,10 @@ class Contract(Base):
         default=ContractType.OTHER,
     )
     version: Mapped[int] = mapped_column(Integer, default=1)
+    created_by_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("users.id"), nullable=True
+    )
+    legacy: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utc_now
     )

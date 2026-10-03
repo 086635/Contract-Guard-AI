@@ -66,6 +66,8 @@ class ContractProjector:
             typeConfidence=1.0,
             status=detail.status,
             version=detail.version,
+            createdById=str(detail.created_by_id) if detail.created_by_id else None,
+            legacy=detail.legacy,
             currentVersionId=str(detail.id),
             elements=ContractProjector.elements(elements),
             risks=risks,

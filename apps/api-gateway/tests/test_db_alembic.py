@@ -153,7 +153,14 @@ def test_migration_schema_matches_c1_metadata() -> None:
     sql = _run_offline("upgrade", "head")
     connection = sqlite3.connect(":memory:")
     try:
-        connection.executescript(sql)
+        # SQLite 不支持 ADD CONSTRAINT；测试只验证列/索引，故剥离 FK DDL。
+        sqlite_sql = re.sub(
+            r"ALTER TABLE contracts ADD CONSTRAINT .*?;\n?",
+            "",
+            sql,
+            flags=re.S,
+        )
+        connection.executescript(sqlite_sql)
         for table_name in EXPECTED_TABLES:
             actual_columns = {
                 row[1] for row in connection.execute(f"PRAGMA table_info({table_name})")
