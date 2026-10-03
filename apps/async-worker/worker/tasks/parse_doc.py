@@ -3,8 +3,9 @@
 流程：定位源文件（本地 / MinIO）→ 分流 → 四路取文本 → 印章 → 版面 → 要素/条款 → 偏移索引
 → 结果信封 + `data/parse/{contractId}.json` 工件。
 
-🔴 **不写数据库**：本仓当前没有任何 DB DAL（`api-gateway` 仍是 mock 驱动），
-"落库 + `Contract.status = PENDING_REVIEW`" 属待建任务（`3-6 §⑨-8`），不在本任务内假装完成。
+🔴 **worker 不写业务库**：本任务只产出解析信封与 `data/parse/*.json` 工件；
+「落库 + `Contract.status` 推进」由**网关侧** `IngestionService.finalize_parse` 负责
+（PG DAL / Alembic 已就位，`api-gateway` 早已不是 mock；见 `4-7` §⑥.6、`4.C23`）。
 """
 
 from __future__ import annotations
