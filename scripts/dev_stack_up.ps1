@@ -21,7 +21,8 @@
 param(
     [switch]$NoFollow,
     [int]$ReadyTimeoutSeconds = 90,
-    [string]$LogServices = "api worker worker-convert nginx"
+    [string]$LogServices = "api worker worker-convert nginx",
+    [switch]$WithReconciler
 )
 
 $ErrorActionPreference = "Stop"
@@ -67,6 +68,13 @@ try {
         Write-Host "[dev_stack] 后端就绪（/health/ready = 200）" -ForegroundColor Green
     } else {
         Write-Warning "[dev_stack] ${ReadyTimeoutSeconds}s 内未就绪；仍继续跟随日志，请查看下方报错"
+    }
+
+    if (-not $WithReconciler) {
+        # 验收期默认暂停 reconciler：它会把历史遗留任务反复重派，抢占并发=2 的 worker，
+        # 导致健康检查超时与上传排队。生产环境请用 -WithReconciler 保留定时对账。
+        & docker stop cg-c75-reconciler-1 2>$null | Out-Null
+        Write-Host "[dev_stack] 已暂停 reconciler（验收更顺畅；加 -WithReconciler 可保留）" -ForegroundColor DarkGray
     }
 
     Write-Host "[dev_stack] 入口 https://localhost:8443   账号 e2e-admin / e2e-admin-pass" -ForegroundColor Green
