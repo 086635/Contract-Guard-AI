@@ -170,6 +170,10 @@ services:
       CG_POSTGRES_DSN: postgresql+asyncpg://cg:cg@postgres:5432/cg
       CG_REDIS_URL: redis://redis:6379/0
       CG_QDRANT_URL: http://qdrant:6333
+      # RAG 检索层（T-D8-1 / C76）：显式指向 compose 内 Qdrant（代码默认值是 inmemory）
+      CG_RAG_VECTOR_STORE: qdrant
+      CG_RAG_QDRANT_MODE: server
+      CG_RAG_QDRANT_URL: http://qdrant:6333
       CG_MINIO_ENDPOINT: minio:9000
       CG_MINIO_PUBLIC_ENDPOINT: localhost:9000
       CG_MINIO_REGION: us-east-1
@@ -268,7 +272,8 @@ services:
       minio: { condition: service_healthy }
       minio-init: { condition: service_completed_successfully }
       clamav: { condition: service_started }
-    command: ["uv", "run", "--package", "async-worker", "celery", "-A", "worker.main", "worker", "--loglevel=info"]
+    # 并发必须显式限制：prefork 默认 = 宿主 nproc（本机 24），会把 2 GiB 的 cgroup 撑爆（OOMKilled）
+    command: ["uv", "run", "--package", "async-worker", "celery", "-A", "worker.main", "worker", "--concurrency=${CG_WORKER_CONCURRENCY:-2}", "--loglevel=info"]
     healthcheck:
       # 用 venv 内的 celery 直接 inspect ping（实测 pong）；C25 再补结果后端就绪验证
       test: ["CMD", "/app/.venv/bin/celery", "-A", "worker.main", "inspect", "ping", "--timeout", "3"]
@@ -312,7 +317,7 @@ services:
       redis: { condition: service_healthy }
       minio: { condition: service_healthy }
       minio-init: { condition: service_completed_successfully }
-    command: ["uv", "run", "--package", "async-worker", "celery", "-A", "worker.main", "worker", "-Q", "convert", "--loglevel=info"]
+    command: ["uv", "run", "--package", "async-worker", "celery", "-A", "worker.main", "worker", "-Q", "convert", "--concurrency=${CG_CONVERT_CONCURRENCY:-1}", "--loglevel=info"]
     healthcheck:
       test: ["CMD", "/app/.venv/bin/celery", "-A", "worker.main", "inspect", "ping", "--timeout", "3"]
       interval: 15s

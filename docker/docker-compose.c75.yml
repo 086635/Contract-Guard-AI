@@ -66,7 +66,11 @@ services:
       CG_RAG_EMBED_MODE: ${CG_RAG_EMBED_MODE:-http}
       CG_RAG_EMBED_BASE_URL: ${CG_RAG_EMBED_BASE_URL:-http://host.docker.internal:11434}
       CG_RAG_EMBED_MODEL: ${CG_RAG_EMBED_MODEL:-bge-m3}
-      CG_RAG_RERANK_ENABLED: "false"
+      # T-D8-1：验收档开启真实精排（host 上 `python scripts/serve_rerank.py --port 8081`）
+      CG_RAG_RERANK_ENABLED: "true"
+      CG_RAG_RERANK_MODE: ${CG_RAG_RERANK_MODE:-http}
+      CG_RAG_RERANK_HTTP_URL: ${CG_RAG_RERANK_HTTP_URL:-http://host.docker.internal:8081}
+      CG_RAG_RERANK_MODEL: ${CG_RAG_RERANK_MODEL:-BAAI/bge-reranker-v2-m3}
       CG_MINIO_PUBLIC_ENDPOINT: ${CG_MINIO_PUBLIC_ENDPOINT:-127.0.0.1:9005}
       CG_MINIO_SECURE: "false"
       CG_MINIO_PUBLIC_SECURE: "true"
@@ -83,7 +87,11 @@ services:
       CG_RAG_EMBED_MODE: ${CG_RAG_EMBED_MODE:-http}
       CG_RAG_EMBED_BASE_URL: ${CG_RAG_EMBED_BASE_URL:-http://host.docker.internal:11434}
       CG_RAG_EMBED_MODEL: ${CG_RAG_EMBED_MODEL:-bge-m3}
-      CG_RAG_RERANK_ENABLED: "false"
+      # T-D8-1：验收档开启真实精排（host 上 `python scripts/serve_rerank.py --port 8081`）
+      CG_RAG_RERANK_ENABLED: "true"
+      CG_RAG_RERANK_MODE: ${CG_RAG_RERANK_MODE:-http}
+      CG_RAG_RERANK_HTTP_URL: ${CG_RAG_RERANK_HTTP_URL:-http://host.docker.internal:8081}
+      CG_RAG_RERANK_MODEL: ${CG_RAG_RERANK_MODEL:-BAAI/bge-reranker-v2-m3}
 
   worker-convert:
     environment:
