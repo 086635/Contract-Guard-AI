@@ -154,7 +154,9 @@ def test_openapi_operation_inventory_matches_production_app() -> None:
 
     # C58：+2（preview / preview-retry）；C64：+1（POST /tasks/{taskId}/stream-token）→ 31
     # C70：+4（GET/POST /admin/standard-clauses、POST …/rebuild、PATCH …/{clauseId}）→ 35
-    assert len(expected) == 35
+    # T-D6 maintenance: POST parse/retry, POST settings/rules, POST feedback/export → 38
+    # T-D6 三库维护：+2（官方来源状态 / 检索预览）→ 40。
+    assert len(expected) == 40
     assert actual == expected
 
 

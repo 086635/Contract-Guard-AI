@@ -20,6 +20,7 @@ from uuid import UUID
 
 from sqlalchemy import select
 
+from app.config import settings
 from app.db.models import Contract
 from app.db.repository.contract import ContractRepository, TaskRepository
 from app.db.repository.result import ElementRepository, RiskRepository, SealRepository
@@ -202,12 +203,19 @@ class IngestionService:
         Returns:
             True 表示存在 DONE 快照并尝试入库；False 表示无任务 / 非 DONE / 无快照。
         """
+        await self._context.session.execute(
+            select(Contract.id).where(Contract.id == contract_id).with_for_update()
+        )
+        if settings.upload_av_mode == "clamav":
+            await self.link_scanned_parse(contract_id)
         task = await self._tasks.get_latest_by_contract(
             contract_id,
             TaskKind.PARSE_DOC.name,
         )
         if task is None:
             return False
+        if task.stage == "ingested" and task.status == s.Status.done:
+            return True
 
         snapshot = self._context.task_dispatcher.get_status(
             task.celery_task_id or str(task.id),
@@ -216,6 +224,13 @@ class IngestionService:
             return False
 
         result = snapshot.result
+        if result.get("status") == "FAILED":
+            if task.status != s.Status.failed:
+                warnings = result.get("warnings") or []
+                reason = next((item for item in warnings if isinstance(item, str)), "解析失败，请重新解析")
+                await self._tasks.mark_failed(task.id, error_code="PARSE_FAILED", error_message=reason)
+                await self._context.session.commit()
+            return False
         clauses = [
             clause
             for clause in (result.get("clauses") or [])
@@ -240,18 +255,18 @@ class IngestionService:
         seals, seal_warnings = self._build_seals(seals_raw)
         warnings = [*chunk_warnings, *element_warnings, *seal_warnings]
 
-        changed = False
         if chunks or element_chunks:
             await self._elements.bulk_upsert(
                 contract_id,
                 [*chunks, *element_chunks],
             )
-            changed = True
         if seals:
             await self._seals.bulk_upsert(contract_id, seals)
-            changed = True
-        if changed:
-            await self._context.session.commit()
+        await self._tasks.update_status(task.id, s.Status.done)
+        await self._tasks.update_progress(task.id, "ingested", 1.0)
+        current_contract = await self._contracts.get(contract_id)
+        if current_contract is not None and current_contract.status == s.ContractStatus.parsing:
+            await self._contracts.update_status(contract_id, s.ContractStatus.pending_review)
 
         dispatched: str | None = None
         if chunks:
@@ -268,6 +283,8 @@ class IngestionService:
                     error=repr(exc),
                 )
 
+        await self._context.session.commit()
+
         log_event(
             _LOG,
             "ingestion.parse.finalize",
@@ -280,6 +297,25 @@ class IngestionService:
             warnings=len(warnings),
         )
         return True
+
+    async def link_scanned_parse(self, contract_id: UUID) -> None:
+        """Register only the parser already dispatched by a successful scan."""
+        scan = await self._tasks.get_latest_by_contract(contract_id, TaskKind.SCAN_UPLOAD.name)
+        if scan is None or not scan.celery_task_id:
+            return
+        latest = await self._tasks.get_latest_by_contract(contract_id, TaskKind.PARSE_DOC.name)
+        snapshot = self._context.task_dispatcher.get_status(scan.celery_task_id)
+        if snapshot is None or snapshot.status != "DONE":
+            return
+        payload = snapshot.result or {}
+        celery_id = payload.get("parseTaskId")
+        if payload.get("status") != "SUCCESS" or not isinstance(celery_id, str) or not celery_id:
+            return
+        if latest is not None and (latest.celery_task_id == celery_id or (latest.created_at is not None and scan.created_at is not None and latest.created_at >= scan.created_at)):
+            return
+        await self._tasks.create(contract_id, TaskKind.PARSE_DOC.name, celery_id)
+        await self._tasks.update_status(scan.id, s.Status.done)
+
 
     async def finalize_preview_alignment(
         self,
@@ -362,6 +398,11 @@ class IngestionService:
                 )
         if risks or conflicts or raw_type:
             await self._context.session.commit()
+        if result_status == "SUCCESS":
+            contract = await self._contracts.get(contract_id)
+            if contract is not None and contract.status == s.ContractStatus.pending_review:
+                await self._contracts.update_status(contract_id, s.ContractStatus.in_review)
+                await self._context.session.commit()
 
         log_event(
             _LOG,
@@ -389,8 +430,10 @@ class IngestionService:
             contract_id,
             TaskKind.RUN_AUDIT.name,
         )
+        latest_parse = await self._tasks.get_latest_by_contract(contract_id, TaskKind.PARSE_DOC.name)
         if existing is not None and existing.celery_task_id:
-            return existing.celery_task_id
+            if latest_parse is None or latest_parse.created_at is None or existing.created_at is None or existing.created_at >= latest_parse.created_at:
+                return existing.celery_task_id
 
         celery_task_id = self._context.task_dispatcher.send(
             TaskKind.RUN_AUDIT,

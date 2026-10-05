@@ -1,0 +1,74 @@
+{
+  "contract_id": "6916fa58-f76e-417d-822e-9e8299d6608e",
+  "parse": "DONE",
+  "audit_status": "DEGRADED",
+  "score": 20,
+  "model": "deepseek-flash",
+  "risk_count": 44,
+  "risk_levels": {
+    "HIGH": 10,
+    "MEDIUM": 29,
+    "LOW": 5
+  },
+  "warnings": [
+    "[function_calling] ValueError: 模型返回空 content",
+    "[function_calling] ValueError: 模型返回空 content",
+    "[function_calling] ValueError: 模型返回空 content",
+    "[function_calling] ValueError: 模型返回空 content",
+    "[function_calling] ValueError: 模型返回空 content",
+    "[function_calling] ValueError: 模型返回空 content",
+    "[function_calling] ValueError: 模型返回空 content",
+    "[function_calling] ValueError: 模型返回空 content",
+    "[function_calling] ValueError: 模型返回空 content",
+    "[function_calling] ValueError: 模型返回空 content",
+    "[function_calling] OutputParserException: Unknown tool type: '\\\\_RiskDraft'. Available tools: _RiskDraft\nFor troubleshooting, visit: https://docs.langchain.com/oss/python/langchain/errors/OUTPUT_PARSING_FAILURE ",
+    "[function_calling] ValueError: 模型返回空 content",
+    "标准比对使用官方参考范本，尚无企业确认的审批基线，无法判定缺失；评分仅供参考。"
+  ],
+  "stage_log": [
+    {
+      "stage": "classify",
+      "status": "OK",
+      "latency_ms": 2342,
+      "detail": "合同分类完成：PURCHASE"
+    },
+    {
+      "stage": "extract",
+      "status": "OK",
+      "latency_ms": 3302,
+      "detail": "要素补漏完成：11 个要素，去重 0 个"
+    },
+    {
+      "stage": "risk",
+      "status": "OK",
+      "latency_ms": 351858,
+      "detail": "风险识别完成：44 条风险"
+    },
+    {
+      "stage": "conflict",
+      "status": "OK",
+      "latency_ms": 34110,
+      "detail": "矛盾分析完成：50 条矛盾"
+    },
+    {
+      "stage": "standard_compare",
+      "status": "DEGRADED",
+      "latency_ms": 36867,
+      "detail": "标准比对完成：0 条缺失"
+    },
+    {
+      "stage": "report_draft",
+      "status": "OK",
+      "latency_ms": 0,
+      "detail": "报告草稿完成：健康分 20"
+    }
+  ],
+  "citations": {
+    "total": 220,
+    "sourceTypes": {
+      "STANDARD_CLAUSE": 132,
+      "LAW_ARTICLE": 88
+    },
+    "lawsHaveRealName": true
+  }
+}

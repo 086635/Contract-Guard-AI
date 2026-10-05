@@ -916,12 +916,10 @@ def standard_compare_node(state: AuditState, deps: GraphDeps) -> dict[str, Any]:
 
     contract_type = state.get("contract_type")
     trace_id = str(state.get("trace_id", "") or "-")
-    contract_id = str(state.get("contract_id", ""))
     missing_clauses: list[dict[str, Any]] = []
     warnings = list(budget_warnings)
     rag_calls = 0
     degraded = False
-    missing_ordinal = 0
 
     for clause in clauses:
         rag_calls += 1
@@ -931,7 +929,6 @@ def standard_compare_node(state: AuditState, deps: GraphDeps) -> dict[str, Any]:
                 contract_type=contract_type,
                 source_types=[
                     SourceType.STANDARD_CLAUSE,
-                    SourceType.LAW_ARTICLE,
                 ],
                 top_k=3,
                 reason="standard_compare",
@@ -945,23 +942,23 @@ def standard_compare_node(state: AuditState, deps: GraphDeps) -> dict[str, Any]:
             continue
 
         if rag_result.status == "EMPTY":
-            missing_ordinal += 1
-            title = clause.get("label", "") or clause["clause_id"]
-            missing_clauses.append(
-                {
-                    "id": f"{contract_id}:missing:{missing_ordinal}",
-                    "standardClauseId": "",
-                    "title": title,
-                    "reason": rag_result.context_block or EMPTY_CONTEXT_HINT,
-                    "suggestion": f"补充与“{title}”对应的标准条款",
-                    "canAutoFill": False,
-                }
-            )
+            degraded = True
+            warning = "标准知识库没有召回可核对依据，无法判定缺失条款；评分仅供参考，请人工复核。"
+            if warning not in warnings:
+                warnings.append(warning)
         elif not rag_result.citations or rag_result.status == "DEGRADED":
             degraded = True
             warnings.append(
                 f"条款 {clause['clause_id']} 标准比对结果不完整，无法判定缺失"
             )
+        elif all(
+            citation.sourceTitle.startswith("官方范本 ")
+            for citation in rag_result.citations
+        ):
+            degraded = True
+            warning = "标准比对使用官方参考范本，尚无企业确认的审批基线，无法判定缺失；评分仅供参考。"
+            if warning not in warnings:
+                warnings.append(warning)
 
     return _finish_stage(
         state,

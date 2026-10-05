@@ -119,4 +119,26 @@ describe("httpClient 401 refresh", () => {
     await expect(first).resolves.toBe("new-access-token");
     await expect(second).resolves.toBe("new-access-token");
   });
+
+  it.each([
+    [422, { message: "请检查上传文件", detail: "validation failed" }, "请检查上传文件"],
+    [409, { message: "数据冲突", detail: "该文件此前已上传过" }, "该文件此前已上传过"],
+    [400, { detail: "文件格式不受支持" }, "文件格式不受支持"],
+    [400, { message: " ", detail: "请填写文件名" }, "请填写文件名"],
+    [400, {}, "Request failed"],
+  ])("keeps readable errors for status %s and body %j", async (status, data, expected) => {
+    httpClient.defaults.adapter = async (config) => {
+      throw Object.assign(new Error("Request failed"), {
+        config,
+        response: { status, statusText: "Error", headers: {}, config, data },
+      });
+    };
+    await expect(httpClient.get("/error")).rejects.toHaveProperty("message", expected);
+  });
+
+  it("preserves the original network error", async () => {
+    const networkError = new Error("Network Error");
+    httpClient.defaults.adapter = async () => { throw networkError; };
+    await expect(httpClient.get("/unreachable")).rejects.toBe(networkError);
+  });
 });

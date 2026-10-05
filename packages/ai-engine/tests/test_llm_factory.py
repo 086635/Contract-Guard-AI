@@ -14,6 +14,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
+import httpx
 import langchain_openai
 import pytest
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -32,6 +33,7 @@ from ai_engine.llm import (
     invoke_structured,
 )
 from ai_engine.llm.offline import build_offline_model, minimal_json_for
+from ai_engine.llm.structured import _expanded_model
 
 
 class _Choice(StrEnum):
@@ -401,6 +403,178 @@ def test_ollama_uses_local_preset_and_placeholder_key(
     assert captured["api_key"].get_secret_value() == "ollama"
 
 
+@pytest.mark.parametrize("provider", ["deepseek", "ollama", "openai"])
+def test_actual_sdk_request_respects_provider_output_limit(
+    monkeypatch: pytest.MonkeyPatch,
+    provider: str,
+) -> None:
+    """走真实 SDK 序列化，避免仅检查构造参数漏掉字段改名。"""
+    requests: list[dict[str, Any]] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={
+                "id": "mock-completion",
+                "object": "chat.completion",
+                "created": 1,
+                "model": "test-model",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": "ok"},
+                        "finish_reason": "stop",
+                    }
+                ],
+            },
+        )
+
+    real_constructor = langchain_openai.ChatOpenAI
+    with httpx.Client(
+        transport=httpx.MockTransport(respond), trust_env=False
+    ) as client:
+
+        def build_mock_transport_model(**kwargs: Any) -> BaseChatModel:
+            kwargs["http_client"] = client
+            return real_constructor(**kwargs)
+
+        monkeypatch.setattr(langchain_openai, "ChatOpenAI", build_mock_transport_model)
+        model = build_chat_model(
+            LlmSettings(
+                _env_file=None,
+                provider=provider,
+                model="test-model",
+                api_key="test-key",
+                base_url="https://model.invalid/v1",
+                max_tokens=32,
+                max_retries=0,
+            )
+        )
+        assert model.invoke("test").content == "ok"
+        expanded = _expanded_model(model)
+        assert expanded.invoke("test").content == "ok"
+
+    if provider in {"deepseek", "ollama"}:
+        assert [item["max_tokens"] for item in requests] == [32, 64]
+        assert model.extra_body["max_tokens"] == 32
+    else:
+        assert [item["max_completion_tokens"] for item in requests] == [32, 64]
+        assert all("max_tokens" not in item for item in requests)
+    assert (
+        all(item.get("thinking") == {"type": "disabled"} for item in requests)
+        if provider == "deepseek"
+        else all("thinking" not in item for item in requests)
+    )
+
+
+@pytest.mark.parametrize("host", ["localhost", "127.0.0.1", "[::1]", "model.example"])
+def test_only_loopback_ollama_bypasses_system_proxy(
+    monkeypatch: pytest.MonkeyPatch,
+    host: str,
+) -> None:
+    created: list[tuple[str, bool]] = []
+    captured: dict[str, Any] = {}
+
+    monkeypatch.setattr(
+        httpx, "Client", lambda **kwargs: created.append(("sync", kwargs["trust_env"]))
+    )
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        lambda **kwargs: created.append(("async", kwargs["trust_env"])),
+    )
+    monkeypatch.setattr(
+        langchain_openai, "ChatOpenAI", lambda **kwargs: captured.update(kwargs)
+    )
+    build_chat_model(
+        LlmSettings(
+            _env_file=None,
+            provider="ollama",
+            base_url=f"http://{host}:11434/v1",
+        )
+    )
+    assert created == (
+        [("sync", False), ("async", False)] if host != "model.example" else []
+    )
+
+
+def test_expansion_preserves_provider_options_and_original_model() -> None:
+    model = langchain_openai.ChatOpenAI(
+        model="test-model",
+        api_key="test-key",
+        max_tokens=6000,
+        extra_body={"max_tokens": 6000, "thinking": {"type": "disabled"}},
+    )
+    expanded = _expanded_model(model)
+    assert expanded.max_tokens == expanded.extra_body["max_tokens"] == 8192
+    assert expanded.extra_body["thinking"] == {"type": "disabled"}
+    assert model.extra_body["max_tokens"] == model.max_tokens == 6000
+
+
+@pytest.mark.parametrize(
+    "first_content,expected_calls", [(_payload_json(), 1), ("{}", 2)]
+)
+def test_tool_response_json_is_validated_without_unnecessary_network_retry(
+    monkeypatch: pytest.MonkeyPatch,
+    first_content: str,
+    expected_calls: int,
+) -> None:
+    requests: list[dict[str, Any]] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={
+                "id": "mock-json",
+                "object": "chat.completion",
+                "created": 1,
+                "model": "test-model",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {
+                            "role": "assistant",
+                            "content": first_content
+                            if len(requests) == 1
+                            else _payload_json(),
+                        },
+                        "finish_reason": "stop",
+                    }
+                ],
+            },
+        )
+
+    constructor = langchain_openai.ChatOpenAI
+    with httpx.Client(
+        transport=httpx.MockTransport(respond), trust_env=False
+    ) as client:
+
+        def build_with_mock(**kwargs: Any) -> BaseChatModel:
+            kwargs["http_client"] = client
+            return constructor(**kwargs)
+
+        monkeypatch.setattr(langchain_openai, "ChatOpenAI", build_with_mock)
+        model = build_chat_model(
+            LlmSettings(
+                _env_file=None,
+                provider="deepseek",
+                api_key="test-key",
+                base_url="https://model.invalid/v1",
+                max_retries=0,
+            )
+        )
+        value, warnings = invoke_structured(
+            model, _Payload, [HumanMessage(content="test JSON")]
+        )
+    assert value is not None and value.name == "ok"
+    assert len(requests) == expected_calls
+    assert bool(warnings) is (expected_calls == 2)
+    if expected_calls == 2:
+        assert requests[1]["response_format"] == {"type": "json_object"}
+
+
 def test_structured_prefers_function_calling_then_json_object() -> None:
     model = _FirstThenSecondModel()
     value, warnings = invoke_structured(
@@ -476,3 +650,20 @@ def test_structured_source_uses_function_calling() -> None:
     assert source.index('method="function_calling"') < source.index(
         'response_format={"type": "json_object"}'
     )
+
+
+def test_deepseek_clients_keep_tls_verification_and_system_proxy(monkeypatch):
+    import ssl
+
+    created = []
+    monkeypatch.setattr(httpx, "Client", lambda **kwargs: created.append(kwargs))
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: created.append(kwargs))
+    monkeypatch.setattr(langchain_openai, "ChatOpenAI", lambda **kwargs: None)
+    build_chat_model(LlmSettings(_env_file=None, provider="deepseek", model="test", api_key="test-key", timeout_s=25))
+    assert len(created) == 2
+    for options in created:
+        assert isinstance(options["verify"], ssl.SSLContext)
+        assert options["verify"].verify_mode == ssl.CERT_REQUIRED
+        assert options["verify"].check_hostname is True
+        assert options["trust_env"] is True
+        assert options["timeout"] == 25

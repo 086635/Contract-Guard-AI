@@ -9,11 +9,12 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from app.api.deps import (
     get_audit_service,
-    get_current_user,
     get_service_context,
+    require_roles,
 )
 from app.db.repository.auth import UserRecord
 from app.generated.schemas import (
+    Role,
     SettingsRuleResponse,
     SettingsRulesResponse,
     SystemAuditConfiguration,
@@ -29,6 +30,21 @@ from app.services.rule_service import (
 )
 
 router = APIRouter(prefix="/settings", tags=["Config"])
+
+
+@router.post("/rules", response_model=SettingsRuleResponse, status_code=201)
+async def create_rule(
+    body: SystemAuditConfiguration,
+    user: Annotated[UserRecord, Depends(require_roles(Role.admin))],
+    context: ServiceContext = Depends(get_service_context),
+) -> SettingsRuleResponse:
+    try:
+        rule = await RuleService(context).create(body)
+    except RuleThresholdValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuleVersionConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return build_success_response(SettingsRuleResponse, rule)
 
 
 @router.get("/rules", response_model=SettingsRulesResponse, status_code=200)
@@ -62,7 +78,7 @@ async def update_rule(
     config_id: UUID,
     body: SystemAuditConfiguration,
     request: Request,
-    user: Annotated[UserRecord, Depends(get_current_user)],
+    user: Annotated[UserRecord, Depends(require_roles(Role.admin))],
     audit: Annotated[AuditService, Depends(get_audit_service)],
     context: ServiceContext = Depends(get_service_context),
 ) -> SettingsRuleResponse:

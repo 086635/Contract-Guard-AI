@@ -1,0 +1,104 @@
+{
+  "checks": [
+    {
+      "path": "pnpm-workspace.yaml",
+      "before_sha256": "049b950bb5777b3d528d9a808a186dbf47c77d71bcdad630856a13c69cb13ac3",
+      "after_sha256": "049b950bb5777b3d528d9a808a186dbf47c77d71bcdad630856a13c69cb13ac3",
+      "unchanged": true
+    },
+    {
+      "path": "pnpm-lock.yaml",
+      "before_sha256": "c41f9923bb3f8eccdf1d4d56d182e5e2823280f00efecea0234cfd1bea605987",
+      "after_sha256": "c41f9923bb3f8eccdf1d4d56d182e5e2823280f00efecea0234cfd1bea605987",
+      "unchanged": true
+    },
+    {
+      "path": "uv.lock",
+      "before_sha256": "f7264e64d36e1bb7cf4883bb6c550f9b7b8762f49895fd0d4aaa8a98b74cf594",
+      "after_sha256": "f7264e64d36e1bb7cf4883bb6c550f9b7b8762f49895fd0d4aaa8a98b74cf594",
+      "unchanged": true
+    },
+    {
+      "path": "pyproject.toml",
+      "before_sha256": "33d37ce78024c5568702f6d4354ca183e2ede5c92baef273984ec29ae4e79f96",
+      "after_sha256": "33d37ce78024c5568702f6d4354ca183e2ede5c92baef273984ec29ae4e79f96",
+      "unchanged": true
+    },
+    {
+      "path": "packages/schema/openapi.yaml",
+      "before_sha256": "12e9bf43c958259f57cab968c6a38ed0e049d845c26b8c827d7ddc1db464f81e",
+      "after_sha256": "12e9bf43c958259f57cab968c6a38ed0e049d845c26b8c827d7ddc1db464f81e",
+      "unchanged": true
+    },
+    {
+      "path": "apps/web-ui/package.json",
+      "before_sha256": "97d5396ba974b7a37c6d28d8d42703b32a0487e23a2deee0cc45af171441a05a",
+      "after_sha256": "97d5396ba974b7a37c6d28d8d42703b32a0487e23a2deee0cc45af171441a05a",
+      "unchanged": true
+    },
+    {
+      "path": "packages/ai-engine/pyproject.toml",
+      "before_sha256": "0fcda0a4cba344ff931309c905c3a269f0a9c176937f27090ba3f3a21413d401",
+      "after_sha256": "0fcda0a4cba344ff931309c905c3a269f0a9c176937f27090ba3f3a21413d401",
+      "unchanged": true
+    },
+    {
+      "path": "packages/rag-core/pyproject.toml",
+      "before_sha256": "30f4a2abb82a3d6206706d072e58e6e467f1c422c14d9f2eaa2c6ae68dbb6cbf",
+      "after_sha256": "30f4a2abb82a3d6206706d072e58e6e467f1c422c14d9f2eaa2c6ae68dbb6cbf",
+      "unchanged": true
+    },
+    {
+      "path": "packages/doc-processor/pyproject.toml",
+      "before_sha256": "7f8b8016540c97db07518471919473ebda40e734e54bf3fbfc26add194e6b456",
+      "after_sha256": "7f8b8016540c97db07518471919473ebda40e734e54bf3fbfc26add194e6b456",
+      "unchanged": true
+    },
+    {
+      "path": "apps/api-gateway/pyproject.toml",
+      "before_sha256": "4a3621e32ff5ad37e9f4c6b485dbe997a9c7f3b62a5b307d1c85fe09ad665434",
+      "after_sha256": "4a3621e32ff5ad37e9f4c6b485dbe997a9c7f3b62a5b307d1c85fe09ad665434",
+      "unchanged": true
+    },
+    {
+      "path": "apps/async-worker/pyproject.toml",
+      "before_sha256": "c8e3a3403795fa54cf9098049712830a1b1038296e9cc15b87cbf509e78f49f3",
+      "after_sha256": "c8e3a3403795fa54cf9098049712830a1b1038296e9cc15b87cbf509e78f49f3",
+      "unchanged": true
+    },
+    {
+      "path": "packages/ai-engine/ai_engine/llm/settings.py",
+      "before_sha256": "eb487a5257e0a5983fa023e1d59da7c55b05e9c6c1bdd7b3f55ba1a08e5dad13",
+      "after_sha256": "eb487a5257e0a5983fa023e1d59da7c55b05e9c6c1bdd7b3f55ba1a08e5dad13",
+      "unchanged": true
+    },
+    {
+      "path": "packages/rag-core/rag_core/config.py",
+      "before_sha256": "ab18753305764c597862d02899b160b9f3098072dcbd94b0d4f808955b4d2024",
+      "after_sha256": "ab18753305764c597862d02899b160b9f3098072dcbd94b0d4f808955b4d2024",
+      "unchanged": true
+    },
+    {
+      "path": "packages/rag-core/rag_core/factory.py",
+      "before_sha256": "6b5862e6e070bafd89a6efa9639596893631771084a852f91bf514a9b5275c46",
+      "after_sha256": "6b5862e6e070bafd89a6efa9639596893631771084a852f91bf514a9b5275c46",
+      "unchanged": true
+    },
+    {
+      "path": "packages/doc-processor/doc_processor/ocr/seal.py",
+      "before_sha256": "78df4e3d8dec0932ab124f931a15859c59d062a3605489140e43190721dd97c2",
+      "after_sha256": "78df4e3d8dec0932ab124f931a15859c59d062a3605489140e43190721dd97c2",
+      "unchanged": true
+    },
+    {
+      "path": "packages/doc-processor/doc_processor/config.py",
+      "before_sha256": "8a38c5252838487096e959eb413e33a989507a6df687239f6e92a3e5130cd46a",
+      "after_sha256": "8a38c5252838487096e959eb413e33a989507a6df687239f6e92a3e5130cd46a",
+      "unchanged": true
+    }
+  ],
+  "original_health_formula_unchanged": true,
+  "ocr_and_polar_processing": "local, original implementation unchanged",
+  "embedding_mode": "hash",
+  "embedding_semantic_model_verified": false
+}

@@ -84,6 +84,20 @@ def _rag_result(
     )
 
 
+def test_official_templates_are_not_enterprise_approved_baselines() -> None:
+    citation = _citation().model_copy(
+        update={"sourceTitle": "官方范本 GF—2025—0151 · 第六条"}
+    )
+    stub = _RagStub(result=_rag_result(citations=[citation]))
+    result = standard_compare_node(
+        _state([_clause(0, "买方应支付价款")]), GraphDeps(rag_tool=stub)
+    )
+    assert result["stage_log"][0]["status"] == "DEGRADED"
+    assert result["missing_clauses"] == []
+    assert stub.calls[0]["source_types"] == [SourceType.STANDARD_CLAUSE]
+    assert any("企业确认" in warning for warning in result["warnings"])
+
+
 class _RagStub:
     def __init__(
         self,
@@ -219,7 +233,7 @@ def test_conflict_batch_failure_continues(
     assert result["conflicts"][0].targetClauseId == "c4"
 
 
-def test_empty_becomes_missing() -> None:
+def test_empty_recall_cannot_prove_missing() -> None:
     rag = _RagStub(
         result=_rag_result(
             status="EMPTY",
@@ -231,8 +245,9 @@ def test_empty_becomes_missing() -> None:
         _state([_clause(0, "付款期限")]),
         GraphDeps(rag_tool=rag),
     )
-    assert result["stage_log"][0]["status"] == "OK"
-    assert len(result["missing_clauses"]) == 1
+    assert result["stage_log"][0]["status"] == "DEGRADED"
+    assert result["missing_clauses"] == []
+    assert any("无法判定缺失条款" in warning for warning in result["warnings"])
 
 
 def test_tool_unavailable_not_missing() -> None:
@@ -267,20 +282,13 @@ def test_standard_compare_calls_once_per_clause() -> None:
     assert result["missing_clauses"] == []
 
 
-def test_missing_clause_shape_is_camel_case() -> None:
+def test_empty_recall_does_not_fabricate_missing_fields_or_repeat_warnings() -> None:
     rag = _RagStub(result=_rag_result(status="EMPTY", context_block="无依据"))
     result = standard_compare_node(
-        _state([_clause(0, "付款期限")]),
+        _state([_clause(0, "付款期限"), _clause(1, "违约责任")]),
         GraphDeps(rag_tool=rag),
     )
-    missing = result["missing_clauses"][0]
-    assert set(missing) == {
-        "id",
-        "standardClauseId",
-        "title",
-        "reason",
-        "suggestion",
-        "canAutoFill",
-    }
-    assert missing["standardClauseId"] == ""
-    assert missing["canAutoFill"] is False
+    assert result["missing_clauses"] == []
+    assert result["stage_log"][0]["status"] == "DEGRADED"
+    assert result["rag_calls"] == 2
+    assert len(result["warnings"]) == 1

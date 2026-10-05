@@ -144,6 +144,19 @@ async def upload_contract(
     return build_success_response(ContractUploadResponse, data)
 
 
+@router.post("/{contract_id}/parse/retry", response_model=ContractUploadResponse, status_code=202)
+async def retry_contract_parse(
+    contract_id: UUID,
+    user: Annotated[UserRecord, Depends(require_roles(Role.admin, Role.reviewer))],
+    context: ServiceContext = Depends(get_service_context),
+) -> ContractUploadResponse:
+    try:
+        progress = await ContractService(context).retry_parse(contract_id, user)
+    except UploadObjectError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    return build_success_response(ContractUploadResponse, progress)
+
+
 @router.get(
     "/{contract_id}/preview",
     response_model=PreviewResponse,

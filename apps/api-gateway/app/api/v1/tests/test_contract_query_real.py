@@ -215,7 +215,14 @@ async def _exercise_contract_query(dsn: str) -> None:
                 list_data = listed.json()["data"]
                 assert list_data["total"] == 1
                 assert list_data["items"][0]["riskCount"] == 1
-                assert list_data["items"][0]["healthScore"]["overall"] == 77
+                assert list_data["items"][0]["healthScore"] == {
+                    "overall": 94,
+                    "dimensions": {
+                        "compliance": 100,
+                        "performanceRisk": 86,
+                        "clauseCompleteness": 100,
+                    },
+                }
 
                 detail = await client.get(f"/api/v1/contracts/{contract_id}")
                 assert detail.status_code == 200
@@ -223,6 +230,7 @@ async def _exercise_contract_query(dsn: str) -> None:
                 assert data["fileKey"] == "contracts/query-test.docx"
                 assert data["fileType"] == "DOCX"
                 assert data["version"] == created.version
+                assert data["healthScore"] == list_data["items"][0]["healthScore"]
                 assert data["elements"][0]["key"] == "3.2"
                 assert data["risks"][0]["id"] == "risk-c12"
                 assert data["conflicts"][0]["id"] == "conflict-c12"

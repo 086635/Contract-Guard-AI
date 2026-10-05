@@ -163,7 +163,7 @@ export default function PdfStage({ fileName, preview, highlights, onFeedback, on
         <span>点击高亮框可提交人工反馈</span>
       </div>
       {activeHighlight && ready && (
-        <button className="bbox-feedback" onClick={onFeedback} aria-label="对高亮条款提交反馈">
+        <button className="bbox-feedback" disabled={!onFeedback} onClick={onFeedback} aria-label="对高亮条款提交反馈">
           对「{activeHighlight.label}」提交反馈
         </button>
       )}

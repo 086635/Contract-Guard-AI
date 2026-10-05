@@ -358,3 +358,33 @@ def test_no_direct_ragservice_import() -> None:
         / "rewrite_graph.py"
     ).read_text(encoding="utf-8")
     assert "RAGService(" not in source
+
+
+def test_original_text_parameters_do_not_bypass_rag():
+    from types import SimpleNamespace
+
+    captured = []
+    def retrieve(**kwargs):
+        captured.append(kwargs)
+        return SimpleNamespace(status="OK", context_block="真实检索法条", citations=[], warnings=[])
+    state = {"before": "付款条款原文", "rag_context": {"before": "付款条款原文", "relatedLaws": []}, "warnings": [], "stage_log": []}
+    result = rewrite_graph_module.prepare_node(state, GraphDeps(rag_tool=retrieve))
+    assert len(captured) == 1
+    assert captured[0]["query"] == "付款条款原文"
+    assert result["rag_context"]["context_block"] == "真实检索法条"
+
+
+def test_nonempty_retrieved_context_is_reused():
+    def unexpected_query(**kwargs):
+        raise AssertionError("已有检索上下文不应重复召回")
+    context = {"context_block": "已完成检索的法条", "citations": []}
+    state = {"before": "原文", "rag_context": context, "warnings": [], "stage_log": []}
+    result = rewrite_graph_module.prepare_node(state, GraphDeps(rag_tool=unexpected_query))
+    assert result["rag_context"] == context
+
+
+def test_empty_supplied_context_without_rag_reports_degradation():
+    state = {"before": "原文", "rag_context": {"context_block": " "}, "warnings": [], "stage_log": []}
+    result = rewrite_graph_module.prepare_node(state, GraphDeps(rag_tool=None))
+    assert result["rag_context"] is None
+    assert result["stage_log"][-1]["status"] == "DEGRADED"

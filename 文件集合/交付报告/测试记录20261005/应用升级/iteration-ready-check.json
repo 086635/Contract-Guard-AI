@@ -1,0 +1,20 @@
+{
+  "apiLive": 200,
+  "apiReady": {
+    "status": "ok",
+    "service": "contract-guard-api",
+    "checks": {
+      "database": "ok",
+      "redis": "ok",
+      "minio": "ok",
+      "qdrant": "ok"
+    }
+  },
+  "frontend": 200,
+  "worker": {
+    "local-cg@localhost": {
+      "ok": "pong"
+    }
+  },
+  "unchangedFrameworkDependencyDeploymentFiles": 16
+}

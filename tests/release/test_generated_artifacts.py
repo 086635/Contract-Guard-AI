@@ -17,9 +17,9 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 OPENAPI = REPO_ROOT / "packages" / "schema" / "openapi.yaml"
 REPORT = REPO_ROOT / "文件集合" / "交付报告" / "T-D7生产化整改交付报告.md"
 
-#: C74 冻结基线（2026-10-02）：OpenAPI operationId 35 / 路径 31
-FROZEN_OPERATION_IDS = 35
-FROZEN_PATHS = 31
+#: T-D6 knowledge maintenance（2026-10-05）：2 added read-only operations/paths.
+FROZEN_OPERATION_IDS = 40
+FROZEN_PATHS = 35
 
 ARTIFACT_PATHS = (
     "packages/schema/openapi.yaml",

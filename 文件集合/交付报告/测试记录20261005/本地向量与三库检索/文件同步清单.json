@@ -1,0 +1,272 @@
+[
+  {
+    "path": "apps/api-gateway/app/api/v1/knowledge.py",
+    "sha256": "92a2337267a828aca3d6dd63a0eb361e63f5d880ece5d362e90d1271d2596f4c",
+    "original_equals_canonical": true
+  },
+  {
+    "path": "apps/api-gateway/app/generated/schemas.py",
+    "sha256": "14564ea0e13cbef7f9eabba892874627fb231c1172ac56ff5a45b5088ea55439",
+    "original_equals_canonical": true
+  },
+  {
+    "path": "apps/api-gateway/app/main.py",
+    "sha256": "5f21738486e29a79d585d5e73b33fdaab33f4bce8d261b59bf4c8930cc99f985",
+    "original_equals_canonical": true
+  },
+  {
+    "path": "apps/api-gateway/tests/test_api_real_endpoints.py",
+    "sha256": "8d573198ef852a6b1e11bff15fee53239d8c8fdff903277dffff778ce03ef701",
+    "original_equals_canonical": true
+  },
+  {
+    "path": "apps/api-gateway/tests/test_knowledge.py",
+    "sha256": "7ca8ed8f88682344e449a33ba2470b4719f35033388e96f3170869caadd94b6e",
+    "original_equals_canonical": true
+  },
+  {
+    "path": "apps/web-ui/src/api/generated/types.ts",
+    "sha256": "1cfb8ef7df4d733f93ec354ceca662a4008840acae68216c891d340ca4e64fdc",
+    "original_equals_canonical": true
+  },
+  {
+    "path": "apps/web-ui/src/api/generated/zod.ts",
+    "sha256": "d636f1cd2add7c8bd74f4c030c0ec2321966da8a8e8d7eedbf33ebe9153df5ba",
+    "original_equals_canonical": true
+  },
+  {
+    "path": "apps/web-ui/src/api/knowledge.ts",
+    "sha256": "06131a5646d4dd984014d9072b83e1fd75879050be7cdf397bd604496822af1a",
+    "original_equals_canonical": true
+  },
+  {
+    "path": "apps/web-ui/src/api/services.ts",
+    "sha256": "01b8a8a7105cc530cd526ab3a1a94bf2d6f9ee33bca42d5588ae18bb199469a9",
+    "original_equals_canonical": true
+  },
+  {
+    "path": "apps/web-ui/src/components/settings/KnowledgePanel.tsx",
+    "sha256": "d0d7f08230d958ce4aa6f76a27c53205fdcf503425e9c9ae9ffbf04f7f003b04",
+    "original_equals_canonical": true
+  },
+  {
+    "path": "apps/web-ui/src/components/settings/__tests__/knowledge.test.ts",
+    "sha256": "f609b092d22995e40b966d02a64174dd67b61dd4339d53ce8fc0bf507ff6357e",
+    "original_equals_canonical": true
+  },
+  {
+    "path": "apps/web-ui/src/components/settings/__tests__/standardClause.test.ts",
+    "sha256": "421c5957b534a0f81edea3e2fb5c885cee50a24756067fb5f3571c39944801ac",
+    "original_equals_canonical": true
+  },
+  {
+    "path": "apps/web-ui/src/views/Settings.tsx",
+    "sha256": "6ed5e486297c829b5cf63052a8b7996eb0f4b1fd46e57d1a5c47cb6ec33bb13c",
+    "original_equals_canonical": true
+  },
+  {
+    "path": "packages/ai-engine/ai_engine/agents/tools.py",
+    "sha256": "1118ade4d15e838e5e7718fd9ecb51f2e944a89bb9c1feea92f0d971954b4188",
+    "original_equals_canonical": true
+  },
+  {
+    "path": "packages/ai-engine/ai_engine/graphs/nodes.py",
+    "sha256": "145f26ee5b5fc9a311955ae35e32f23d7a8e760b201fdefb91c000e7df4fe098",
+    "original_equals_canonical": true
+  },
+  {
+    "path": "packages/ai-engine/ai_engine/graphs/rewrite_graph.py",
+    "sha256": "74bd2705111c86b8d4f66e3709bfd54925d35465fbb8b520226b80aafc8ac434",
+    "original_equals_canonical": true
+  },
+  {
+    "path": "packages/ai-engine/ai_engine/llm/factory.py",
+    "sha256": "390a4af95002cc82193a8eb808bf5d4ef5e94734e8f423b4cda42d1155720b24",
+    "original_equals_canonical": true
+  },
+  {
+    "path": "packages/ai-engine/tests/test_conflict_compare_nodes.py",
+    "sha256": "c0af7ea8e61d68b06c7ed3fd99a1bcfe21a60a24cad086e60f9b1ea01430a1e4",
+    "original_equals_canonical": true
+  },
+  {
+    "path": "packages/ai-engine/tests/test_llm_factory.py",
+    "sha256": "00f148d2b700a1e513eb80eb8fe82dbfc0468058a099d5d8bd5060234a66f14c",
+    "original_equals_canonical": true
+  },
+  {
+    "path": "packages/ai-engine/tests/test_rag_tool.py",
+    "sha256": "483cc90256acea83a00edb5ffd8f9172a469fe5c59b05c2f93758226c84ef747",
+    "original_equals_canonical": true
+  },
+  {
+    "path": "packages/ai-engine/tests/test_rewrite_graph.py",
+    "sha256": "03e87ca2e397ebd8717a6a6b387b9fc7a29ebd20c44f5e4b0aaa315cc26c4f20",
+    "original_equals_canonical": true
+  },
+  {
+    "path": "packages/rag-core/rag_core/adapters/embedding.py",
+    "sha256": "67fa31b26a7549f90c7e2d09dbc8d235effdac37f3c2efae8abc40a7de0f6eeb",
+    "original_equals_canonical": true
+  },
+  {
+    "path": "packages/schema/openapi.yaml",
+    "sha256": "80e00a7de5f177fee9df2f3ea82cf6f78ff8bb00d3aae47756a532be7271ad53",
+    "original_equals_canonical": true
+  },
+  {
+    "path": "scripts/import_official_knowledge.py",
+    "sha256": "0954ed4ffd03c1189876a4ee26a25d5f2dfd1510aeaff615b25ac7c6b4d92350",
+    "original_equals_canonical": true
+  },
+  {
+    "path": "scripts/tests/test_import_official_knowledge.py",
+    "sha256": "50f2aa7acd0fe4618e0de7e93665c78b5e4b63e6cc88a0abc39336dfec7337f2",
+    "original_equals_canonical": true
+  },
+  {
+    "path": "tests/release/test_generated_artifacts.py",
+    "sha256": "b64d2da2b6fc58e16ab76ad38d521d0d50d29501fcf267bb36b9c483c9b6b219",
+    "original_equals_canonical": true
+  },
+  {
+    "path": "文件集合/codex/0.施工标准与定义归属.md",
+    "sha256": "3fd820d3c3fedb8f5eab62c78d983c6a0d6876657fa0066138d8a6c81a13f7ec",
+    "original_equals_canonical": true
+  },
+  {
+    "path": "文件集合/codex/4-6本地向量化与三库检索20261005.md",
+    "sha256": "453ebd3d18fa5e9e4fed74920afe5384b016f3346468e13769f942f0fa6becaf",
+    "original_equals_canonical": true
+  },
+  {
+    "path": "文件集合/codex/4.交付模块.md",
+    "sha256": "ed82336accfc20fb69124fa24a73112984b95c2db098f7f510575f7cddfe87fe",
+    "original_equals_canonical": true
+  },
+  {
+    "path": "文件集合/交付报告/T-D7生产化整改交付报告.md",
+    "sha256": "632383cf2dd0017489f01ec6370b6c3301225a6740d37d5c8478f4311682ab23",
+    "original_equals_canonical": true
+  },
+  {
+    "path": "文件集合/交付报告/本地向量化与三库检索完成报告20261005.md",
+    "sha256": "b9d3c25edd3e4649eb50516e4bb9c8af56ff7536270c4d09eb5b80a7a20b1185",
+    "original_equals_canonical": true
+  },
+  {
+    "path": "文件集合/交付报告/测试记录20261005/本地向量与三库检索/BGE-M3实测.json",
+    "sha256": "14208f984d92282a5bc65321c87f7f81fd817384c5328f661b1dff21eb89c231",
+    "original_equals_canonical": true
+  },
+  {
+    "path": "文件集合/交付报告/测试记录20261005/本地向量与三库检索/Python全量测试.log",
+    "sha256": "c9c1ecdca7887b9e42e26774cf5562ec9eb7f576555e446de6dde54106c04745",
+    "original_equals_canonical": true
+  },
+  {
+    "path": "文件集合/交付报告/测试记录20261005/本地向量与三库检索/Python全量测试.xml",
+    "sha256": "487c169b278f51bb0e0f4bccc22ce02bb5b159bf613718c5f05b3c823b11b37e",
+    "original_equals_canonical": true
+  },
+  {
+    "path": "文件集合/交付报告/测试记录20261005/本地向量与三库检索/三库来源与检索实测.json",
+    "sha256": "4b7220fac5968a2e01a19dabe66797848b4f519c764939da12fd049ee74fa445",
+    "original_equals_canonical": true
+  },
+  {
+    "path": "文件集合/交付报告/测试记录20261005/本地向量与三库检索/上下文注入日志摘要.json",
+    "sha256": "0d3d8d5f704c50ee09294f8abc116d489140dfa74d4a0a8673689b5b19a4be90",
+    "original_equals_canonical": true
+  },
+  {
+    "path": "文件集合/交付报告/测试记录20261005/本地向量与三库检索/前端构建.log",
+    "sha256": "b57d8ad2b6e98cbde2bde5fa7e912124b090d288098ffdaf51e4d02b16ef22f7",
+    "original_equals_canonical": true
+  },
+  {
+    "path": "文件集合/交付报告/测试记录20261005/本地向量与三库检索/前端测试.log",
+    "sha256": "ea9864a458fbfeeebab0dfff42c0e05a723a2c140089aa2c82b42d2a0660253e",
+    "original_equals_canonical": true
+  },
+  {
+    "path": "文件集合/交付报告/测试记录20261005/本地向量与三库检索/后台阻塞诊断与修复.json",
+    "sha256": "90b5ab6fa6f196667885a4fb9cb9790d2b506ee2bb4d6e75e7b92275f9682afe",
+    "original_equals_canonical": true
+  },
+  {
+    "path": "文件集合/交付报告/测试记录20261005/本地向量与三库检索/向量持久化与重启.json",
+    "sha256": "0416e376d23b66c843f4e934b28ff69ed8d596f76c2a76aaf8ef48cb5fb0eeb4",
+    "original_equals_canonical": true
+  },
+  {
+    "path": "文件集合/交付报告/测试记录20261005/本地向量与三库检索/官方导入计数.json",
+    "sha256": "af8373e67407c3b5154d0d5a6b5a268d23c8b795d4531da7a9ffac398828aa1a",
+    "original_equals_canonical": true
+  },
+  {
+    "path": "文件集合/交付报告/测试记录20261005/本地向量与三库检索/当前合同真实复审.json",
+    "sha256": "418121309f3a670b92170c2b56e1ade7f6deb61107242c7eff46494630c059c7",
+    "original_equals_canonical": true
+  },
+  {
+    "path": "文件集合/交付报告/测试记录20261005/本地向量与三库检索/改写示例实测.json",
+    "sha256": "b03361cd9534ea5a5cbff00d5851d58c7708cf87fa7b265d1935c21f50788769",
+    "original_equals_canonical": true
+  },
+  {
+    "path": "文件集合/交付报告/测试记录20261005/本地向量与三库检索/改动文件静态检查.log",
+    "sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+    "original_equals_canonical": true
+  },
+  {
+    "path": "文件集合/交付报告/测试记录20261005/本地向量与三库检索/服务重启后审核状态.json",
+    "sha256": "31f14ff1f30a3e8f2794035d5d817d4a8340a3adc9b3661bf0d00bfc3c242cf8",
+    "original_equals_canonical": true
+  },
+  {
+    "path": "文件集合/交付报告/测试记录20261005/本地向量与三库检索/本次旧验收任务收尾.json",
+    "sha256": "efa45f03cb971c4060f1844cf9aa93ad52adcf2741696676d0b2a4f4c2f37b54",
+    "original_equals_canonical": true
+  },
+  {
+    "path": "文件集合/交付报告/测试记录20261005/本地向量与三库检索/框架与算法保持校验.json",
+    "sha256": "78ebbbab49613c9d599f5dfbbd5f896d7d2484dcafced9b3d77791924e635c15",
+    "original_equals_canonical": true
+  },
+  {
+    "path": "文件集合/交付报告/测试记录20261005/本地向量与三库检索/模型与运行包来源.json",
+    "sha256": "a29c0b4138f7ccbdde47edc02782bb3f9526c21834e9e7081f294aede5f85c25",
+    "original_equals_canonical": true
+  },
+  {
+    "path": "文件集合/交付报告/测试记录20261005/本地向量与三库检索/真实改写接口实测.json",
+    "sha256": "e6d38cd6fc5c39caf0fc8a40ebff7f4d64d462fb6cdc0f69cd92c257b5d1965e",
+    "original_equals_canonical": true
+  },
+  {
+    "path": "文件集合/知识库/官方初始库20261005/README.md",
+    "sha256": "d86a618109bc9da54224fe6ba935395ff3310cf62dc669ca047e304d0d125b4c",
+    "original_equals_canonical": true
+  },
+  {
+    "path": "文件集合/知识库/官方初始库20261005/agriculture-2025-official.txt",
+    "sha256": "3ee184ce77dfb2e2acc5bb36e1874f6d7ebdb64baf5b789aab0168bd5fc576f4",
+    "original_equals_canonical": true
+  },
+  {
+    "path": "文件集合/知识库/官方初始库20261005/civil-code-official-complete.txt",
+    "sha256": "11e4a49facc310e40c3d0f1d8151e800eac115f47f33093c0596f525842e6018",
+    "original_equals_canonical": true
+  },
+  {
+    "path": "文件集合/知识库/官方初始库20261005/entrusted-2025-official.txt",
+    "sha256": "ed9b61e4b660124e9b53b5754aaf3d36f1da9d184e645be1b28f098cac12b6d8",
+    "original_equals_canonical": true
+  },
+  {
+    "path": "文件集合/知识库/官方初始库20261005/sources.json",
+    "sha256": "8fd750ac96b24a7d78eb4a5f49a81806255ca767b00899b40c404b56797bae60",
+    "original_equals_canonical": true
+  }
+]

@@ -268,10 +268,9 @@ httpClient.interceptors.response.use(
     }
 
     // ApiError.message 优先；detail 只作为兼容回退。
-    // 例外：409 的 message 是状态级兜底（"数据冲突"），具体原因（如"该文件此前已上传过"）
-    // 在 detail 里更有信息量，故 409 优先展示 detail。
+    // 通用“数据冲突”保留具体原因；已有具体 message 时不得被技术 detail 覆盖。
     const userMessage =
-      error.response.status === 409 && payload?.detail
+      error.response.status === 409 && payload?.message === "数据冲突" && payload.detail
         ? payload.detail
         : (payload?.message ?? payload?.detail);
     if (userMessage) error.message = userMessage;

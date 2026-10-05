@@ -11,6 +11,7 @@
 输出：严格输出 JSON，字段为 category、level、title、suggestion、reasoning_steps；reasoning_steps 每步包含 stepNumber、thought、evidenceText。
 
 约束：
+- title、suggestion、reasoning_steps 中的 thought 必须使用简体中文；category、level 保持下面规定的英文枚举，evidenceText 按原文引用。
 - category 只能取自 UNLIMITED_LIABILITY、PENALTY_TOO_HIGH、UNFAVORABLE_JURISDICTION、UNILATERAL_TERMINATION、VAGUE_CONFIDENTIALITY、MISSING_DISPUTE_CLAUSE、PAYMENT_TERM_RISK、LIABILITY_IMBALANCE、FORCE_MAJEURE_ABSENT、IP_OWNERSHIP_RISK、OTHER。
 - level 只能为 HIGH、MEDIUM、LOW。
 - 每一步推理必须引用条款原文或标准依据中的可核对片段。

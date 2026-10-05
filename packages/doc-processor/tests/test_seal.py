@@ -17,6 +17,7 @@ import pytest
 
 from doc_processor.config import OcrSettings
 from doc_processor.ocr import SealDetection
+from doc_processor.ocr.engine import LocalOcrEngine
 from doc_processor.ocr.seal import (
     MAX_SEALS_PER_PAGE,
     LocalSealDetector,
@@ -287,9 +288,7 @@ def test_payload_enums_exist_in_openapi() -> None:
 
 def test_detect_on_fixture_scan_png() -> None:
     """真实夹具（含红色印章样张）：至少检出 1 枚，且坐标落在 A4 页面内。"""
-    import cv2
-
-    image = cv2.imread(str(_FIXTURES / "scan.png"), cv2.IMREAD_COLOR)
+    image = LocalOcrEngine._read_image(_FIXTURES / "scan.png")
     assert image is not None, "夹具缺失：先跑 scripts/make_ocr_fixtures.py"
     analyses = detect_seals_in_image(image, page=1, src_dpi=120, settings=_settings())
     assert analyses, "夹具里有红色圆环，应至少检出一枚"

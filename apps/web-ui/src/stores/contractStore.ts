@@ -6,11 +6,13 @@ interface ContractState {
   astTopology: unknown[]; // ClauseNode[]（生成类型后替换为具体类型）
   setContract: (id: string) => void;
   setAst: (nodes: unknown[]) => void;
+  clearContract: () => void;
 }
 
 export const useContractStore = create<ContractState>((set) => ({
   contractId: null,
   astTopology: [],
-  setContract: (id) => set({ contractId: id }),
+  setContract: (id) => set((state) => ({ contractId: id, astTopology: state.contractId === id ? state.astTopology : [] })),
   setAst: (nodes) => set({ astTopology: nodes }),
+  clearContract: () => set({ contractId: null, astTopology: [] }),
 }));

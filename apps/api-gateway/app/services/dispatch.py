@@ -82,8 +82,8 @@ class CeleryTaskDispatcher:
             status = "RUNNING"
 
         info = task.info if isinstance(task.info, dict) else {}
-        stage = str(info.get("stage", "processing"))
-        percent = float(info.get("percent", 0.0))
+        stage = str(info.get("stage", "finished" if status == "DONE" else "processing"))
+        percent = float(info.get("percent", 1.0 if status == "DONE" else 0.0))
         result = info.get("result")
         if state == "SUCCESS" and result is None:
             result = info or None

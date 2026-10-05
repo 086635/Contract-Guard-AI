@@ -248,3 +248,37 @@ C75-B 进展（历史）：Playwright 1.63.0 + Chromium 1243；`apps/web-ui/e2e/
 | `test_generated_hash_stable` | 同上 | 生成物 sha256 前 12 位与本文 §6 登记一致 |
 | `test_clean_checkout_build` | 同上 | lock 文件/testpaths/gitignore 等可复现输入冻结 |
 | `test_e2e_smoke_td7_paths` | `tests/release/test_e2e_smoke.py` | `e2e_smoke.py` 覆盖认证/幂等/预览/任务恢复，且 `--help` 可执行 |
+
+## 2026-10-05 维护生成物登记
+
+T-D6 维护新增 retryContractParse 与 createRule；库存 37 个 operationId / 32 个路径。历史交付结论保持，本节只登记本轮已生成的文件哈希。
+
+| 产物 | SHA-256 前 12 位 |
+|---|---|
+| `packages/schema/openapi.yaml` | f830ba1b661a |
+| `apps/api-gateway/app/generated/schemas.py` | d257abe8af5c |
+| `apps/web-ui/src/api/generated/types.ts` | 8f2c45d003c0 |
+| `apps/web-ui/src/api/generated/zod.ts` | 7bdc6f36a499 |
+
+### T-D6 浏览器反馈导出补充登记（2026-10-05）
+
+本轮维护现为 38 个 operationId / 33 条路径（新增 retryContractParse、createRule、exportFeedback）；原严格集合/哈希守卫保留。
+
+| 生成物 | SHA256 前 12 位 |
+|---|---|
+| `packages/schema/openapi.yaml` | 12e9bf43c958 |
+| `apps/web-ui/src/api/generated/types.ts` | e973366fc66b |
+| `apps/web-ui/src/api/generated/zod.ts` | ca10ea9af9c6 |
+| `apps/api-gateway/app/generated/schemas.py` | 336ba97b6ac5 |
+
+
+### 2026-10-05 三库接线维护：生成物哈希登记
+
+新增管理员只读来源与检索预览两个端点，原生成流程派生 DTO，接口库存为 40 operations / 35 paths。历史哈希保留；当前有效登记如下，逐项核对守卫不变。
+
+| 产物 | SHA-256 前 12 位 |
+|---|---|
+| `packages/schema/openapi.yaml` | 80e00a7de5f1 |
+| `apps/api-gateway/app/generated/schemas.py` | 14564ea0e13c |
+| `apps/web-ui/src/api/generated/types.ts` | 1cfb8ef7df4d |
+| `apps/web-ui/src/api/generated/zod.ts` | d636f1cd2add |

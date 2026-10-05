@@ -33,6 +33,8 @@ class ReportRenderInput(BaseModel):
     conflicts: list[CrossClauseConflict] = Field(default_factory=list)
     elements: list[dict[str, Any]] = Field(default_factory=list)
     health_score: dict[str, Any] | None = Field(default=None, alias="healthScore")
+    audit_status: str | None = Field(default=None, alias="auditStatus")
+    audit_notice: str | None = Field(default=None, alias="auditNotice")
 
 
 def render_report_docx(payload: ReportRenderInput) -> bytes:
@@ -54,6 +56,10 @@ def _add_header(document: DocumentObject, payload: ReportRenderInput) -> None:
     document.add_heading("合同智能审核报告", level=1)
     _add_field(document, "合同编号", payload.contract_id)
     _add_field(document, "生成时间", _format_datetime(payload.generated_at))
+    if payload.audit_status:
+        _add_field(document, "自动审核状态", payload.audit_status)
+    if payload.audit_notice:
+        document.add_paragraph(payload.audit_notice)
 
 
 def _add_risks(
@@ -63,7 +69,7 @@ def _add_risks(
     """逐条渲染风险项及其溯源。"""
     document.add_heading("风险清单", level=1)
     if not risks:
-        document.add_paragraph("无")
+        document.add_paragraph("暂无风险记录，仍需结合审核状态和原文人工复核。")
         return
 
     for index, risk in enumerate(risks, start=1):

@@ -1,0 +1,11 @@
+{
+  "collection": "contract_knowledge_bge_m3_20261005",
+  "points": 1330,
+  "dimension": 1024,
+  "status": "green",
+  "storage": "本机 Qdrant server 持久化目录",
+  "independent_clients_shared": true,
+  "server_restarted": true,
+  "points_after_restart": 1330,
+  "status_after_restart": "green"
+}

@@ -503,7 +503,12 @@ class LocalOcrEngine(OcrEngine):
         """
         import cv2  # 延迟导入（与引擎同源，避免默认路径拖入 opencv）
 
-        image = cv2.imread(str(path), cv2.IMREAD_COLOR)
+        # OpenCV 的 Windows 路径入口可能无法打开中文目录；先由 Python 读取再解码。
+        try:
+            encoded = np.frombuffer(path.read_bytes(), dtype=np.uint8)
+            image = cv2.imdecode(encoded, cv2.IMREAD_COLOR)
+        except (OSError, ValueError, cv2.error) as exc:
+            raise RenderFailedError(path, "图像无法读取（格式不支持或文件损坏）") from exc
         if image is None:
             raise RenderFailedError(path, "图像无法读取（格式不支持或文件损坏）")
         return image

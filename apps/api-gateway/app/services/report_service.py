@@ -11,9 +11,12 @@
 
 from __future__ import annotations
 
+import math
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
+
+from pydantic import ValidationError
 
 from app.db.repository.contract import ContractRepository, TaskRepository
 from app.db.repository.result import ReportRecord, ReportRepository
@@ -21,6 +24,7 @@ from app.generated.schemas import (
     ContractElement,
     CrossClauseConflict,
     EnhancedRiskItem,
+    HealthScore,
     ReportData,
     TaskProgress,
 )
@@ -69,6 +73,47 @@ class ReportService:
             conflicts=conflicts,
             elements=elements,
         )
+        progress = await self._results.parse_status(contract_id)
+        summary = progress.result if progress is not None and progress.result else {}
+        payload["auditStatus"] = summary.get("auditStatus", "NOT_STARTED")
+        payload["auditNotice"] = summary.get(
+            "auditMessage",
+            "尚未完成自动审核；本文仅记录当前已有结果，不代表合同无风险。",
+        )
+        if (
+            summary.get("auditStatus") in {"DONE", "DEGRADED"}
+            and summary.get("auditScore") is not None
+        ):
+            audit = await self._tasks.get_latest_by_contract(
+                contract_id, TaskKind.RUN_AUDIT.name
+            )
+            if audit is not None and str(audit.id) == summary.get("auditTaskId"):
+                snapshot = self._context.task_dispatcher.get_status(
+                    audit.celery_task_id or str(audit.id)
+                )
+                raw_health = (
+                    (snapshot.result or {}).get("healthScore")
+                    if snapshot and snapshot.status == "DONE"
+                    else None
+                )
+                if isinstance(raw_health, dict) and not isinstance(
+                    raw_health.get("overall"), bool
+                ):
+                    try:
+                        health = HealthScore.model_validate(raw_health)
+                    except ValidationError:
+                        health = None
+                    if (
+                        health
+                        and health.overall == summary["auditScore"]
+                        and all(
+                            math.isfinite(value) and 0 <= value <= 100
+                            for value in health.dimensions.model_dump().values()
+                        )
+                    ):
+                        payload["healthScore"] = health.model_dump(
+                            mode="json", by_alias=True
+                        )
 
         try:
             celery_task_id = self._context.task_dispatcher.send(
@@ -99,6 +144,20 @@ class ReportService:
             raise ContractNotFoundError(str(contract_id))
 
         report = await self._reports.get(contract_id)
+        latest = await self._tasks.get_latest_by_contract(
+            contract_id, TaskKind.GEN_REPORT.name
+        )
+        if report is not None and latest is not None:
+            snapshot = self._context.task_dispatcher.get_status(
+                latest.celery_task_id or str(latest.id)
+            )
+            if (
+                snapshot is not None
+                and snapshot.status == "DONE"
+                and _extract_storage_path(snapshot.result)
+                not in {None, report.storage_path}
+            ):
+                report = await self._finalize_from_latest_task(contract_id)
         if report is None:
             report = await self._finalize_from_latest_task(contract_id)
         return self._to_report_data(contract_id, report)

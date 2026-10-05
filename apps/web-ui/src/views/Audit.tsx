@@ -1,5 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { useContractStore } from "@/stores/contractStore";
+import { useAuthStore } from "@/stores/authStore";
 import Button from "@/components/ui/Button";
 import Icon from "@/components/ui/Icon";
 import ElementsPanel from "@/components/audit/ElementsPanel";
@@ -9,6 +11,7 @@ import RiskPanel from "@/components/audit/RiskPanel";
 import FeedbackDialog from "@/components/audit/FeedbackDialog";
 import AgentChat from "@/components/chat/AgentChat";
 import { contractApi, previewApi, reportApi, taskApi } from "@/api/services";
+import { getAuditLabel, getAuditScore } from "@/api/auditState";
 import type { components } from "@/api/generated/types";
 
 type Schemas = components["schemas"];
@@ -48,9 +51,14 @@ export default function Audit() {
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [rewriteRisk, setRewriteRisk] = useState<Risk | null>(null);
   const [feedbackRisk, setFeedbackRisk] = useState<Risk | null>(null);
+  const [feedbackElement, setFeedbackElement] = useState<Element | null>(null);
+  const [parseRetrying, setParseRetrying] = useState(false);
+  const canEdit = useAuthStore((state) => state.hasRole("ADMIN") || state.hasRole("REVIEWER"));
+  const loadSequence = useRef(0);
   const reportUnsubscribeRef = useRef<(() => void) | null>(null);
 
-  const loadAudit = async () => {
+  const loadAudit = useCallback(async () => {
+    const sequence = ++loadSequence.current;
     setLoading(true);
     setError(null);
     if (!selectedId || !UUID_RE.test(selectedId)) {
@@ -68,18 +76,22 @@ export default function Audit() {
       return;
     }
 
+    // 先收口解析再读取详情，避免详情先返回旧要素/合同阶段。
+    let currentStatus: Schemas["TaskProgress"] | null = null;
+    try { currentStatus = await contractApi.parseStatus(selectedId); } catch { /* 后续接口汇总给出具体错误 */ }
     const results = await Promise.allSettled([
       contractApi.detail(selectedId),
       contractApi.elements(selectedId),
       contractApi.risks(selectedId),
       contractApi.conflicts(selectedId),
       contractApi.seals(selectedId),
-      contractApi.parseStatus(selectedId),
+      currentStatus ? Promise.resolve(currentStatus) : contractApi.parseStatus(selectedId),
       previewApi.get(selectedId),
     ]);
+    if (sequence !== loadSequence.current) return;
     const [detail, extracted, riskItems, conflictItems, sealItems, status, previewData] = results;
     const failures: unknown[] = [];
-    if (detail.status === "fulfilled") setContract(detail.value);
+    if (detail.status === "fulfilled") { setContract(detail.value); useContractStore.getState().setContract(selectedId); }
     if (extracted.status === "fulfilled") setElements(extracted.value);
     if (riskItems.status === "fulfilled") {
       setRisks(riskItems.value);
@@ -91,7 +103,7 @@ export default function Audit() {
     if (previewData.status === "fulfilled") {
       let nextPreview = previewData.value;
       // DOCX 首次为 PENDING：GET 只建元数据，必须调用幂等 retry 才会派发转换任务。
-      if (nextPreview.status === "PENDING") {
+      if (nextPreview.status === "PENDING" && canEdit) {
         try {
           await previewApi.retry(selectedId);
           nextPreview = await previewApi.get(selectedId);
@@ -110,7 +122,7 @@ export default function Audit() {
       setError(`${failures.length} 个审核数据接口加载失败：${first instanceof Error ? first.message : "请重试"}`);
     }
     setLoading(false);
-  };
+  }, [selectedId, canEdit]);
 
   const clearReportSubscription = () => {
     reportUnsubscribeRef.current?.();
@@ -130,7 +142,42 @@ export default function Audit() {
     setSelectedRiskId(undefined);
     setSelectedElement(null);
     void loadAudit();
-  }, [selectedId]);
+    return () => { loadSequence.current += 1; };
+  }, [selectedId, loadAudit]);
+
+  const parseTaskId = parseStatus?.taskId;
+  const parseRunning = parseStatus?.status === "RUNNING";
+  const auditRunning = parseStatus?.result?.auditStatus === "RUNNING";
+  useEffect(() => {
+    if (!parseRunning || !parseTaskId) return;
+    return taskApi.subscribe(parseTaskId, (progress) => {
+      setParseStatus(progress);
+      if (progress.status !== "RUNNING") void loadAudit();
+    }, (reason) => setActionMessage(reason instanceof Error ? reason.message : "解析进度连接中断，正在轮询。"));
+  }, [parseTaskId, parseRunning, loadAudit]);
+  useEffect(() => {
+    if (!auditRunning) return;
+    let cancelled = false;
+    let pending = false;
+    const timer = window.setInterval(() => {
+      if (pending) return;
+      pending = true;
+      void contractApi.parseStatus(selectedId).then((progress) => {
+        if (cancelled) return;
+        setParseStatus(progress);
+        if (progress.result?.auditStatus !== "RUNNING") void loadAudit();
+      }).catch((reason) => {
+        if (!cancelled) setActionMessage(reason instanceof Error ? reason.message : "审核进度读取失败，正在重试。");
+      }).finally(() => { pending = false; });
+    }, 3000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [auditRunning, selectedId, loadAudit]);
+  const retryParse = async () => {
+    setParseRetrying(true); setActionMessage(null);
+    try { setParseStatus(await contractApi.retryParse(selectedId)); setActionMessage("已重新解析原文件，无需重复上传。"); }
+    catch (reason) { setActionMessage(reason instanceof Error ? reason.message : "重新解析失败"); }
+    finally { setParseRetrying(false); }
+  };
 
   // 预览转换中：每 2 秒刷新一次元数据（与任务轮询同节奏），完成即自动切换到查看器。
   useEffect(() => {
@@ -217,7 +264,8 @@ export default function Audit() {
   const highCount = risks.filter((item) => item.level === "HIGH").length;
   const mediumCount = risks.filter((item) => item.level === "MEDIUM").length;
   const lowCount = risks.filter((item) => item.level === "LOW").length;
+  const score = getAuditScore(parseStatus);
   const hasAuditData = Boolean(contract || elements.length || risks.length || conflicts.length || seals.length || parseStatus);
 
-  return <div className="audit-page"><div className="audit-topbar"><div><div className="eyebrow">CONTRACT REVIEW · {contract?.id ?? selectedId}</div><h1>{contract?.fileName ?? (loading ? "正在加载合同…" : "合同详情")} <span className="inline-status"><i />{contract?.status === "FINALIZED" ? "已定稿" : "审核中"}</span> <span className="inline-status contract-type" title="合同类型（AI 分类）"><i />{CONTRACT_TYPE_LABEL[contract?.contractType ?? "OTHER"] ?? "其它合同"}</span></h1></div><div className="audit-top-actions"><span className="save-state"><i />{loading ? "正在同步" : parseStatus?.status === "DONE" ? `解析完成 · ${seals.length} 处签署已校验` : "自动保存已开启"}</span><Button variant="secondary" size="sm" icon={<Icon name="refresh" size={16} />} onClick={() => void loadAudit()} disabled={loading}>刷新</Button></div></div>{error && <div className="audit-data-error"><Icon name="activity" size={17} /><span>{error}</span><Button size="sm" variant="secondary" onClick={() => void loadAudit()}>重新加载</Button></div>}{loading ? <div className="audit-loading"><div className="state-spinner" /><span>正在装载合同、风险和坐标图层…</span></div> : !hasAuditData ? <div className="data-state error"><div><p>{error ?? "未找到该合同的审核数据。"}</p><Button size="sm" variant="secondary" onClick={() => void loadAudit()}>重新加载</Button></div></div> : <div className="audit-workspace"><ElementsPanel extractedElements={elements} selectedElementKey={selectedElement?.key} onSelectElement={chooseElement} riskCounts={{ high: highCount, medium: mediumCount, low: lowCount, conflicts: conflicts.length, seals: seals.length }} riskFilter={filter} onRiskFilter={applyFilter} healthScore={contract?.healthScore.overall} /><PdfStage fileName={contract?.fileName ?? "合同文件"} preview={preview} highlights={highlights} previewRetrying={previewRetrying} onRetry={() => void retryPreview()} onFeedback={() => selectedRisk && setFeedbackRisk(selectedRisk)} /><RiskPanel healthScore={contract?.healthScore.overall} risks={risks} conflicts={conflicts} seals={seals} filter={filter} selectedRiskId={selectedRiskId} accepted={accepted} onFilter={applyFilter} onSelectRisk={chooseRisk} onToggleAccepted={(riskId) => setAccepted((current) => ({ ...current, [riskId]: !current[riskId] }))} onCommit={() => void commit()} onGenerateReport={() => void generateReport()} onRewrite={setRewriteRisk} onFeedback={setFeedbackRisk} actionLoading={actionLoading} /></div>}{actionMessage && <div className={`audit-toast ${actionMessage.includes("失败") ? "error" : ""}`} onClick={() => setActionMessage(null)}>{actionMessage}</div>}{rewriteRisk && <AgentChat contractId={selectedId} clauseId={rewriteRisk.clauseId} originalText={rewriteRisk.originalText} onClose={() => setRewriteRisk(null)} onApplied={() => { setAccepted((current) => ({ ...current, [rewriteRisk.id]: true })); setActionMessage("AI 改写建议已加入提交清单。"); }} />}{feedbackRisk && <FeedbackDialog contractId={selectedId} targetId={feedbackRisk.id} targetLabel={feedbackRisk.title} onClose={() => setFeedbackRisk(null)} onSubmitted={setActionMessage} />}</div>;
+  return <div className="audit-page"><Link className="change-contract-link" to="/audit">← 选择其他合同</Link><div className="audit-topbar"><div><div className="eyebrow">CONTRACT REVIEW · {contract?.id ?? selectedId}</div><h1>{contract?.fileName ?? (loading ? "正在加载合同…" : "合同详情")} <span className="inline-status"><i />{contract?.status === "FINALIZED" ? "已定稿" : parseStatus?.status === "FAILED" ? "解析失败" : parseRunning ? "解析中" : "待人工审核"}</span> <span className="inline-status contract-type" title="当前合同类型，未完成分类时为其他"><i />{CONTRACT_TYPE_LABEL[contract?.contractType ?? "OTHER"] ?? "其它合同"}</span></h1></div><div className="audit-top-actions"><span className="save-state"><i />{loading ? "正在同步" : parseStatus?.status === "DONE" ? `解析完成 · ${parseStatus.result?.clauseCount ?? elements.filter((item) => item.key.startsWith("clause-")).length} 条款` : parseRunning ? `解析中 ${Math.round((parseStatus?.percent ?? 0) * 100)}%` : "批注提交后保存"}</span><Button variant="secondary" size="sm" icon={<Icon name="refresh" size={16} />} onClick={() => void loadAudit()} disabled={loading}>刷新</Button></div></div>{parseStatus && <div className={`parse-status-banner ${parseStatus.status === "FAILED" ? "error" : ""}`}><div><strong>{parseRunning ? "正在解析原文件" : parseStatus.status === "FAILED" ? "解析失败，可使用原文件重试" : "文本解析已完成"}</strong><p><b>{getAuditLabel(parseStatus)}</b>{typeof parseStatus.result?.auditModel === "string" && <span> · 审核模型：{parseStatus.result.auditModel}</span>}</p><p>{parseStatus.status === "FAILED" ? String(parseStatus.result?.errorMessage ?? "后台解析失败，请重试或检查文件。") : parseRunning ? `当前阶段：${parseStatus.stage} · 完成 ${Math.round(parseStatus.percent * 100)}%` : (parseStatus.result?.auditStatus === "FAILED" ? "自动审核未完成：" : parseStatus.result?.auditStatus === "DEGRADED" ? "自动审核存在降级：" : "") + String(parseStatus.result?.auditMessage ?? "请结合原文人工复核，暂无风险记录不代表合同无风险。")}</p>{(parseRunning || auditRunning) && <progress max={1} value={parseRunning ? parseStatus.percent : Number(parseStatus.result?.auditPercent ?? 0)} />}</div>{canEdit && contract?.status !== "FINALIZED" && <Button variant="secondary" disabled={parseRunning || auditRunning || parseRetrying} onClick={() => void retryParse()}>{parseRetrying ? "提交中…" : "重新解析"}</Button>}</div>}{error && <div className="audit-data-error"><Icon name="activity" size={17} /><span>{error}</span><Button size="sm" variant="secondary" onClick={() => void loadAudit()}>重新加载</Button></div>}{loading ? <div className="audit-loading"><div className="state-spinner" /><span>正在装载合同、风险和坐标图层…</span></div> : !hasAuditData ? <div className="data-state error"><div><p>{error ?? "未找到该合同的审核数据。"}</p><Button size="sm" variant="secondary" onClick={() => void loadAudit()}>重新加载</Button></div></div> : <div className="audit-workspace"><ElementsPanel extractedElements={elements} selectedElementKey={selectedElement?.key} onSelectElement={chooseElement} riskCounts={{ high: highCount, medium: mediumCount, low: lowCount, conflicts: conflicts.length, seals: seals.length }} riskFilter={filter} onRiskFilter={applyFilter} healthScore={score} /><PdfStage fileName={contract?.fileName ?? "合同文件"} preview={preview} highlights={highlights} previewRetrying={previewRetrying} onRetry={() => void retryPreview()} onFeedback={canEdit && (selectedRisk || selectedElement) ? () => { if (selectedRisk) setFeedbackRisk(selectedRisk); else if (selectedElement) setFeedbackElement(selectedElement); } : undefined} /><RiskPanel canEdit={canEdit} reportAvailable={parseStatus?.status === "DONE"} healthScore={score} risks={risks} conflicts={conflicts} seals={seals} filter={filter} selectedRiskId={selectedRiskId} accepted={accepted} onFilter={applyFilter} onSelectRisk={chooseRisk} onToggleAccepted={(riskId) => setAccepted((current) => ({ ...current, [riskId]: !current[riskId] }))} onCommit={() => void commit()} onGenerateReport={() => void generateReport()} onRewrite={setRewriteRisk} onFeedback={setFeedbackRisk} actionLoading={actionLoading} /></div>}{actionMessage && <div className={`audit-toast ${actionMessage.includes("失败") ? "error" : ""}`} onClick={() => setActionMessage(null)}>{actionMessage}</div>}{rewriteRisk && <AgentChat contractId={selectedId} clauseId={rewriteRisk.clauseId} originalText={rewriteRisk.originalText} onClose={() => setRewriteRisk(null)} onApplied={() => { setAccepted((current) => ({ ...current, [rewriteRisk.id]: true })); setActionMessage("AI 改写建议已加入提交清单。"); }} />}{feedbackRisk && <FeedbackDialog contractId={selectedId} targetId={feedbackRisk.id} targetLabel={feedbackRisk.title} onClose={() => setFeedbackRisk(null)} onSubmitted={setActionMessage} />}{feedbackElement && <FeedbackDialog contractId={selectedId} targetId={feedbackElement.key} targetLabel={feedbackElement.label} targetType="ELEMENT" onClose={() => setFeedbackElement(null)} onSubmitted={setActionMessage} />}</div>;
 }

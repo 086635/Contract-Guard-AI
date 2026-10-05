@@ -42,10 +42,13 @@ _IDEMPOTENT_ROUTES = {
     ("POST", "/api/v1/contracts/presign"),
     ("POST", "/api/v1/contracts/upload"),
     ("POST", "/api/v1/contracts/{}/commit"),
+    ("POST", "/api/v1/contracts/{}/parse/retry"),
     ("POST", "/api/v1/agent/rewrite"),
     ("POST", "/api/v1/report/{}/generate"),
     ("POST", "/api/v1/feedback"),
+    ("POST", "/api/v1/feedback/export"),
     ("PUT", "/api/v1/settings/rules/{}"),
+    ("POST", "/api/v1/settings/rules"),
     ("POST", "/api/v1/admin/users"),
     ("PATCH", "/api/v1/admin/users/{}"),
 }

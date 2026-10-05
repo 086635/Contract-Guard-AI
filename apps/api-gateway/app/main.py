@@ -23,6 +23,7 @@ from app.api.v1 import (
     config,
     contracts,
     feedback,
+    knowledge,
     report,
     standard_clauses,
     tasks,
@@ -64,6 +65,7 @@ api_router = APIRouter(prefix=settings.api_v1_prefix)
 api_router.include_router(auth.router)
 api_router.include_router(audit.router)
 api_router.include_router(standard_clauses.router)
+api_router.include_router(knowledge.router)
 api_router.include_router(contracts.router, dependencies=[Depends(get_current_user)])
 api_router.include_router(agent.router, dependencies=[Depends(get_current_user)])
 api_router.include_router(config.router, dependencies=[Depends(get_current_user)])

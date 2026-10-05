@@ -1,5 +1,6 @@
 import { useEffect } from "react";
-import { createBrowserRouter, Navigate, Outlet, useLocation, useParams } from "react-router-dom";
+import { createBrowserRouter, Link, Navigate, Outlet, useLocation, useParams } from "react-router-dom";
+import ContractHub from "@/views/ContractHub";
 import App from "@/App";
 import Dashboard from "@/views/Dashboard";
 import Audit from "@/views/Audit";
@@ -49,11 +50,12 @@ export const router = createBrowserRouter([
       { path: "contracts/:contractId/report", element: <Report /> },
       { element: <AdminGuard />, children: [{ path: "settings/rules", element: <Settings /> }] },
       { path: "feedback", element: <Feedback /> },
-      { path: "audit", element: <Navigate to="/contracts" replace /> },
+      { path: "audit", element: <ContractHub mode="audit" /> },
       { path: "audit/:contractId", element: <LegacyAuditRedirect /> },
-      { path: "report", element: <Navigate to="/contracts" replace /> },
+      { path: "report", element: <ContractHub mode="report" /> },
       { path: "report/:contractId", element: <LegacyReportRedirect /> },
       { path: "settings", element: <Navigate to="/settings/rules" replace /> },
+      { path: "*", element: <div className="data-state"><div><h1>页面不存在</h1><Link to="/contracts">返回合同中心</Link></div></div> },
         ],
       },
     ],

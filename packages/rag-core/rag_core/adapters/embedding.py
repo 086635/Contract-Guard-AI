@@ -20,6 +20,7 @@ import re
 import time
 from collections.abc import Sequence
 from typing import Any
+from urllib.parse import urlsplit
 
 from cg_observability import get_logger, log_event
 
@@ -242,11 +243,13 @@ class HttpEmbedder:
 
         start = time.perf_counter()
         try:
+            local_host = urlsplit(url).hostname in {"localhost", "127.0.0.1", "::1"}
             resp = httpx.post(
                 url,
                 json={"model": self._model, "input": list(texts)},
                 headers=headers,
                 timeout=self._timeout_s,
+                **({"trust_env": False} if local_host else {}),
             )
             resp.raise_for_status()
             body: Any = resp.json()

@@ -19,7 +19,8 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-from app.api.deps import get_audit_service, get_current_user
+from app.api.deps import get_audit_service, get_current_user, get_db
+from app.db.models import User
 from app.db.repository.auth import UserRecord
 from app.generated.schemas import Role
 from app.services.audit_service import AuditService
@@ -107,6 +108,7 @@ def install_test_auth(
     session: AsyncSession,
     *,
     role: Role = Role.admin,
+    persist_user: bool = False,
 ) -> UserRecord:
     """为直接挂载业务 router 的测试覆盖当前用户与审计依赖。"""
     now = datetime.now(UTC)
@@ -121,7 +123,10 @@ def install_test_auth(
         updated_at=now,
     )
     app.dependency_overrides[get_current_user] = lambda: user
+    app.dependency_overrides[get_db] = lambda: session
     app.dependency_overrides[get_audit_service] = lambda: AuditService(session)
+    if persist_user:
+        session.add(User(id=user.id, username=user.username, password_hash="unused-test-credential", role=user.role, is_active=True, display_name=user.display_name))
     return user
 
 

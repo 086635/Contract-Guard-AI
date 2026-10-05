@@ -15,6 +15,7 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from pydantic import ValidationError
+from sqlalchemy.exc import IntegrityError
 
 from app.db.repository.config_feedback import RuleRecord, RuleRepository, RuleUpsert
 from app.generated.schemas import (
@@ -27,7 +28,6 @@ from app.generated.schemas import (
 from app.services.context import ServiceContext
 
 _PROJECTION_UPDATED_AT = datetime(1970, 1, 1, tzinfo=UTC)
-_PROJECTION_VERSION = 1
 _DEFAULT_REVIEW_THRESHOLDS = {
     "high": 0.85,
     "medium": 0.65,
@@ -80,25 +80,51 @@ class RuleService:
         if existing is None:
             raise RuleNotFoundError(str(rule_id))
 
-        if body.version != _PROJECTION_VERSION:
+        if body.version != existing.version:
             raise RuleVersionConflictError(
-                f"version {body.version} != {_PROJECTION_VERSION}"
+                f"version {body.version} != {existing.version}"
             )
 
-        review_thresholds = _validate_review_thresholds(body.review_thresholds)
-        updated = await self._repository.upsert(
-            RuleUpsert(
-                id=rule_id,
-                rule_name=body.prompt_config.role_name,
-                category=body.contract_type.value,
-                prompt_template=body.prompt_config.system_prompt,
-                threshold=existing.threshold,
-                is_enabled=body.enabled,
-                review_thresholds=review_thresholds.model_dump(),
+        try:
+            updated = await self._repository.update_if_version(
+                self._upsert(body, rule_id, existing.threshold), existing.version
             )
-        )
+        except IntegrityError as exc:
+            await self._context.session.rollback()
+            raise RuleVersionConflictError("规则名称已存在") from exc
+        if updated is None:
+            raise RuleVersionConflictError("配置已被其他操作更新，请重新加载")
         await self._context.session.commit()
         return self._to_dto(updated)
+
+    async def create(self, body: SystemAuditConfiguration) -> SystemAuditConfiguration:
+        """Create a real editable rule without silently upserting."""
+        try:
+            rule_id = UUID(body.id)
+        except ValueError as exc:
+            raise RuleThresholdValidationError("规则 ID 必须是 UUID") from exc
+        try:
+            created = await self._repository.create(self._upsert(body, rule_id))
+        except IntegrityError as exc:
+            await self._context.session.rollback()
+            raise RuleVersionConflictError("规则名称或 ID 已存在") from exc
+        await self._context.session.commit()
+        return self._to_dto(created)
+
+    @staticmethod
+    def _upsert(body: SystemAuditConfiguration, rule_id: UUID, threshold: float | None = None) -> RuleUpsert:
+        if not body.prompt_config.role_name.strip() or not body.prompt_config.system_prompt.strip():
+            raise RuleThresholdValidationError("规则名称与审查说明不能为空")
+        return RuleUpsert(
+            id=rule_id, rule_name=body.prompt_config.role_name.strip(),
+            category=body.contract_type.value, prompt_template=body.prompt_config.system_prompt,
+            threshold=threshold, is_enabled=body.enabled,
+            review_thresholds=_validate_review_thresholds(body.review_thresholds).model_dump(),
+            editor_state={
+                "promptConfig": body.prompt_config.model_dump(mode="json", by_alias=True),
+                "enabledRules": body.enabled_rules, "customEntities": [entity.model_dump(mode="json", by_alias=True) for entity in body.custom_entities],
+            },
+        )
 
     @staticmethod
     def _to_dto(record: RuleRecord) -> SystemAuditConfiguration:
@@ -109,18 +135,18 @@ class RuleService:
         return SystemAuditConfiguration(
             id=str(record.id),
             contractType=contract_type,
-            promptConfig=PromptRoleConfig(
+            promptConfig=PromptRoleConfig.model_validate(record.editor_state["promptConfig"]) if record.editor_state.get("promptConfig") else PromptRoleConfig(
                 roleName=record.rule_name,
                 systemPrompt=record.prompt_template,
                 temperature=0.0,
                 riskToleranceLevel=RiskTolerance.balanced,
             ),
-            enabledRules=[record.rule_name] if record.is_enabled else [],
+            enabledRules=record.editor_state.get("enabledRules", [record.rule_name] if record.is_enabled else []),
             enabled=record.is_enabled,
             reviewThresholds=_parse_review_thresholds(record.review_thresholds),
-            customEntities=[],
-            updatedAt=_PROJECTION_UPDATED_AT,
-            version=_PROJECTION_VERSION,
+            customEntities=record.editor_state.get("customEntities", []),
+            updatedAt=record.updated_at or _PROJECTION_UPDATED_AT,
+            version=record.version,
         )
 
 

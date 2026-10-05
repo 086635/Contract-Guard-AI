@@ -1,0 +1,14 @@
+[
+  {
+    "file": "models/bge-m3-Q8_0.gguf",
+    "bytes": 634553760,
+    "sha256": "950f4a8e5e19477a6d3c26d2f162233c20002c601f75e4b002e3239997821167",
+    "source": "https://huggingface.co/gpustack/bge-m3-GGUF/resolve/2d48f1737679ad900d5c26c5aad5410e9c70fdca/bge-m3-Q8_0.gguf"
+  },
+  {
+    "file": "bin/qdrant-v1.19.1.zip",
+    "bytes": 29671153,
+    "sha256": "9b6f69bd85f6abed4bc13f943099f55c6ffd55f5dd90388635320d8fbb569eb0",
+    "source": "https://github.com/qdrant/qdrant/releases/download/v1.19.1/qdrant-x86_64-pc-windows-msvc.zip"
+  }
+]

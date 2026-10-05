@@ -1,0 +1,66 @@
+[
+  {
+    "test": "packages.rag-core.tests.test_embedding_providers.test_real_service_embed",
+    "reason": "未设置 CG_RAG_TEST_EMBED_BASE_URL，跳过真实 embedding 服务用例（保持离线基线）"
+  },
+  {
+    "test": "packages.rag-core.tests.test_http_reranker.test_real_service_rerank_monotonic",
+    "reason": "未设置 CG_RAG_TEST_RERANK_URL，跳过真实 rerank 服务用例（保持离线基线）"
+  },
+  {
+    "test": "packages.rag-core.tests.test_milvus_store.test_ensure_collection_idempotent",
+    "reason": "未设置 CG_RAG_TEST_MILVUS_URI，跳过 Milvus 集成测试（保持离线基线）"
+  },
+  {
+    "test": "packages.rag-core.tests.test_milvus_store.test_milvus_top10_overlap",
+    "reason": "未设置 CG_RAG_TEST_MILVUS_URI，跳过 Milvus 集成测试（保持离线基线）"
+  },
+  {
+    "test": "packages.rag-core.tests.test_milvus_store.test_upsert_idempotent",
+    "reason": "未设置 CG_RAG_TEST_MILVUS_URI，跳过 Milvus 集成测试（保持离线基线）"
+  },
+  {
+    "test": "packages.rag-core.tests.test_milvus_store.test_search_score_is_cosine_similarity",
+    "reason": "未设置 CG_RAG_TEST_MILVUS_URI，跳过 Milvus 集成测试（保持离线基线）"
+  },
+  {
+    "test": "packages.rag-core.tests.test_milvus_store.test_search_respects_filters",
+    "reason": "未设置 CG_RAG_TEST_MILVUS_URI，跳过 Milvus 集成测试（保持离线基线）"
+  },
+  {
+    "test": "packages.rag-core.tests.test_milvus_store.test_search_handles_quoted_filter_value",
+    "reason": "未设置 CG_RAG_TEST_MILVUS_URI，跳过 Milvus 集成测试（保持离线基线）"
+  },
+  {
+    "test": "packages.rag-core.tests.test_milvus_store.test_delete_by_doc_reduces_count_and_hides_hits",
+    "reason": "未设置 CG_RAG_TEST_MILVUS_URI，跳过 Milvus 集成测试（保持离线基线）"
+  },
+  {
+    "test": "packages.doc-processor.tests.test_engine_availability.test_paddleocr_route_only_if_paddle_present",
+    "reason": "未选择 PaddleOCR 路线（CG_OCR_TEST_PADDLE 未设置），跳过"
+  },
+  {
+    "test": "apps.async-worker.tests.test_convert_doc_task.test_convert_doc_with_real_libreoffice",
+    "reason": "未设置 CG_CONVERT_TEST_SOFFICE，跳过真实 LibreOffice 转换集成测试"
+  },
+  {
+    "test": "apps.async-worker.tests.test_report_upload.test_upload_report_real_minio_roundtrip",
+    "reason": "未设置 CG_MINIO_TEST_ENDPOINT，跳过真实 MinIO 报告上传测试"
+  },
+  {
+    "test": "docker.tests.test_compose_prod_contract.test_only_public_ports",
+    "reason": "docker CLI 不可用，跳过合并后的端口校验"
+  },
+  {
+    "test": "docker.tests.test_compose_prod_contract.test_development_compose_kept",
+    "reason": "docker CLI 不可用，跳过合并校验"
+  },
+  {
+    "test": "docker.tests.test_compose_prod_contract.test_prod_compose_uses_secrets",
+    "reason": "docker CLI 不可用，跳过合并后的 secret 校验"
+  },
+  {
+    "test": "docker.tests.test_nginx_prod_contract.test_nginx_config_parses_in_container",
+    "reason": "本机无 docker CLI"
+  }
+]

@@ -155,6 +155,17 @@ def test_run_audit_success_offline(monkeypatch: pytest.MonkeyPatch) -> None:
     assert result["healthScore"]["overall"] == 90
 
 
+@pytest.mark.parametrize("provider", ["offline", "ollama"])
+def test_audit_records_actual_model_without_credentials(monkeypatch: pytest.MonkeyPatch, provider: str) -> None:
+    monkeypatch.setenv("CG_LLM_PROVIDER", provider)
+    monkeypatch.setenv("CG_LLM_MODEL", "qwen3:4b-instruct")
+    monkeypatch.setenv("CG_LLM_API_KEY", "must-not-return")
+    _patch_success_graph(monkeypatch)
+    result = run_audit_task.apply(args=("C1", [_clause()])).get()
+    assert result["modelInfo"] == {"provider": provider, "model": "qwen3:4b-instruct" if provider != "offline" else ""}
+    assert "must-not-return" not in json.dumps(result)
+
+
 def test_failed_stage_maps_task_to_failed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

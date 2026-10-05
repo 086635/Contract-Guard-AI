@@ -1,0 +1,119 @@
+{
+  "baseline": "b091b21768d633bccfefe5775494a8924ad6530d",
+  "running_workspace": "C:\\Users\\13695\\Documents\\ChatGPT\\A24-原仓库完整副本",
+  "mirrored_workspace": "C:\\Users\\13695\\Documents\\ChatGPT\\服务外包",
+  "source_files": [
+    {
+      "file": "apps/api-gateway/app/api/v1/tests/test_contract_results_real.py",
+      "sha256": "d880da4f8a33fc5c2075e1a66cade81d1c7e5d1efe4c87d57f655469171d1245"
+    },
+    {
+      "file": "apps/api-gateway/app/api/v1/tests/test_tasks_real.py",
+      "sha256": "f6c187166ce91f1453ed07e67f9af91fc27a12fbe001707cdd1eb7e02716addf"
+    },
+    {
+      "file": "apps/api-gateway/app/services/dispatch.py",
+      "sha256": "bf06c4ad258181a67bce8cee7c5a9b3dd62ac64459bd7a97eeaa8aa63c079e9d"
+    },
+    {
+      "file": "apps/api-gateway/app/services/result_service.py",
+      "sha256": "05e4026da422ad69b17cfeda2c5d3d9b4b27c093a3b3d3d1cf372eb29734d97c"
+    },
+    {
+      "file": "apps/api-gateway/tests/service_testkit.py",
+      "sha256": "23a21ece7ef883a3ec2cb798b45107d36534990c633a951d972e77ab9fc118fe"
+    },
+    {
+      "file": "apps/api-gateway/tests/test_preview_routes.py",
+      "sha256": "c68fde12aea8674c9e8f24f39b9b13b7ed0c3d2f7df9fd2cef6caaf92eba8f2c"
+    },
+    {
+      "file": "apps/api-gateway/tests/test_production_secrets.py",
+      "sha256": "b997c50c1a3e8063cf1f1e7c588f801f1f93985ac104b6b358613deb1c041488"
+    },
+    {
+      "file": "apps/api-gateway/tests/test_result_status_snapshot.py",
+      "sha256": "355d3b9dd777fab242f59cb75c3f7b7c340e554e9b438a13b4fe7c5eaddaec24"
+    },
+    {
+      "file": "apps/api-gateway/tests/test_service_adapters.py",
+      "sha256": "585f5cee4b4005441d59ddcebea46ad41631adf9e08c66ff91327b2a77eb7a40"
+    },
+    {
+      "file": "apps/api-gateway/tests/test_stream_token.py",
+      "sha256": "4dd2a0cd3de88393aaefe884313c931412a7c72e88b79581f76b6944a297179a"
+    },
+    {
+      "file": "apps/async-worker/worker/parse_pipeline.py",
+      "sha256": "92135bfcb661b9d087295d0b13342b3c498db8ec7640a88cc423d0174bf93571"
+    },
+    {
+      "file": "apps/web-ui/src/api/__tests__/client.test.ts",
+      "sha256": "479089a94d8a295c322f668de0f0c9c8c2036736cda51051fb8820757b40eec3"
+    },
+    {
+      "file": "apps/web-ui/src/api/client.ts",
+      "sha256": "1c9b5111c92559dad08b05c28b99a534736b6f54471362db2e6dd5e592565aa6"
+    },
+    {
+      "file": "apps/web-ui/src/components/contracts/ContractRow.tsx",
+      "sha256": "b5a950f47aaf21477083bfc92217525268165b4d0000fd13d5fb92c6dd4184d1"
+    },
+    {
+      "file": "apps/web-ui/src/components/layout/AppShell.tsx",
+      "sha256": "507d8acbb8999e3d85acf8be6797e49cf9cc9e881fa7d5e95383d839369e942a"
+    },
+    {
+      "file": "apps/web-ui/src/components/layout/__tests__/AppShell.test.ts",
+      "sha256": "d137eab941a52470acb786a98225458f68add6a762f2933bd860988f1a54908e"
+    },
+    {
+      "file": "apps/web-ui/src/index.css",
+      "sha256": "09c7903f0c6fc07f167922c1b2097bd8d048bd4038945f9039052d959654ebaa"
+    },
+    {
+      "file": "apps/web-ui/src/views/Dashboard.tsx",
+      "sha256": "d34bf95f6ce84dca0a59bfe2e23c68365963a1786c60d416a13b318b851d5f67"
+    },
+    {
+      "file": "apps/web-ui/src/views/__tests__/Dashboard.test.tsx",
+      "sha256": "11460650b1ba847a33350c6cfdb88c5506d74d4cb5c47b2104714f86353b4abc"
+    },
+    {
+      "file": "packages/doc-processor/doc_processor/ocr/engine.py",
+      "sha256": "bcc969a902f34312a956894abb094f53b3b59a18fc5c73f51df2e9ebf925b106"
+    },
+    {
+      "file": "packages/doc-processor/tests/test_aligner.py",
+      "sha256": "f384dbb820006cb7583e6748e40fa07b493f39a66dd56eeba61f448251073550"
+    },
+    {
+      "file": "packages/doc-processor/tests/test_ocr_engine.py",
+      "sha256": "48923d80fc88e5888e78357b4cd9b4f76179465a0628e8ba3dedf59af5b1acb5"
+    },
+    {
+      "file": "packages/doc-processor/tests/test_seal.py",
+      "sha256": "e4ac3d9983a7c2e7a1ef40c9221d1ef931fec260bc6464d444e1486a8f709fa6"
+    }
+  ],
+  "build_files": [
+    "apps/web-ui/dist/.gitkeep",
+    "apps/web-ui/dist/index.html",
+    "apps/web-ui/dist/assets/index-BC8OQ91k.js",
+    "apps/web-ui/dist/assets/index-Dqnf_vTm.css",
+    "apps/web-ui/dist/assets/pdf-BnPRJEQ6.js",
+    "apps/web-ui/dist/assets/pdf.worker.min-yatZIOMy.mjs"
+  ],
+  "frontend": {
+    "total": 52,
+    "passed": 52,
+    "failed": 0,
+    "skipped": 0
+  },
+  "backend": {
+    "total": 1004,
+    "passed": 988,
+    "failed": 0,
+    "skipped": 16
+  }
+}

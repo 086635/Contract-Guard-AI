@@ -8,6 +8,18 @@ from __future__ import annotations
 import os
 
 from celery import Celery
+from celery.signals import worker_process_init
+
+
+@worker_process_init.connect
+def initialize_image_runtime(**kwargs: object) -> None:
+    """Windows native image routines run inside the worker's existing task pool."""
+    if os.name == "nt":
+        try:
+            import cv2
+        except ImportError:
+            return  # The existing OCR availability check reports a missing engine.
+        cv2.setNumThreads(1)
 
 BROKER_URL = os.getenv("CG_CELERY_BROKER", "redis://localhost:6379/1")
 BACKEND_URL = os.getenv("CG_CELERY_BACKEND", "redis://localhost:6379/2")

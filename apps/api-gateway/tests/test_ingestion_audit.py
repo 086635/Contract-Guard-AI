@@ -194,6 +194,12 @@ async def _exercise_ingestion_audit(dsn: str, schema: str) -> None:
                 task_dispatcher=fake,  # type: ignore[arg-type]
             )
 
+            from app.services.contract_service import ContractService
+
+            detail = await ContractService(ctx).get(contract.id)
+            assert detail is not None
+            assert [risk.id for risk in detail.risks] == ["risk-c23-1"]
+            assert detail.contract_type.value == "PURCHASE"
             assert await IngestionService(ctx).finalize_audit(contract.id) is True
 
             loaded_risks = await risks.list_by_contract(contract.id)

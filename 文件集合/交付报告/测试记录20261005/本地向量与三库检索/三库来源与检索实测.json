@@ -1,0 +1,118 @@
+{
+  "state": {
+    "sources": [
+      {
+        "doc_id": "civil-code-2020",
+        "library": "law",
+        "title": "中华人民共和国民法典",
+        "code": "CIVIL_CODE_2020",
+        "source_url": "https://tianjin.chinatax.gov.cn/11200000000/0300/030004/03000418/20260629134026937.shtml",
+        "scope": "全国；法律适用仍须人工核对具体情形",
+        "published": "2020-05-28",
+        "effective_date": "2021-01-01",
+        "sha256": "11e4a49facc310e40c3d0f1d8151e800eac115f47f33093c0596f525842e6018",
+        "article_count": 1260
+      },
+      {
+        "doc_id": "samr-entrusted-2025",
+        "library": "standard",
+        "title": "委托合同（示范文本）",
+        "code": "GF—2025—1001",
+        "source_url": "https://www.samr.gov.cn/zw/zfxxgk/fdzdgknr/wjs/art/2025/art_71ef048df40a473b99797fe96f402881.html",
+        "scope": "委托人委托受托人处理委托事务；不是全部服务外包合同的审批标准",
+        "published": "2025-07-23",
+        "effective_date": null,
+        "sha256": "ed9b61e4b660124e9b53b5754aaf3d36f1da9d184e645be1b28f098cac12b6d8",
+        "article_count": null
+      },
+      {
+        "doc_id": "samr-agriculture-2025",
+        "library": "standard",
+        "title": "农副产品买卖合同（示范文本）",
+        "code": "GF—2025—0151",
+        "source_url": "https://www.samr.gov.cn/zw/zfxxgk/fdzdgknr/wjs/art/2025/art_760a0b1aeaee46b1a4d437fcc62d0e83.html",
+        "scope": "农副产品买卖；其他商品仅可参考通用表述，不能认定其专用条款适用",
+        "published": "2025-10-31",
+        "effective_date": null,
+        "sha256": "3ee184ce77dfb2e2acc5bb36e1874f6d7ebdb64baf5b789aab0168bd5fc576f4",
+        "article_count": null
+      }
+    ],
+    "standardDocuments": 2,
+    "lawDocuments": 1,
+    "lawArticles": 1260,
+    "enabledClauses": 70,
+    "notice": "官方参考初始库；没有企业审批基线；不代表全部标准或法律法规",
+    "embedding": {
+      "mode": "http",
+      "model": "bge-m3-local:q8",
+      "dimension": 1024,
+      "status": "ok"
+    },
+    "generation": {
+      "provider": "deepseek",
+      "model": "deepseek-flash"
+    }
+  },
+  "retrieval": [
+    {
+      "library": "all",
+      "status": "OK",
+      "citations": 5,
+      "seconds": 3.89,
+      "sources": [
+        "https://tianjin.chinatax.gov.cn/11200000000/0300/030004/03000418/20260629134026937.shtml",
+        "https://www.samr.gov.cn/zw/zfxxgk/fdzdgknr/wjs/art/2025/art_760a0b1aeaee46b1a4d437fcc62d0e83.html"
+      ],
+      "titles": [
+        "官方范本 GF—2025—0151 · 第十二条",
+        "中华人民共和国民法典 第五百七十七条",
+        "官方范本 GF—2025—0151 · 第十条",
+        "中华人民共和国民法典 第五百八十二条",
+        "官方范本 GF—2025—0151 · 第六条"
+      ]
+    },
+    {
+      "library": "law",
+      "status": "OK",
+      "citations": 5,
+      "seconds": 0.99,
+      "sources": [
+        "https://tianjin.chinatax.gov.cn/11200000000/0300/030004/03000418/20260629134026937.shtml"
+      ],
+      "titles": [
+        "中华人民共和国民法典 第五百七十七条",
+        "中华人民共和国民法典 第五百七十八条",
+        "中华人民共和国民法典 第五百二十三条",
+        "中华人民共和国民法典 第五百八十二条",
+        "中华人民共和国民法典 第五百九十二条"
+      ]
+    },
+    {
+      "library": "clauses",
+      "status": "OK",
+      "citations": 5,
+      "seconds": 1.31,
+      "sources": [
+        "https://www.samr.gov.cn/zw/zfxxgk/fdzdgknr/wjs/art/2025/art_760a0b1aeaee46b1a4d437fcc62d0e83.html"
+      ],
+      "titles": [
+        "官方范本 GF—2025—0151 · 第十二条",
+        "官方范本 GF—2025—0151 · 第十条",
+        "官方范本 GF—2025—0151 · 第六条",
+        "官方范本 GF—2025—0151 · 第十一条",
+        "官方范本 GF—2025—0151 · 第三条"
+      ]
+    }
+  ],
+  "readiness": {
+    "status": "ok",
+    "service": "contract-guard-api",
+    "checks": {
+      "database": "ok",
+      "redis": "ok",
+      "minio": "ok",
+      "qdrant": "ok"
+    }
+  }
+}

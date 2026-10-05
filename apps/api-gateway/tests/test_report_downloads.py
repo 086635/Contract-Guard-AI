@@ -185,6 +185,18 @@ def test_docx_pdf_urls_distinct() -> None:
     assert {expires for _, expires in storage.get_calls} == {900}
 
 
+def test_regeneration_returns_latest_file_and_preserves_history() -> None:
+    old = _record()
+    new_key = "reports/c2/regenerated.docx"
+    service, reports, _ = _service(report=old, task=SimpleNamespace(id=uuid4(), celery_task_id="new-report"), snapshot=TaskStatusSnapshot("DONE", "finished", 1, {"storagePath": new_key}))
+    data = asyncio.run(service.get(CONTRACT_ID))
+    assert new_key in data.word_download_url
+    assert reports.created[0]["storage_path"] == new_key
+    assert old.storage_path == DOCX_KEY
+    asyncio.run(service.get(CONTRACT_ID))
+    assert len(reports.created) == 1
+
+
 def test_legacy_download_url_preserved() -> None:
     """旧 downloadUrl 继续可用且指向 DOCX（C72 §⑥.3）。"""
     service, _, storage = _service(report=_record())

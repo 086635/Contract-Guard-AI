@@ -108,6 +108,9 @@ def _attempt_function_calling(
         if parsing_error is not None:
             raise parsing_error
         parsed = result.get("parsed")
+        if parsed is None and raw is not None and not getattr(raw, "tool_calls", None):
+            # 兼容模型直接返回 JSON 的情况；仍严格使用原 Schema 校验。
+            return _parse_message(raw, schema), raw
     return _coerce_value(parsed, schema), raw
 
 
@@ -193,7 +196,11 @@ def _expanded_model(model: BaseChatModel) -> BaseChatModel:
         if isinstance(current, int) and current > 0:
             expanded = min(current * 2, 8192)
             try:
-                return model.model_copy(update={field_name: expanded})
+                updates: dict[str, Any] = {field_name: expanded}
+                extra_body = getattr(model, "extra_body", None)
+                if isinstance(extra_body, dict) and "max_tokens" in extra_body:
+                    updates["extra_body"] = {**extra_body, "max_tokens": expanded}
+                return model.model_copy(update=updates)
             except Exception:  # noqa: BLE001 - 任意自定义模型不支持复制时保持原实例
                 return model
     return model

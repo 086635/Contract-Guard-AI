@@ -30,6 +30,7 @@ const read = (relative: string): string =>
 
 const PANEL_SOURCE = read("../StandardClausePanel.tsx");
 const SETTINGS_SOURCE = read("../../../views/Settings.tsx");
+const KNOWLEDGE_SOURCE = read("../KnowledgePanel.tsx");
 const SERVICES_SOURCE = read("../../../api/services.ts");
 
 const clause = (overrides: Partial<StandardClause> = {}): StandardClause => ({
@@ -181,7 +182,8 @@ describe("C71 standard clause panel", () => {
     // 视图侧：空态走统一 data-state，不得渲染演示数据
     expect(PANEL_SOURCE).toContain("standardClauseEmptyText(canManage)");
     expect(PANEL_SOURCE).not.toContain("MockDataFactory");
-    expect(SETTINGS_SOURCE).toContain("StandardClausePanel");
+    expect(SETTINGS_SOURCE).toContain("KnowledgePanel");
+    expect(KNOWLEDGE_SOURCE).toContain("StandardClausePanel");
     expect(SETTINGS_SOURCE).not.toContain("未联调");
   });
 

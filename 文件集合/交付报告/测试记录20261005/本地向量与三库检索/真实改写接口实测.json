@@ -1,0 +1,21 @@
+{
+  "status": "ok",
+  "httpStatus": 200,
+  "seconds": 23.29,
+  "traceId": "64718b52-91b9-4535-8223-1f72315a3aa1",
+  "taskId": "64718b52-91b9-4535-8223-1f72315a3aa1",
+  "citationCount": 4,
+  "sourceTypes": [
+    "LAW_ARTICLE",
+    "STANDARD_CLAUSE"
+  ],
+  "sourceTitles": [
+    "中华人民共和国民法典 第八百二十七条",
+    "官方范本 GF—2025—0151 · 第二条",
+    "官方范本 GF—2025—0151 · 第二条",
+    "中华人民共和国民法典 第八百二十七条"
+  ],
+  "hasDiff": true,
+  "contractModified": false,
+  "applied": false
+}

@@ -14,6 +14,7 @@ from httpx import ASGITransport, AsyncClient
 from tests.service_testkit import (
     create_schema,
     drop_schema,
+    install_test_auth,
     migrate,
     new_schema_name,
     schema_engine,
@@ -296,6 +297,7 @@ async def _exercise_contract_results(dsn: str) -> None:
             context = service_context(session)
             app = FastAPI()
             app.include_router(contracts_router.router, prefix="/api/v1")
+            install_test_auth(app, session)
             app.dependency_overrides[get_service_context] = lambda: context
             transport = ASGITransport(app=app)
             async with AsyncClient(

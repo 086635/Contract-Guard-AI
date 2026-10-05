@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from pathlib import Path
 
@@ -91,9 +92,10 @@ def test_clamp_and_invalid_range() -> None:
     assert aligner.locate(5, 2) == []
 
 
-def test_unindexed_returns_empty(caplog: pytest.LogCaptureFixture) -> None:
+def test_unindexed_returns_empty(caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch) -> None:
     """未索引 → 空结果 + **只告警一次**（避免前端初始化期刷屏）。"""
     aligner = build_bbox_aligner()
+    monkeypatch.setattr(logging.getLogger("doc_processor.aligner.aligner"), "propagate", True)
     with caplog.at_level("WARNING", logger="doc_processor.aligner.aligner"):
         assert aligner.locate(0, 10) == []
         assert aligner.locate(0, 10) == []
@@ -138,9 +140,10 @@ def test_index_is_sorted_copy() -> None:
     assert [box.y for box in aligner.locate(0, 9)] == [10.0, 20.0, 30.0]
 
 
-def test_invalid_line_skipped(caplog: pytest.LogCaptureFixture) -> None:
+def test_invalid_line_skipped(caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch) -> None:
     """非法偏移（`char_end < char_start`）→ 跳过该行 + warning，不影响其余行。"""
     aligner = build_bbox_aligner()
+    monkeypatch.setattr(logging.getLogger("doc_processor.aligner.aligner"), "propagate", True)
     with caplog.at_level("WARNING", logger="doc_processor.aligner.aligner"):
         aligner.index_text_offsets(
             [

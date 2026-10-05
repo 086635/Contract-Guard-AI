@@ -8,6 +8,7 @@ from typing import Any
 
 from ai_engine.agents import build_rag_tool
 from ai_engine.graphs import GraphDeps, build_audit_graph, new_audit_state
+from ai_engine.llm.settings import get_llm_settings
 from ai_engine.prompts import load_default_library
 from cg_observability import get_logger, log_event
 from worker.adapters import to_clause_inputs
@@ -163,6 +164,7 @@ def run_audit_task(
             reporter.finish(result)
             return result
 
+        llm_settings = get_llm_settings()
         deps = GraphDeps(
             rag_tool=build_rag_tool(),
             llm=None,
@@ -203,6 +205,10 @@ def run_audit_task(
             state=final_state,
             started=started,
         )
+        result["modelInfo"] = {
+            "provider": llm_settings.provider,
+            "model": llm_settings.model if llm_settings.provider != "offline" else "",
+        }
         if result["status"] == "FAILED":
             warnings = [item for item in result.get("warnings", []) if item]
             reporter.fail(warnings[0] if warnings else "audit failed")

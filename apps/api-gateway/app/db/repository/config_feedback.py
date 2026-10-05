@@ -10,11 +10,12 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
+from typing import Any
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, ConfigDict
-from sqlalchemy import func, select
+from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -38,6 +39,9 @@ class RuleUpsert(_PersistenceDto):
     threshold: float | None = None
     is_enabled: bool = True
     review_thresholds: dict[str, float]
+    editor_state: dict[str, Any] = Field(default_factory=dict)
+    version: int = 1
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class RuleRecord(_PersistenceDto):
@@ -50,6 +54,9 @@ class RuleRecord(_PersistenceDto):
     threshold: float | None
     is_enabled: bool
     review_thresholds: dict[str, float]
+    editor_state: dict[str, Any] = Field(default_factory=dict)
+    version: int = 1
+    updated_at: datetime | None = None
 
 
 class FeedbackRecord(_PersistenceDto):
@@ -106,6 +113,27 @@ class RuleRepository:
         ).returning(SettingsRule)
         record = (await self._session.scalars(statement)).one()
         return RuleRecord.model_validate(record)
+
+    async def create(self, rule: RuleUpsert) -> RuleRecord:
+        """Only insert: duplicate IDs/names must never overwrite another rule."""
+        record = SettingsRule(**rule.model_dump(exclude={"id"}), id=rule.id or uuid4())
+        self._session.add(record)
+        await self._session.flush()
+        return RuleRecord.model_validate(record)
+
+    async def update_if_version(self, rule: RuleUpsert, expected: int) -> RuleRecord | None:
+        """Atomic compare-and-update, including concurrent requests."""
+        values = rule.model_dump(exclude={"id"})
+        values["version"] = expected + 1
+        values["updated_at"] = datetime.now(UTC)
+        statement = (
+            update(SettingsRule)
+            .where(SettingsRule.id == rule.id, SettingsRule.version == expected)
+            .values(**values).returning(SettingsRule)
+            .execution_options(populate_existing=True)
+        )
+        record = await self._session.scalar(statement)
+        return RuleRecord.model_validate(record) if record is not None else None
 
 
 class FeedbackRepository:

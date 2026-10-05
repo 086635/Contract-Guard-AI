@@ -13,16 +13,13 @@ from __future__ import annotations
 import math
 from pathlib import Path
 
+from ai_engine.agents.auditor import EnhancedRiskItem as AuditRiskItem
+from ai_engine.agents.conflict import CrossClauseConflict as AuditConflict
+from ai_engine.graphs.nodes import compute_health_score
 from app.db.repository.contract import ContractDetail
 from app.db.repository.result import ReportRecord
 from app.generated import schemas as s
 from rag_contracts.chunk import BBox, ContractChunk
-
-_RISK_PENALTY = {
-    s.RiskLevel.high: 15,
-    s.RiskLevel.medium: 8,
-    s.RiskLevel.low: 3,
-}
 
 
 class ContractProjector:
@@ -124,6 +121,7 @@ class ContractProjector:
             bbox=bbox,
             isCustom=False,
         )
+
     @staticmethod
     def _is_renderable(bbox: BBox) -> bool:
         """退化框（页码 < 1、宽高非正、坐标非有限）不投影 —— **不伪造高亮**（C60）。"""
@@ -137,17 +135,16 @@ class ContractProjector:
         risks: list[s.EnhancedRiskItem],
         conflicts: list[s.CrossClauseConflict],
     ) -> s.HealthScore:
-        total_penalty = sum([_RISK_PENALTY.get(risk.level, 3) for risk in risks]) + sum(
-            [_RISK_PENALTY.get(conflict.level, 3) for conflict in conflicts]
-        )
-        overall = max(0, 100 - total_penalty)
-        return s.HealthScore(
-            overall=overall,
-            dimensions=s.Dimensions(
-                compliance=float(overall),
-                performanceRisk=float(100 - overall),
-                clauseCompleteness=100.0,
-            ),
+        audit_risks = [
+            AuditRiskItem.model_validate(risk.model_dump(by_alias=True))
+            for risk in risks
+        ]
+        audit_conflicts = [
+            AuditConflict.model_validate(conflict.model_dump(by_alias=True))
+            for conflict in conflicts
+        ]
+        return s.HealthScore.model_validate(
+            compute_health_score(audit_risks, audit_conflicts, [])
         )
 
     @staticmethod

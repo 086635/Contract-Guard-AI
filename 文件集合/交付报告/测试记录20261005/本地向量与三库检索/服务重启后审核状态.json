@@ -1,0 +1,7 @@
+{
+  "parseStatus": "DONE",
+  "auditStatus": "DEGRADED",
+  "healthScore": 20,
+  "model": "deepseek-flash",
+  "restarted_api_worker_qdrant": true
+}

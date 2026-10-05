@@ -1,0 +1,440 @@
+{
+  "programFiles": 49,
+  "testFiles": 12,
+  "generatedFiles": 3,
+  "copiedAndVerifiedFiles": 84,
+  "frontend": {
+    "tests": 57,
+    "passed": 57,
+    "failed": 0,
+    "skipped": 0
+  },
+  "backend": {
+    "tests": 1025,
+    "passed": 1009,
+    "failed": 0,
+    "skipped": 16
+  },
+  "files": [
+    {
+      "file": "apps/api-gateway/alembic/versions/20261005_0016_add_rule_editor_state.py",
+      "sha256": "3f37e5c9b140a6f40d685be3035c968da12fa493d00adeef51a6cba0d2aa2060",
+      "equal": true
+    },
+    {
+      "file": "apps/api-gateway/app/api/middlewares/idempotency.py",
+      "sha256": "702987ca780fd9b1bc65c35b30e09dc767167bf45e422920473b67dc53446ecd",
+      "equal": true
+    },
+    {
+      "file": "apps/api-gateway/app/api/v1/config.py",
+      "sha256": "7ed741bc2f16bd4b34e84b058e85d88bc8e1a46c948060d8e87c4a7e050bb779",
+      "equal": true
+    },
+    {
+      "file": "apps/api-gateway/app/api/v1/contracts.py",
+      "sha256": "736e8043ee4ee9fa70f60a2ee32becd2f78b338efe6ac11a094a0003e4879e3c",
+      "equal": true
+    },
+    {
+      "file": "apps/api-gateway/app/api/v1/feedback.py",
+      "sha256": "f9b3344547930ea38cdee288c342382bb4bdcfd090d019b0b5694ec7ca992fa4",
+      "equal": true
+    },
+    {
+      "file": "apps/api-gateway/app/api/v1/tests/test_config_real.py",
+      "sha256": "b93c53c16da6bcfa7b1a7ec4e3bb30f3a8f1272ec6d125b8bf03e154faae5966",
+      "equal": true
+    },
+    {
+      "file": "apps/api-gateway/app/api/v1/tests/test_report_real.py",
+      "sha256": "f177f9705d4143f8585e75f7fbf51bb1e02adee69698fa157b408dde52e937dc",
+      "equal": true
+    },
+    {
+      "file": "apps/api-gateway/app/db/models.py",
+      "sha256": "1b4634fd5185c72ba0e7432ac6234cf89ffb8e531be89103f4f062d83f489934",
+      "equal": true
+    },
+    {
+      "file": "apps/api-gateway/app/db/repository/config_feedback.py",
+      "sha256": "d7b3122ee3605f57e3835c5f9d4077f252e26c11b2f0531d20a0bc1a79f08879",
+      "equal": true
+    },
+    {
+      "file": "apps/api-gateway/app/db/repository/contract.py",
+      "sha256": "d11f5c58a4f6121115531f1ced0e4e1e2075ac95e641c56fb80b1a5af3909b79",
+      "equal": true
+    },
+    {
+      "file": "apps/api-gateway/app/generated/schemas.py",
+      "sha256": "336ba97b6ac5ed818f1a7bc7646893bc833783d8f454cbcf49707cc29acd70fc",
+      "equal": true
+    },
+    {
+      "file": "apps/api-gateway/app/services/contract_service.py",
+      "sha256": "1bf36a1ff798ae43e4d2b9f8a4c39c47f9c7a8d7612f7d8c837484cb3204da16",
+      "equal": true
+    },
+    {
+      "file": "apps/api-gateway/app/services/feedback_service.py",
+      "sha256": "65b01c80a77eb0d63f2e7190c3f523a53ba7674b869295ca67024e44066b0eed",
+      "equal": true
+    },
+    {
+      "file": "apps/api-gateway/app/services/ingestion.py",
+      "sha256": "3a9d0640aee5556254bb008a2cef438d259c8321ce5fc0cff7eca17bb139fda6",
+      "equal": true
+    },
+    {
+      "file": "apps/api-gateway/app/services/report_service.py",
+      "sha256": "9515b84f26925e8df79a70fb662708d877b7c2da39d4ff588b10a8ee53fdb768",
+      "equal": true
+    },
+    {
+      "file": "apps/api-gateway/app/services/result_service.py",
+      "sha256": "3168b61e1b26498c7ac2749efc4e06810116e20004adc29ad8d1f1f694d00353",
+      "equal": true
+    },
+    {
+      "file": "apps/api-gateway/app/services/rule_service.py",
+      "sha256": "98fcc838bfd6fe2323b639a5e8ae1100a78bb103c517e4a692baab77dc9bbfe9",
+      "equal": true
+    },
+    {
+      "file": "apps/api-gateway/tests/test_api_real_endpoints.py",
+      "sha256": "d85e8fbbdb41027a490650e591a6f0b56de4deaf0c4bbe0b4ff146dfc3072eb6",
+      "equal": true
+    },
+    {
+      "file": "apps/api-gateway/tests/test_application_iteration.py",
+      "sha256": "18926f983a8a22b50614e988da6b237469bc96c65757cb7814a729aac1a2897a",
+      "equal": true
+    },
+    {
+      "file": "apps/api-gateway/tests/test_report_downloads.py",
+      "sha256": "b510cefdb2f40b92977f85d073df70a55294c69924bf91624c9a47b4c2441510",
+      "equal": true
+    },
+    {
+      "file": "apps/api-gateway/tests/test_result_status_snapshot.py",
+      "sha256": "e8181c93651763017d8b7e5f5607f0d57b706e641032f8124838b034b7a2b0f3",
+      "equal": true
+    },
+    {
+      "file": "apps/async-worker/tests/test_report_render_docx.py",
+      "sha256": "54861142ac83103c5b39f76bbc6c24999dce9307dee3640390fde5bc42a30828",
+      "equal": true
+    },
+    {
+      "file": "apps/async-worker/tests/test_windows_image_runtime.py",
+      "sha256": "ab5581db4b156a2c0f6f37a7eed443c1aaa7eff0166abc9083ec84ad2467a94c",
+      "equal": true
+    },
+    {
+      "file": "apps/async-worker/worker/main.py",
+      "sha256": "93ba77b074e73d5cb6779bd32c178d69b64c8aabc7db40e8a5e976de16d8ab0a",
+      "equal": true
+    },
+    {
+      "file": "apps/async-worker/worker/parse_pipeline.py",
+      "sha256": "727ce0b883f39385c05cefb3ca2ba12ceb7d3070c77ba1346bb5bcb175993159",
+      "equal": true
+    },
+    {
+      "file": "apps/async-worker/worker/report/render_docx.py",
+      "sha256": "dbf5b4653b69de1265f51f0549cfacaa97526209cae8f4f4458a513e0a0679a7",
+      "equal": true
+    },
+    {
+      "file": "apps/web-ui/dist/.gitkeep",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "equal": true
+    },
+    {
+      "file": "apps/web-ui/dist/assets/index-CSpQTIlf.css",
+      "sha256": "e6ae8f1d6e2d72e58e5588a2b9678c0fcca91330f881d0e8b55c166b7356ee13",
+      "equal": true
+    },
+    {
+      "file": "apps/web-ui/dist/assets/index-DvvRhh4P.js",
+      "sha256": "4851c4eb04286de2be18009edc1d42af35bc392f4fb284ea28fdf7a7a81c7c19",
+      "equal": true
+    },
+    {
+      "file": "apps/web-ui/dist/assets/pdf-BnPRJEQ6.js",
+      "sha256": "95caf357c819e3766dabfccd6dca160b603e673a386e5fe1c18a21fa0bb3a539",
+      "equal": true
+    },
+    {
+      "file": "apps/web-ui/dist/assets/pdf.worker.min-yatZIOMy.mjs",
+      "sha256": "1baa1844c89c80a5b2797c916e75ab29254be46d8e9cb53cb6364d7aad84be36",
+      "equal": true
+    },
+    {
+      "file": "apps/web-ui/dist/index.html",
+      "sha256": "2eb147d4a56e8cb1b831e6a69f13ad85607e9c4d14ab30e4e9033f6841599da4",
+      "equal": true
+    },
+    {
+      "file": "apps/web-ui/src/api/generated/types.ts",
+      "sha256": "e973366fc66b825fec0575bb4a34222bf8b0ccc5267739ebd926315897666564",
+      "equal": true
+    },
+    {
+      "file": "apps/web-ui/src/api/generated/zod.ts",
+      "sha256": "ca10ea9af9c6771873fc27ac7f1374a93cc55fbdb66f918b732135c6ceee6f43",
+      "equal": true
+    },
+    {
+      "file": "apps/web-ui/src/api/services.ts",
+      "sha256": "19390bc842531919b6cb406e17604e5eafa687660c03f74e6fdad918512ee28f",
+      "equal": true
+    },
+    {
+      "file": "apps/web-ui/src/components/audit/ElementsPanel.tsx",
+      "sha256": "8558672a04b16697ccf8e884619c8f9547a629d78a565dc376872d423e2e1749",
+      "equal": true
+    },
+    {
+      "file": "apps/web-ui/src/components/audit/FeedbackDialog.tsx",
+      "sha256": "545500d4a11eccfe9a2121da06eec95694c34162c0cf1c5075785bdecd1ed9f2",
+      "equal": true
+    },
+    {
+      "file": "apps/web-ui/src/components/audit/PdfStage.tsx",
+      "sha256": "3fd16a3a93fdbbf0a12b8d5a9c427a5d86463fa8ba285f9d230e866d42f4b566",
+      "equal": true
+    },
+    {
+      "file": "apps/web-ui/src/components/audit/RiskPanel.tsx",
+      "sha256": "bcb6f8cf10a2cba374cfc32b2920978ed33415d93f61659c844fbe8cf89cca56",
+      "equal": true
+    },
+    {
+      "file": "apps/web-ui/src/components/contracts/ContractRow.tsx",
+      "sha256": "6ac0492fdd7cfc467c093459da232cf1881b165e1ed53a225d32a84b66e696f9",
+      "equal": true
+    },
+    {
+      "file": "apps/web-ui/src/components/layout/AppShell.tsx",
+      "sha256": "7b2f626114a698ce9747c2cc1f3e84390b44b2918cecda0480278a37613b3089",
+      "equal": true
+    },
+    {
+      "file": "apps/web-ui/src/components/ui/Dialog.tsx",
+      "sha256": "5d23d49e68a7d58c32f4cc35e90cb1a6ff07b193bed6f1b9f5d6d27c10044dcc",
+      "equal": true
+    },
+    {
+      "file": "apps/web-ui/src/index.css",
+      "sha256": "41fd6af9e812bd7cda43829d429f1587d12d428c8ccd2676c11ced1583661829",
+      "equal": true
+    },
+    {
+      "file": "apps/web-ui/src/router/index.tsx",
+      "sha256": "4cb45bddb61dcf9631f1814d39fb32d0171a13a7e179e2d8b50090e8cdbc1a0e",
+      "equal": true
+    },
+    {
+      "file": "apps/web-ui/src/stores/contractStore.ts",
+      "sha256": "29f349df10c151a87d6f94ce9c7a4c92cded52ce4fe2d68dfe6ea053103f4051",
+      "equal": true
+    },
+    {
+      "file": "apps/web-ui/src/views/Audit.tsx",
+      "sha256": "628c637f928ed956a2ef68a3e62020f95286339a9b3dea266df64aab8b959e12",
+      "equal": true
+    },
+    {
+      "file": "apps/web-ui/src/views/ContractHub.tsx",
+      "sha256": "e57854e36b0ceec129cbf99f455428bb41670fa67abb54ef41ba3101e06ecf9d",
+      "equal": true
+    },
+    {
+      "file": "apps/web-ui/src/views/Dashboard.tsx",
+      "sha256": "832428e1e62e7d0a83bbb9dd8ebefe4e360f5f646cf993d103aed80d58c8a429",
+      "equal": true
+    },
+    {
+      "file": "apps/web-ui/src/views/Feedback.tsx",
+      "sha256": "4227bcad206d7120c543d4da43da8b89555d5b5d607586c25fca946843ae240e",
+      "equal": true
+    },
+    {
+      "file": "apps/web-ui/src/views/Report.tsx",
+      "sha256": "ecfaebaced87715782eae386778509268fa5d220d723f93fa9de87b367f5693d",
+      "equal": true
+    },
+    {
+      "file": "apps/web-ui/src/views/Settings.tsx",
+      "sha256": "e3405b75b33d37e72400f5522a9551ba2b93c781ce31aff22e871277d402465e",
+      "equal": true
+    },
+    {
+      "file": "apps/web-ui/src/views/__tests__/iteration.test.tsx",
+      "sha256": "5c0204f9343a3e08602709744f8bf43826cba962795f764b98f04e1f0724cee4",
+      "equal": true
+    },
+    {
+      "file": "packages/doc-processor/doc_processor/parser/extractor.py",
+      "sha256": "c7c4481c330e6ce545c87c832c4d29e449de3f822d57a000ae3a9ef986a5c3f7",
+      "equal": true
+    },
+    {
+      "file": "packages/doc-processor/tests/test_iteration_numbering.py",
+      "sha256": "b34d4d74727e7dec7325d853f8c8acfcead371f6c813e5af1c70efa25493ead5",
+      "equal": true
+    },
+    {
+      "file": "packages/rag-contracts/rag_contracts/patterns.py",
+      "sha256": "1570ad33e2c59e0d4e24eb2e5c671c3a621a9b5583ce2f44421947596487671f",
+      "equal": true
+    },
+    {
+      "file": "packages/rag-contracts/tests/test_patterns.py",
+      "sha256": "aa6f5de0e90b950374a2ede8325318da9ab7c25fae92b7094dec95d5c4e92941",
+      "equal": true
+    },
+    {
+      "file": "packages/schema/openapi.yaml",
+      "sha256": "12e9bf43c958259f57cab968c6a38ed0e049d845c26b8c827d7ddc1db464f81e",
+      "equal": true
+    },
+    {
+      "file": "tests/release/test_generated_artifacts.py",
+      "sha256": "6e2c9199fd3493abbac3f06d893d6fa4da77692da14fc95568013b5ba4e4023d",
+      "equal": true
+    },
+    {
+      "file": "文件集合/codex/0.施工标准与定义归属.md",
+      "sha256": "ce4f82be0eee708dea228f82f098bca7669c8d19451b998910e49b67dab3e1c9",
+      "equal": true
+    },
+    {
+      "file": "文件集合/codex/4-6应用交互与解析升级20261005.md",
+      "sha256": "2f9d2200c24501588e5819b1917197a0dad8b3d4c74b0f91c84a786bc759665b",
+      "equal": true
+    },
+    {
+      "file": "文件集合/codex/4.交付模块.md",
+      "sha256": "4683fa885836490f9ad070c6dfb9b24ef198a4b1f3fe02905303b638d0ad6712",
+      "equal": true
+    },
+    {
+      "file": "文件集合/交付报告/T-D7生产化整改交付报告.md",
+      "sha256": "fd29aa543549ac171409be42cfb6c907159c2a3f4363bad9fcf695ea9d9c8b27",
+      "equal": true
+    },
+    {
+      "file": "文件集合/交付报告/应用升级反馈导出20261005.png",
+      "sha256": "b0f2191942f69c589acab9a986fde4f25af64431e3e5d7962f33e61250f096ce",
+      "equal": true
+    },
+    {
+      "file": "文件集合/交付报告/应用升级完成报告20261005.md",
+      "sha256": "874d891ecde45291c664c42623c73296ab081a151ec7c4da99dbe5b1137a966f",
+      "equal": true
+    },
+    {
+      "file": "文件集合/交付报告/应用升级条款定位20261005.png",
+      "sha256": "3826bc7286d65254ec7efb262265458362eadb6fe36720e9cd7213f2883bc19f",
+      "equal": true
+    },
+    {
+      "file": "文件集合/交付报告/应用升级规则持久化20261005.png",
+      "sha256": "1823fb539f3087e79be13b5f043a185484dc3b2caadeb0992aed29eb5f9a10bb",
+      "equal": true
+    },
+    {
+      "file": "文件集合/交付报告/应用升级验收截图20261005.png",
+      "sha256": "c6e0db51a59697641488bb6d7cbc199aee4750bf2b01974b3a3aaad7d1141ce5",
+      "equal": true
+    },
+    {
+      "file": "文件集合/交付报告/测试记录20261005/应用升级/iteration-build-final.log",
+      "sha256": "241629628afe0180407416237401453fb1b661f080a4eafb79fcdaf892660b47",
+      "equal": true
+    },
+    {
+      "file": "文件集合/交付报告/测试记录20261005/应用升级/iteration-diff-check.log",
+      "sha256": "9b863aae833330fad1d0ffeaf20c38edf450d805365bfb714cd23dae3d4cefec",
+      "equal": true
+    },
+    {
+      "file": "文件集合/交付报告/测试记录20261005/应用升级/iteration-export-test.log",
+      "sha256": "93520accbfaeeda8287f5f1aa2693920e3c8d905a2a12e075bb375b1225eeb70",
+      "equal": true
+    },
+    {
+      "file": "文件集合/交付报告/测试记录20261005/应用升级/iteration-frontend-final.log",
+      "sha256": "5592ca49e0a4d1740b7478cd1965c4102963d240dc351da83a5590df8bf9a770",
+      "equal": true
+    },
+    {
+      "file": "文件集合/交付报告/测试记录20261005/应用升级/iteration-frontend-final.xml",
+      "sha256": "6dc9892a0424a9e38029c3c13c79e87193e440e784a561f5e7e85754fe39f8c5",
+      "equal": true
+    },
+    {
+      "file": "文件集合/交付报告/测试记录20261005/应用升级/iteration-generation-export.log",
+      "sha256": "0d83000327e2e230b072ffe9971bf543cf71ee0347eb0faf5d9c7373be698b1b",
+      "equal": true
+    },
+    {
+      "file": "文件集合/交付报告/测试记录20261005/应用升级/iteration-generation.log",
+      "sha256": "9c83db0812a54394a8b9808a16d752c7ff488067019d5b41e02fd644805cb203",
+      "equal": true
+    },
+    {
+      "file": "文件集合/交付报告/测试记录20261005/应用升级/iteration-lint-final.log",
+      "sha256": "4b9bb67410220680376ae157e981d29236ec58c275eaa998ddbfce37c4db2e1c",
+      "equal": true
+    },
+    {
+      "file": "文件集合/交付报告/测试记录20261005/应用升级/iteration-migration-final.log",
+      "sha256": "5b9fdc466651a5b1676fecf065b99e8f0486e4d542b066bd38caae120a6c205e",
+      "equal": true
+    },
+    {
+      "file": "文件集合/交付报告/测试记录20261005/应用升级/iteration-migration.log",
+      "sha256": "eddc81bef9f41cee0834cc0a15f1fa32b16eed8d81a629c353272b30c4bbca72",
+      "equal": true
+    },
+    {
+      "file": "文件集合/交付报告/测试记录20261005/应用升级/iteration-python-final.log",
+      "sha256": "9834451f7492eaebf07d557a024978c9f052a55e3048a49f2c412914c1c6cc8d",
+      "equal": true
+    },
+    {
+      "file": "文件集合/交付报告/测试记录20261005/应用升级/iteration-python-final.xml",
+      "sha256": "e190c707e883ac653ad828f95dbdf02a81aa69fc8b03b332ac98ea457e27a0c5",
+      "equal": true
+    },
+    {
+      "file": "文件集合/交付报告/测试记录20261005/应用升级/iteration-runtime-results.json",
+      "sha256": "a571af1b03082458aa549feae31502269a92fd73fc31eabcd838f66786e8bd7b",
+      "equal": true
+    },
+    {
+      "file": "文件集合/交付报告/测试记录20261005/应用升级/iteration-runtime.log",
+      "sha256": "ede18f81ed6e68551a0baac26ed4356041a59cc92b0288a36516755317221249",
+      "equal": true
+    },
+    {
+      "file": "文件集合/交付报告/测试记录20261005/应用升级/真实反馈导出验证20261005.csv",
+      "sha256": "2ec4ba97e2ac7a42832bd4c06647000aecbf71c6431ada2f8c61bfcdbb8b4a9a",
+      "equal": true
+    },
+    {
+      "file": "文件集合/交付报告/测试记录20261005/应用升级/真实合同报告验证20261005.docx",
+      "sha256": "331ad29405f8f57044ae6855c456773c5ec90c169fe4f07e8871063b031c35aa",
+      "equal": true
+    },
+    {
+      "file": "文件集合/交付报告/测试记录20261005/应用升级/iteration-ready-check.json",
+      "sha256": "23ff1b4fe00820e9e64685f6a820d7bb165d0287ced86bedb4b8aadcd59d27f8",
+      "equal": true
+    }
+  ]
+}

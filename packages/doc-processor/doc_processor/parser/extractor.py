@@ -344,8 +344,10 @@ class LocalNodeExtractor(NodeExtractor):
             return 1
         if num.endswith("条"):
             return 2
-        if num.endswith(("款", "项", ")")):
+        if num.endswith(("款", "项", ")", "）")):
             return 3
+        if num.endswith(("、", "．", ".")):
+            return 1
         if "." in num:
             return 1 + num.count(".")
         return 0

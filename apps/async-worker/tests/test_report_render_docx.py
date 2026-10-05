@@ -118,6 +118,15 @@ def test_render_returns_openable_docx() -> None:
     assert _paragraph_texts(data)
 
 
+def test_report_marks_incomplete_audit_truthfully() -> None:
+    payload = _input(risks=[], conflicts=[]).model_copy(update={"audit_status": "FAILED", "audit_notice": "离线模型未完成风险审核，请人工复核。", "health_score": None})
+    text = "\n".join(_paragraph_texts(render_report_docx(payload)))
+    assert "FAILED" in text
+    assert "离线模型未完成风险审核" in text
+    assert "暂无风险记录" in text
+    assert "总分：100" not in text
+
+
 def test_render_contains_risk_and_citations() -> None:
     texts = _paragraph_texts(render_report_docx(_input()))
     joined = "\n".join(texts)

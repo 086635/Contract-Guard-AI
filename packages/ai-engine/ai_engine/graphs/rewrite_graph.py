@@ -75,7 +75,10 @@ def _rag_text(state: RewriteState) -> str:
 def prepare_node(state: RewriteState, deps: GraphDeps) -> dict[str, Any]:
     stage = REWRITE_STAGES[0]
     started = time.perf_counter()
-    if isinstance(state.get("rag_context"), dict):
+    provided_context = state.get("rag_context")
+    if isinstance(provided_context, dict) and str(
+        provided_context.get("context_block") or ""
+    ).strip():
         return _finish_stage(
             state,
             stage,

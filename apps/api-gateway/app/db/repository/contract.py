@@ -13,7 +13,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -101,6 +101,13 @@ class TaskRecord(_PersistenceDto):
     error_code: str | None = None
     locked_at: datetime | None = None
     completed_at: datetime | None = None
+    created_at: datetime | None = None
+
+    @field_validator("created_at")
+    @classmethod
+    def normalize_created_at(cls, value: datetime | None) -> datetime | None:
+        """SQLite may omit timezone; all task ordering uses UTC."""
+        return value.replace(tzinfo=UTC) if value is not None and value.tzinfo is None else value
 
     @property
     def can_retry(self) -> bool:
@@ -184,9 +191,15 @@ class ContractRepository:
         *,
         owner_id: UUID | None = None,
         include_all: bool = True,
+        for_update: bool = False,
     ) -> ContractDetail | None:
         """按主键读取合同；普通用户启用归属过滤，越权按不存在处理。"""
-        if owner_id is None or include_all:
+        if for_update:
+            statement = select(Contract).where(Contract.id == contract_id)
+            if owner_id is not None and not include_all:
+                statement = statement.where(Contract.created_by_id == owner_id)
+            record = await self._session.scalar(statement.with_for_update())
+        elif owner_id is None or include_all:
             record = await self._session.get(Contract, contract_id)
         else:
             record = await self._session.scalar(

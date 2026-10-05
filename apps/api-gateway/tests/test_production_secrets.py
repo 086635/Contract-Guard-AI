@@ -257,6 +257,7 @@ def test_config_self_check_cli_reports_field_names_only(tmp_path: Path) -> None:
     )
     env["CG_RUNTIME_ENV"] = "production"
     env["CG_JWT_SECRET"] = "super-secret-jwt-value-should-not-print"
+    env["CG_POSTGRES_DSN"] = "postgresql+asyncpg://cg:cg@localhost:5432/cg"
     env["CG_LLM_API_KEY"] = ""
 
     completed = subprocess.run(

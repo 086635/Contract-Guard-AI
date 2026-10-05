@@ -15,6 +15,7 @@ from httpx import ASGITransport, AsyncClient
 from tests.service_testkit import (
     create_schema,
     drop_schema,
+    install_test_auth,
     migrate,
     new_schema_name,
     schema_engine,
@@ -129,6 +130,8 @@ async def _exercise_tasks(dsn: str) -> None:
             )
             app = FastAPI()
             app.include_router(tasks_router.router, prefix="/api/v1")
+            install_test_auth(app, session, persist_user=True)
+            await session.commit()
             app.dependency_overrides[get_service_context] = lambda: context
             transport = ASGITransport(app=app)
             async with AsyncClient(
@@ -140,7 +143,9 @@ async def _exercise_tasks(dsn: str) -> None:
                 assert response.json()["data"]["stage"] == "processing"
                 assert response.json()["data"]["percent"] == 0.6
 
-                stream = await client.get(f"/api/v1/tasks/{task.id}/stream")
+                issued = await client.post(f"/api/v1/tasks/{task.id}/stream-token")
+                assert issued.status_code == 200
+                stream = await client.get(f"/api/v1/tasks/{task.id}/stream", params={"streamToken": issued.json()["data"]["streamToken"]})
                 assert stream.status_code == 200
                 assert stream.headers["content-type"].startswith("text/event-stream")
                 assert stream.text.count("event: progress") == 3

@@ -1,0 +1,6 @@
+{
+  "taskId": "4786a96e-35dc-4dbd-8711-b4fdd06cec78",
+  "status": "FAILED",
+  "reason": "本次验收任务在 Windows TLS 证书链获取中阻塞；已修复连接并结束此任务，随后重新复审。",
+  "other_tasks_unchanged": true
+}

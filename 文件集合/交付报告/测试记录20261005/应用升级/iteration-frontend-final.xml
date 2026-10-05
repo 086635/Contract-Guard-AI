@@ -1,0 +1,139 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<testsuites name="vitest tests" tests="57" failures="0" errors="0" time="1.201">
+    <testsuite name="src/api/__tests__/client.test.ts" timestamp="2026-10-05T07:15:47.714Z" hostname="wang" tests="9" failures="0" errors="0" skipped="0" time="0.0131992">
+        <testcase classname="src/api/__tests__/client.test.ts" name="httpClient 401 refresh &gt; test_401_single_flight_refresh" time="0.0029013">
+        </testcase>
+        <testcase classname="src/api/__tests__/client.test.ts" name="httpClient 401 refresh &gt; normalizes ApiError message detail and issues" time="0.0049918">
+            <system-err>
+[api] tr-c52 请求重复
+
+            </system-err>
+        </testcase>
+        <testcase classname="src/api/__tests__/client.test.ts" name="httpClient 401 refresh &gt; refreshAccessToken de-duplicates concurrent refresh calls" time="0.0004755">
+        </testcase>
+        <testcase classname="src/api/__tests__/client.test.ts" name="httpClient 401 refresh &gt; keeps readable errors for status 422 and body {&quot;message&quot;:&quot;请检查上传文件&quot;,&quot;detail&quot;:&quot;validation failed&quot;}" time="0.0008565">
+        </testcase>
+        <testcase classname="src/api/__tests__/client.test.ts" name="httpClient 401 refresh &gt; keeps readable errors for status 409 and body {&quot;message&quot;:&quot;数据冲突&quot;,&quot;detail&quot;:&quot;该文件此前已上传过&quot;}" time="0.000438">
+        </testcase>
+        <testcase classname="src/api/__tests__/client.test.ts" name="httpClient 401 refresh &gt; keeps readable errors for status 400 and body {&quot;detail&quot;:&quot;文件格式不受支持&quot;}" time="0.0004263">
+        </testcase>
+        <testcase classname="src/api/__tests__/client.test.ts" name="httpClient 401 refresh &gt; keeps readable errors for status 400 and body {&quot;message&quot;:&quot; &quot;,&quot;detail&quot;:&quot;请填写文件名&quot;}" time="0.0005043">
+        </testcase>
+        <testcase classname="src/api/__tests__/client.test.ts" name="httpClient 401 refresh &gt; keeps readable errors for status 400 and body {}" time="0.0004605">
+        </testcase>
+        <testcase classname="src/api/__tests__/client.test.ts" name="httpClient 401 refresh &gt; preserves the original network error" time="0.0006397">
+        </testcase>
+    </testsuite>
+    <testsuite name="src/api/__tests__/taskStream.test.ts" timestamp="2026-10-05T07:15:47.717Z" hostname="wang" tests="7" failures="0" errors="0" skipped="0" time="0.1312377">
+        <testcase classname="src/api/__tests__/taskStream.test.ts" name="C65 SSE 订阅 &gt; test_subscribe_uses_stream_token" time="0.007904">
+        </testcase>
+        <testcase classname="src/api/__tests__/taskStream.test.ts" name="C65 SSE 订阅 &gt; test_expired_token_requests_new_one" time="0.0167004">
+        </testcase>
+        <testcase classname="src/api/__tests__/taskStream.test.ts" name="C65 SSE 订阅 &gt; test_polling_fallback_completes" time="0.0291214">
+        </testcase>
+        <testcase classname="src/api/__tests__/taskStream.test.ts" name="C65 SSE 订阅 &gt; test_unsubscribe_cleans_timers" time="0.0453303">
+        </testcase>
+        <testcase classname="src/api/__tests__/taskStream.test.ts" name="C65 SSE 订阅 &gt; test_terminal_error_stops_without_polling" time="0.015852">
+        </testcase>
+        <testcase classname="src/api/__tests__/taskStream.test.ts" name="C65 SSE 订阅 &gt; test_token_never_reaches_error_callback_or_logs" time="0.0153106">
+        </testcase>
+        <testcase classname="src/api/__tests__/taskStream.test.ts" name="C65 SSE 订阅 &gt; test_progress_parser_rejects_invalid_payload" time="0.0001882">
+        </testcase>
+    </testsuite>
+    <testsuite name="src/api/__tests__/zod.test.ts" timestamp="2026-10-05T07:15:47.718Z" hostname="wang" tests="5" failures="0" errors="0" skipped="0" time="0.0074953">
+        <testcase classname="src/api/__tests__/zod.test.ts" name="C73 zod runtime validation &gt; test_zod_valid_response" time="0.0027087">
+        </testcase>
+        <testcase classname="src/api/__tests__/zod.test.ts" name="C73 zod runtime validation &gt; test_zod_invalid_rejected" time="0.0020056">
+        </testcase>
+        <testcase classname="src/api/__tests__/zod.test.ts" name="C73 zod runtime validation &gt; test_zod_api_error_shape" time="0.0009207">
+        </testcase>
+        <testcase classname="src/api/__tests__/zod.test.ts" name="C73 zod runtime validation &gt; test_p0_operation_registry_complete" time="0.0006236">
+        </testcase>
+        <testcase classname="src/api/__tests__/zod.test.ts" name="C73 zod runtime validation &gt; test_production_rejects_dirty_data" time="0.0005157">
+        </testcase>
+    </testsuite>
+    <testsuite name="src/views/__tests__/Dashboard.test.tsx" timestamp="2026-10-05T07:15:47.719Z" hostname="wang" tests="15" failures="0" errors="0" skipped="0" time="0.0204602">
+        <testcase classname="src/views/__tests__/Dashboard.test.tsx" name="Dashboard data &gt; includes the contract beyond the first 50 results" time="0.0036118">
+        </testcase>
+        <testcase classname="src/views/__tests__/Dashboard.test.tsx" name="Dashboard data &gt; stops on an empty page even when hasMore is true" time="0.000597">
+        </testcase>
+        <testcase classname="src/views/__tests__/Dashboard.test.tsx" name="Dashboard data &gt; reads a completed parse and reloads the final summary" time="0.0011226">
+        </testcase>
+        <testcase classname="src/views/__tests__/Dashboard.test.tsx" name="Dashboard data &gt; shows a failed parse instead of an indefinitely running task" time="0.0002563">
+        </testcase>
+        <testcase classname="src/views/__tests__/Dashboard.test.tsx" name="Dashboard data &gt; uses the real task result when the recorded parse and summary are still running" time="0.0004031">
+        </testcase>
+        <testcase classname="src/views/__tests__/Dashboard.test.tsx" name="Dashboard data &gt; does not treat a failed result envelope as a successful parse" time="0.0002516">
+        </testcase>
+        <testcase classname="src/views/__tests__/Dashboard.test.tsx" name="Dashboard data &gt; does not query parse status for a completed contract" time="0.0002992">
+        </testcase>
+        <testcase classname="src/views/__tests__/Dashboard.test.tsx" name="Dashboard data &gt; preserves a real synchronization failure" time="0.0003145">
+        </testcase>
+        <testcase classname="src/views/__tests__/Dashboard.test.tsx" name="Dashboard data &gt; keeps zero as a valid score and distinguishes an empty list" time="0.0001971">
+        </testcase>
+        <testcase classname="src/views/__tests__/Dashboard.test.tsx" name="Dashboard refresh lifecycle &gt; refreshes after five seconds only while parsing" time="0.0010849">
+        </testcase>
+        <testcase classname="src/views/__tests__/Dashboard.test.tsx" name="Dashboard refresh lifecycle &gt; clears a pending refresh on cleanup" time="0.0002926">
+        </testcase>
+        <testcase classname="src/views/__tests__/Dashboard.test.tsx" name="Dashboard refresh lifecycle &gt; does not refresh terminal or empty lists" time="0.000212">
+        </testcase>
+        <testcase classname="src/views/__tests__/Dashboard.test.tsx" name="Contract risk summaries &gt; shows the real total without inventing risk levels in table view" time="0.0070029">
+        </testcase>
+        <testcase classname="src/views/__tests__/Dashboard.test.tsx" name="Contract risk summaries &gt; shows the real total without inventing risk levels in cards view" time="0.0015874">
+        </testcase>
+        <testcase classname="src/views/__tests__/Dashboard.test.tsx" name="Contract risk summaries &gt; distinguishes a missing count from a confirmed zero" time="0.0021686">
+        </testcase>
+    </testsuite>
+    <testsuite name="src/views/__tests__/iteration.test.tsx" timestamp="2026-10-05T07:15:47.721Z" hostname="wang" tests="5" failures="0" errors="0" skipped="0" time="0.0071869">
+        <testcase classname="src/views/__tests__/iteration.test.tsx" name="real application entry points &gt; opens the actual selection pages before choosing a contract" time="0.000764">
+        </testcase>
+        <testcase classname="src/views/__tests__/iteration.test.tsx" name="real application entry points &gt; keeps the selected contract when switching to report" time="0.0001667">
+        </testcase>
+        <testcase classname="src/views/__tests__/iteration.test.tsx" name="real application entry points &gt; preserves zero scores and does not present clause chunks as key elements" time="0.0035457">
+        </testcase>
+        <testcase classname="src/views/__tests__/iteration.test.tsx" name="complete feedback data &gt; loads feedback beyond the first page for statistics and export" time="0.0008701">
+        </testcase>
+        <testcase classname="src/views/__tests__/iteration.test.tsx" name="complete feedback data &gt; stops when a later feedback page is empty" time="0.0008092">
+        </testcase>
+    </testsuite>
+    <testsuite name="src/stores/__tests__/authStore.test.ts" timestamp="2026-10-05T07:15:47.723Z" hostname="wang" tests="2" failures="0" errors="0" skipped="0" time="0.0026787">
+        <testcase classname="src/stores/__tests__/authStore.test.ts" name="authStore &gt; test_login_sets_memory_token" time="0.0012721">
+        </testcase>
+        <testcase classname="src/stores/__tests__/authStore.test.ts" name="authStore &gt; test_refresh_on_reload" time="0.0002275">
+        </testcase>
+    </testsuite>
+    <testsuite name="src/components/layout/__tests__/AppShell.test.ts" timestamp="2026-10-05T07:15:47.724Z" hostname="wang" tests="4" failures="0" errors="0" skipped="0" time="0.0126186">
+        <testcase classname="src/components/layout/__tests__/AppShell.test.ts" name="AppShell navigation &gt; test_viewer_hides_admin_nav" time="0.0007884">
+        </testcase>
+        <testcase classname="src/components/layout/__tests__/AppShell.test.ts" name="AppShell navigation &gt; highlights only the current main navigation on /contracts" time="0.0081312">
+        </testcase>
+        <testcase classname="src/components/layout/__tests__/AppShell.test.ts" name="AppShell navigation &gt; highlights only the current main navigation on /contracts/selected-contract/audit" time="0.0015765">
+        </testcase>
+        <testcase classname="src/components/layout/__tests__/AppShell.test.ts" name="AppShell navigation &gt; highlights only the current main navigation on /contracts/selected-contract/report" time="0.0014326">
+        </testcase>
+    </testsuite>
+    <testsuite name="src/components/pdf-viewer/__tests__/PdfViewer.test.tsx" timestamp="2026-10-05T07:15:47.725Z" hostname="wang" tests="5" failures="0" errors="0" skipped="0" time="0.0074066">
+        <testcase classname="src/components/pdf-viewer/__tests__/PdfViewer.test.tsx" name="C61 PDF 查看器 &gt; test_pdf_preview_uses_real_url" time="0.0036778">
+        </testcase>
+        <testcase classname="src/components/pdf-viewer/__tests__/PdfViewer.test.tsx" name="C61 PDF 查看器 &gt; test_pdf_viewer_releases_document" time="0.0001756">
+        </testcase>
+        <testcase classname="src/components/pdf-viewer/__tests__/PdfViewer.test.tsx" name="C61 PDF 查看器 &gt; test_bbox_scale_mapping" time="0.0007365">
+        </testcase>
+        <testcase classname="src/components/pdf-viewer/__tests__/PdfViewer.test.tsx" name="C61 PDF 查看器 &gt; test_page_navigation" time="0.0006634">
+        </testcase>
+        <testcase classname="src/components/pdf-viewer/__tests__/PdfViewer.test.tsx" name="C61 PDF 查看器 &gt; test_preview_failed_retry" time="0.0005907">
+        </testcase>
+    </testsuite>
+    <testsuite name="src/components/settings/__tests__/standardClause.test.ts" timestamp="2026-10-05T07:15:47.726Z" hostname="wang" tests="5" failures="0" errors="0" skipped="0" time="0.0044687">
+        <testcase classname="src/components/settings/__tests__/standardClause.test.ts" name="C71 standard clause panel &gt; test_standard_clause_page_crud" time="0.0025042">
+        </testcase>
+        <testcase classname="src/components/settings/__tests__/standardClause.test.ts" name="C71 standard clause panel &gt; test_standard_clause_readonly_role" time="0.0004172">
+        </testcase>
+        <testcase classname="src/components/settings/__tests__/standardClause.test.ts" name="C71 standard clause panel &gt; test_standard_clause_empty_state" time="0.0002778">
+        </testcase>
+        <testcase classname="src/components/settings/__tests__/standardClause.test.ts" name="C71 standard clause panel &gt; test_standard_clause_error_retry" time="0.0004206">
+        </testcase>
+        <testcase classname="src/components/settings/__tests__/standardClause.test.ts" name="C71 standard clause panel &gt; test_standard_clause_query_params" time="0.0001417">
+        </testcase>
+    </testsuite>
+</testsuites>

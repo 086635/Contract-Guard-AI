@@ -1,0 +1,70 @@
+{
+  "6916fa58-f76e-417d-822e-9e8299d6608e": {
+    "taskId": "af7fe5df-f99c-43e6-ae84-984ff3f5faea",
+    "stage": "finished",
+    "percent": 1.0,
+    "status": "DONE",
+    "result": {
+      "contractId": "6916fa58-f76e-417d-822e-9e8299d6608e",
+      "clauseCount": 44,
+      "parseOutcome": "SUCCESS",
+      "pageCount": 7,
+      "lineCount": 151,
+      "charCount": 4689,
+      "auditStatus": "FAILED",
+      "auditMessage": "当前使用离线模型，自动风险审核未完成；请人工复核或配置真实模型后重试。",
+      "auditTaskId": "358e8852-6631-414d-91d6-bee62992e0e2"
+    }
+  },
+  "f080aa79-11d7-40b7-9899-0a9a2675cea1": {
+    "taskId": "b782d4cc-6ca5-4797-98e9-08dc755c9789",
+    "stage": "finished",
+    "percent": 1.0,
+    "status": "DONE",
+    "result": {
+      "contractId": "f080aa79-11d7-40b7-9899-0a9a2675cea1",
+      "clauseCount": 26,
+      "parseOutcome": "SUCCESS",
+      "pageCount": 1,
+      "lineCount": 50,
+      "charCount": 851,
+      "auditStatus": "FAILED",
+      "auditMessage": "当前使用离线模型，自动风险审核未完成；请人工复核或配置真实模型后重试。",
+      "auditTaskId": "f16d6ba8-099f-452f-a028-c610451f184f"
+    }
+  },
+  "disabledValidationRules": [
+    {
+      "id": "a428b704-a679-4615-9f05-c3e5cd7be07f",
+      "enabled": false,
+      "version": 2,
+      "updatedAt": "2026-10-05T06:31:41.421595Z"
+    }
+  ],
+  "feedback": {
+    "total": 1,
+    "localValidationRecords": [
+      {
+        "id": "5645209e-1290-49be-84c9-faa6cd4fdf1e",
+        "contractId": "6916fa58-f76e-417d-822e-9e8299d6608e",
+        "targetType": "ELEMENT",
+        "targetId": "clause-0007",
+        "verdict": "CORRECT",
+        "userCorrection": "本地功能联调验证：已核对条款目录跳转到第 3 页原文；仅验证页面定位与反馈保存，不作法律审查结论。",
+        "reviewer": "E2E 管理员",
+        "isIncorporated": false,
+        "createdAt": "2026-10-05T06:50:25.567181Z"
+      }
+    ]
+  },
+  "report": {
+    "reportId": "2b02b5e6-779b-4192-acb8-ff7889791f60",
+    "contractId": "6916fa58-f76e-417d-822e-9e8299d6608e",
+    "status": "DONE",
+    "generatedAt": "2026-10-05T06:52:28.141191Z",
+    "wordBytes": 42770,
+    "wordSHA256": "331ad29405f8f57044ae6855c456773c5ec90c169fe4f07e8871063b031c35aa",
+    "pdfAvailable": false,
+    "auditNoticeIncluded": true
+  }
+}

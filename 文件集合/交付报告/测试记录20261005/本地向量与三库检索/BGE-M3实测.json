@@ -1,0 +1,13 @@
+{
+  "model": "bge-m3-local:q8",
+  "rows": 3,
+  "dim": [
+    1024,
+    1024,
+    1024
+  ],
+  "finite": true,
+  "related": 0.7372346021254093,
+  "unrelated": 0.3742436383466902,
+  "seconds": 14.04
+}

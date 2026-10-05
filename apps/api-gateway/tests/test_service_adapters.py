@@ -255,6 +255,29 @@ def test_celery_dispatcher_only_sends_registered_tasks() -> None:
         dispatcher.send("unknown_task")
 
 
+@pytest.mark.parametrize(
+    ("state", "info", "expected_stage", "expected_percent"),
+    [
+        ("SUCCESS", {"status": "DEGRADED"}, "finished", 1.0),
+        ("STARTED", {}, "processing", 0.0),
+        ("STARTED", {"stage": "ocr", "percent": 0.5}, "ocr", 0.5),
+    ],
+)
+def test_celery_snapshot_defaults_follow_task_state(
+    monkeypatch: pytest.MonkeyPatch,
+    state: str,
+    info: dict[str, object],
+    expected_stage: str,
+    expected_percent: float,
+) -> None:
+    client = FakeCelery()
+    monkeypatch.setattr(client, "AsyncResult", lambda task_id: SimpleNamespace(state=state, info=info))
+    snapshot = CeleryTaskDispatcher(client=client).get_status("task-1")  # type: ignore[arg-type]
+    assert snapshot is not None
+    assert snapshot.stage == expected_stage
+    assert snapshot.percent == expected_percent
+
+
 def test_redis_progress_broker_streams_until_terminal_status() -> None:
     channel = task_progress_channel("task-1")
     client = FakeRedis(

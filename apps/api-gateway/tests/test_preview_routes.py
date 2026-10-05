@@ -635,7 +635,13 @@ async def _exercise_preview_http(dsn: str) -> None:
             )
             app = FastAPI()
             app.include_router(contracts_router.router, prefix="/api/v1")
-            install_test_auth(app, session, role=Role.viewer)
+            user = install_test_auth(app, session, role=Role.viewer, persist_user=True)
+            from app.db.models import Contract
+
+            owned_contract = await session.get(Contract, contract_id)
+            assert owned_contract is not None
+            owned_contract.created_by_id = user.id
+            await session.commit()
             app.dependency_overrides[get_service_context] = lambda: context
             transport = ASGITransport(app=app)
             async with AsyncClient(

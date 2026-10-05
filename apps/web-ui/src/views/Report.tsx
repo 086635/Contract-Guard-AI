@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
+import { useContractStore } from "@/stores/contractStore";
+import { useAuthStore } from "@/stores/authStore";
 import Badge from "@/components/ui/Badge";
 import Button from "@/components/ui/Button";
 import Icon from "@/components/ui/Icon";
 import SectionHeader from "@/components/ui/SectionHeader";
 import { contractApi, reportApi, taskApi } from "@/api/services";
+import { getAuditScore } from "@/api/auditState";
 import type { components } from "@/api/generated/types";
 
 type Schemas = components["schemas"];
@@ -19,9 +22,11 @@ const statusOf = (reason: unknown): number | undefined => {
 const isNotFound = (reason: unknown): boolean => statusOf(reason) === 404;
 
 export default function Report() {
+  const user = useAuthStore((state) => state.user);
   const { contractId } = useParams();
   const selectedId = contractId ?? "";
   const [contract, setContract] = useState<Schemas["Contract"] | null>(null);
+  const [parse, setParse] = useState<Schemas["TaskProgress"] | null>(null);
   const [report, setReport] = useState<Schemas["ReportData"] | null>(null);
   const [task, setTask] = useState<Schemas["TaskProgress"] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -53,12 +58,15 @@ export default function Report() {
     }
     setLoading(true);
     setError(null);
-    const [detailResult, reportResult] = await Promise.allSettled([
+    const [detailResult, reportResult, parseResult] = await Promise.allSettled([
       contractApi.detail(selectedId),
       reportApi.get(selectedId),
+      contractApi.parseStatus(selectedId),
     ]);
     if (!activeRef.current) return;
+    if (parseResult.status === "fulfilled") setParse(parseResult.value);
     if (detailResult.status === "fulfilled") {
+      useContractStore.getState().setContract(selectedId);
       setContract(detailResult.value);
     } else {
       setError("合同详情加载失败，请稍后重试。");
@@ -151,12 +159,14 @@ export default function Report() {
   const generating = task?.status === "RUNNING" || report?.status === "RUNNING";
   const failed = task?.status === "FAILED" || report?.status === "FAILED";
   const canDownloadWord = Boolean(report?.wordDownloadUrl ?? report?.downloadUrl) && !generating;
-  const canDownloadPdf = Boolean(report) && !generating;
+  const canDownloadPdf = Boolean(report?.pdfDownloadUrl) && !generating;
   const pdfMissing = Boolean(report) && !report?.pdfDownloadUrl;
-  const reportStateLabel = generating ? "报告生成中" : failed ? "生成失败" : report?.status === "DONE" ? "审核已完成" : "尚未生成";
+  const canGenerate = user?.role !== "VIEWER" && parse?.status === "DONE" && !generating;
+  const generateHint = user?.role === "VIEWER" ? "查看者不能生成报告" : parse?.status !== "DONE" ? "请先完成合同解析" : "生成最新报告";
+  const reportStateLabel = generating ? "报告生成中" : failed ? "生成失败" : report?.status === "DONE" ? "报告已生成" : "尚未生成";
 
   return (
-    <div className="report-page">
+    <div className="report-page"><Link className="change-contract-link" to="/report">← 选择其他合同</Link>
       {error && <div className="audit-data-error"><Icon name="activity" size={17} /><span>{error}</span><Button size="sm" variant="secondary" onClick={() => void load()}>重新加载</Button></div>}
       {message && <div className="settings-message">{message}<button onClick={() => setMessage(null)} aria-label="关闭提示"><Icon name="x" size={14} /></button></div>}
       <SectionHeader
@@ -165,13 +175,14 @@ export default function Report() {
         description={`${contract?.fileName ?? "正在读取合同"} · ${report?.generatedAt ? new Date(report.generatedAt).toLocaleString("zh-CN") : "等待报告数据"}`}
         actions={
           <>
-            <Button variant="secondary" icon={<Icon name="refresh" size={16} />} onClick={() => void regenerate()} disabled={generating}>{generating ? `生成中 ${Math.round((task?.percent ?? 0) * 100)}%` : "重新生成"}</Button>
+            <Button variant="secondary" icon={<Icon name="refresh" size={16} />} onClick={() => void regenerate()} disabled={!canGenerate} title={generateHint}>{generating ? `生成中 ${Math.round((task?.percent ?? 0) * 100)}%` : "重新生成"}</Button>
             <Button variant="secondary" icon={<Icon name="download" size={16} />} onClick={() => openDownload("word")} disabled={!canDownloadWord}>下载 Word</Button>
             <Button icon={<Icon name="download" size={16} />} onClick={() => openDownload("pdf")} disabled={!canDownloadPdf}>下载 PDF</Button>
-            {pdfMissing && <span className="report-export-hint">PDF 未生成</span>}
+            {pdfMissing && <span className="report-export-hint">PDF 转换尚未就绪，可先下载 Word 或重新生成</span>}
           </>
         }
       />
+      {parse?.result?.auditStatus !== "DONE" && <div className="parse-status-banner"><div><strong>自动审核尚未完整完成，报告需要人工复核</strong><p>{String(parse?.result?.auditMessage ?? "请先进入审核工作台检查解析与审核状态；暂无风险记录不代表合同无风险。")}</p><Link to={`/contracts/${selectedId}/audit`}>进入审核工作台 →</Link></div></div>}
       {generating && <div className="report-progress"><span><i style={{ width: `${Math.max(4, (task?.percent ?? 0) * 100)}%` }} /></span><b>{task?.stage ?? "正在生成报告"}</b><em>{Math.round((task?.percent ?? 0) * 100)}%</em></div>}
       {loading ? (
         <div className="audit-loading"><div className="state-spinner" /><span>正在读取报告与合同数据…</span></div>
@@ -180,7 +191,7 @@ export default function Report() {
           <div>
             <Icon name="book" size={22} />
             <p>{failed ? "报告生成失败，请重新生成。" : "该合同尚未生成报告。"}</p>
-            <Button variant="secondary" size="sm" onClick={() => void regenerate()}>生成报告</Button>
+            <Button variant="secondary" size="sm" onClick={() => void regenerate()} disabled={!canGenerate} title={generateHint}>生成报告</Button>
           </div>
         </div>
       ) : (
@@ -200,9 +211,9 @@ export default function Report() {
               <h2>合同智能审核报告</h2><p>{contract?.fileName ?? "合同文件"}</p>
               <div className="cover-meta"><span>合同类型<b>{contract?.contractType ?? "—"}</b></span><span>审核版本<b>v{contract?.version ?? 1}.0</b></span><span>报告日期<b>{report.generatedAt ? new Date(report.generatedAt).toLocaleDateString("zh-CN") : "—"}</b></span></div>
             </div>
-            <div className="report-section" ref={sectionRefs.overview}><div className="report-section-heading"><span>01</span><div><h3>风险概览</h3><p>基于合同文本、法条知识库及规则引擎综合评估</p></div></div><div className="report-score-grid"><div className="big-score"><div className="score-ring large">{contract?.healthScore.overall ?? "—"}<small>/100</small></div><div><b>综合健康分</b><span>优先处理高风险项，再完成条款一致性复核</span></div></div>{(["HIGH","MEDIUM","LOW"] as const).map((level) => <div className={`report-stat ${level.toLowerCase()}`} key={level}><b>{contract?.risks.filter((item) => item.level === level).length ?? 0}</b><span>{level === "HIGH" ? "高风险" : level === "MEDIUM" ? "中风险" : "低风险"}</span></div>)}</div></div>
-            <div className="report-section" ref={sectionRefs.risks}><div className="report-section-heading"><span>02</span><div><h3>重点风险清单</h3><p>共 {contract?.risks.length ?? 0} 个风险条款需要人工确认</p></div></div>{contract?.risks.length ? contract.risks.map((risk) => <div className="report-risk-line" key={risk.id}><Badge tone={risk.level === "HIGH" ? "high" : risk.level === "MEDIUM" ? "medium" : "low"} dot>{risk.level === "HIGH" ? "高风险" : risk.level === "MEDIUM" ? "中风险" : "低风险"}</Badge><div><b>{risk.title}</b><p>{risk.suggestion}</p><small>{risk.legalBasis}</small></div><span>待确认</span></div>) : <div className="compact-empty">未发现需要列示的风险</div>}</div>
-            <div className="report-section" ref={sectionRefs.missing}><div className="report-section-heading"><span>03</span><div><h3>缺失条款提醒</h3><p>与标准合同模板对比后的缺口</p></div></div>{contract?.missingClauses.length ? contract.missingClauses.map((item) => <div className="report-detail-card" key={item.id}><b>{item.title}</b><p>{item.reason}</p><span>{item.suggestion}</span></div>) : <div className="compact-empty">未发现关键条款缺失</div>}</div>
+            <div className="report-section" ref={sectionRefs.overview}><div className="report-section-heading"><span>01</span><div><h3>风险概览</h3><p>依据当前保存的审核记录展示；未完成审核时需人工复核</p></div></div><div className="report-score-grid"><div className="big-score"><div className="score-ring large">{getAuditScore(parse) ?? "—"}<small>/100</small></div><div><b>综合健康分</b><span>优先处理高风险项，再完成条款一致性复核</span></div></div>{(["HIGH","MEDIUM","LOW"] as const).map((level) => <div className={`report-stat ${level.toLowerCase()}`} key={level}><b>{contract?.risks.filter((item) => item.level === level).length ?? 0}</b><span>{level === "HIGH" ? "高风险" : level === "MEDIUM" ? "中风险" : "低风险"}</span></div>)}</div></div>
+            <div className="report-section" ref={sectionRefs.risks}><div className="report-section-heading"><span>02</span><div><h3>重点风险清单</h3><p>共 {contract?.risks.length ?? 0} 个风险条款需要人工确认</p></div></div>{contract?.risks.length ? contract.risks.map((risk) => <div className="report-risk-line" key={risk.id}><Badge tone={risk.level === "HIGH" ? "high" : risk.level === "MEDIUM" ? "medium" : "low"} dot>{risk.level === "HIGH" ? "高风险" : risk.level === "MEDIUM" ? "中风险" : "低风险"}</Badge><div><b>{risk.title}</b><p>{risk.suggestion}</p><small>{risk.legalBasis}</small></div><span>待确认</span></div>) : <div className="compact-empty">当前没有风险记录，请确认审核状态并人工复核</div>}</div>
+            <div className="report-section" ref={sectionRefs.missing}><div className="report-section-heading"><span>03</span><div><h3>缺失条款提醒</h3><p>与标准合同模板对比后的缺口</p></div></div>{contract?.missingClauses.length ? contract.missingClauses.map((item) => <div className="report-detail-card" key={item.id}><b>{item.title}</b><p>{item.reason}</p><span>{item.suggestion}</span></div>) : <div className="compact-empty">暂无缺失条款记录，需确认审核是否已执行</div>}</div>
             <div className="report-section" ref={sectionRefs.seals}><div className="report-section-heading"><span>04</span><div><h3>签署合规校验</h3><p>印章、签名与合同主体一致性检查</p></div></div>{contract?.seals.map((seal) => <div className="report-detail-card" key={seal.id}><div><Badge tone={seal.status === "VALID" ? "success" : "high"} dot>{seal.status}</Badge><b>{seal.extractedText ?? "未识别签章"}</b></div><p>{seal.complianceNote}</p><span>第 {seal.page} 页 · 置信度 {Math.round(seal.confidence * 100)}%</span></div>)}</div>
           </article>
         </div>

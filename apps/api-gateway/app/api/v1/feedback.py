@@ -2,24 +2,56 @@
 
 from __future__ import annotations
 
+from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
-from app.api.deps import get_service_context
+from app.api.deps import (
+    get_audit_service,
+    get_service_context,
+    require_roles,
+    write_audit_event,
+)
+from app.db.models import AuditAction, AuditOutcome
+from app.db.repository.auth import UserRecord
 from app.generated.schemas import (
     FeedbackCreateBody,
+    FeedbackExportResponse,
     FeedbackListData,
     FeedbackListResponse,
     FeedbackResponse,
     FeedbackVerdict,
+    Role,
     TargetType,
 )
+from app.services.audit_service import AuditService
 from app.services.context import ServiceContext
 from app.services.envelope import build_success_response
-from app.services.feedback_service import FeedbackService, FeedbackValidationError
+from app.services.feedback_service import (
+    FeedbackExportError,
+    FeedbackService,
+    FeedbackValidationError,
+)
 
 router = APIRouter(prefix="/feedback", tags=["Feedback"])
+
+
+@router.post("/export", response_model=FeedbackExportResponse)
+async def export_feedback(
+    request: Request,
+    user: Annotated[UserRecord, Depends(require_roles(Role.admin))],
+    audit: Annotated[AuditService, Depends(get_audit_service)],
+    context: ServiceContext = Depends(get_service_context),
+) -> FeedbackExportResponse:
+    """管理员导出完整标注集，文件和下载地址由服务器实际生成。"""
+    try:
+        data = await FeedbackService(context).export_csv(user.id)
+    except FeedbackExportError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    await write_audit_event(audit, request, AuditAction.export, "FEEDBACK_CSV", AuditOutcome.success, actor_id=user.id, actor_role=user.role, metadata={"recordCount": data.record_count})
+    await context.session.commit()
+    return build_success_response(FeedbackExportResponse, data)
 
 
 @router.get("", response_model=FeedbackListResponse, status_code=status.HTTP_200_OK)

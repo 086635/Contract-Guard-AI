@@ -1,0 +1,12 @@
+{
+  "symptom": "审核长期停在 classify 0%",
+  "blockedThread": "ThreadPoolExecutor",
+  "stackEvidence": [
+    "truststore._windows._get_and_verify_cert_chain",
+    "httpcore2 start_tls",
+    "openai request",
+    "langchain_openai _generate"
+  ],
+  "fix": "DeepSeek 同步/异步客户端显式使用 certifi 标准 SSLContext，验证证书和主机名，保留系统代理及原超时；本机 Ollama 回环直连。",
+  "verification": "新后台审核风险/矛盾阶段均 OK；健康分 20，真实引用 220 条。"
+}

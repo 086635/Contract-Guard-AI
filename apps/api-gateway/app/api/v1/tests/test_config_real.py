@@ -85,6 +85,8 @@ async def _exercise_config_routes(dsn: str) -> None:
                 )
                 assert created.status_code == 200
                 created_data = created.json()["data"]
+                assert created_data["version"] == 2
+                payload["version"] = created_data["version"]
                 assert created_data["id"] == str(rule_id)
                 assert created_data["promptConfig"]["roleName"] == "采购合同审查员"
                 assert created_data["enabled"] is True

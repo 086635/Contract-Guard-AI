@@ -9,6 +9,7 @@ from ai_engine.agents.tools import build_rag_tool, truncate_query
 from rag_contracts.agent_tool import EMPTY_CONTEXT_HINT, TOOL_NAME
 from rag_contracts.enums import (
     ChunkType,
+    ContractType,
     FallbackReason,
     SourceType,
 )
@@ -85,6 +86,88 @@ class _StubService:
         if isinstance(outcome, Exception):
             raise outcome
         return outcome
+
+
+def test_generic_law_is_retrieved_without_contract_type_and_injected() -> None:
+    standard = _doc()
+    law = standard.model_copy(
+        update={
+            "chunk_id": "law-577",
+            "doc_id": "civil-code",
+            "source_type": SourceType.LAW_ARTICLE,
+            "text": "当事人不履行合同义务，应承担违约责任。",
+            "citation": standard.citation.model_copy(
+                update={
+                    "sourceType": SourceType.LAW_ARTICLE,
+                    "sourceTitle": "民法典第五百七十七条",
+                }
+            ),
+        }
+    )
+    tool, service = _tool([_response(docs=[standard]), _response(docs=[law])])
+    result = tool(
+        "买方逾期付款",
+        contract_type=ContractType.PURCHASE,
+        source_types=[SourceType.STANDARD_CLAUSE, SourceType.LAW_ARTICLE],
+    )
+    assert service.requests[0].filters.contract_type == ContractType.PURCHASE
+    assert service.requests[0].filters.source_types == [SourceType.STANDARD_CLAUSE]
+    assert service.requests[1].filters.contract_type is None
+    assert service.requests[1].filters.source_types == [SourceType.LAW_ARTICLE]
+    assert {c.sourceType for c in result.citations} == {
+        SourceType.STANDARD_CLAUSE,
+        SourceType.LAW_ARTICLE,
+    }
+    assert "标准条款正文" in result.context_block
+    assert "当事人不履行合同义务" in result.context_block
+    assert result.status == "OK"
+
+
+def test_law_only_clears_contract_filter() -> None:
+    tool, service = _tool([_response(docs=[_doc()])])
+    tool(
+        "合同违约责任",
+        contract_type=ContractType.NDA,
+        source_types=[SourceType.LAW_ARTICLE],
+    )
+    assert len(service.requests) == 1
+    assert service.requests[0].filters.contract_type is None
+
+
+def test_partial_library_is_degraded_but_keeps_available_context() -> None:
+    tool, _ = _tool(
+        [
+            _response(docs=[_doc()]),
+            _response(degraded=True, fallback_reason=FallbackReason.EMPTY_RECALL),
+        ]
+    )
+    result = tool(
+        "合同违约责任",
+        contract_type=ContractType.PURCHASE,
+        source_types=[SourceType.STANDARD_CLAUSE, SourceType.LAW_ARTICLE],
+    )
+    assert result.status == "DEGRADED"
+    assert len(result.citations) == 1
+    assert "标准条款正文" in result.context_block
+    assert any("通用法条未召回" in warning for warning in result.warnings)
+
+
+def test_combined_context_citations_follow_injected_budget() -> None:
+    standard = _doc().model_copy(update={"text": "付款责任" * 100})
+    law = standard.model_copy(
+        update={"chunk_id": "law", "source_type": SourceType.LAW_ARTICLE}
+    )
+    tool, _ = _tool(
+        [_response(docs=[standard]), _response(docs=[law])],
+        settings=_settings(max_context_tokens=256),
+    )
+    result = tool(
+        "合同违约责任",
+        contract_type=ContractType.PURCHASE,
+        source_types=[SourceType.STANDARD_CLAUSE, SourceType.LAW_ARTICLE],
+    )
+    assert len(result.citations) == result.context_block.count("[section=")
+    assert len(result.citations) == 1
 
 
 def _tool(

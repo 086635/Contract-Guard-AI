@@ -152,8 +152,114 @@ def test_generate_builds_payload_offline(monkeypatch: pytest.MonkeyPatch) -> Non
     asyncio.run(_exercise_generate_payload(monkeypatch))
 
 
+@pytest.mark.parametrize(
+    "audit_status,snapshot_status,overall,expected",
+    [
+        ("DONE", "DONE", 72, True),
+        ("DEGRADED", "DONE", 72, True),
+        ("FAILED", "DONE", 72, False),
+        ("RUNNING", "RUNNING", 72, False),
+        ("DONE", "DONE", 55, False),
+        ("DONE", "DONE", True, False),
+    ],
+)
+def test_report_includes_only_current_completed_audit_score(
+    monkeypatch: pytest.MonkeyPatch,
+    audit_status: str,
+    snapshot_status: str,
+    overall: object,
+    expected: bool,
+) -> None:
+    async def exercise() -> None:
+        contract_id, audit_id = uuid4(), uuid4()
+        session = cast(AsyncSession, AsyncMock())
+        health = {
+            "overall": overall,
+            "dimensions": {
+                "compliance": 70,
+                "performanceRisk": 75,
+                "clauseCompleteness": 70,
+            },
+            "api_key": "must-not-forward",
+        }
+        dispatcher = FakeDispatcher(
+            status=TaskStatusSnapshot(
+                status=snapshot_status,
+                stage="finished",
+                percent=1.0,
+                result={"healthScore": health},
+            )
+        )
+        monkeypatch.setattr(
+            ContractRepository,
+            "get",
+            AsyncMock(return_value=SimpleNamespace(id=contract_id)),
+        )
+        for method in ("risks", "conflicts", "elements"):
+            monkeypatch.setattr(ResultService, method, AsyncMock(return_value=[]))
+        monkeypatch.setattr(
+            ResultService,
+            "parse_status",
+            AsyncMock(
+                return_value=s.TaskProgress(
+                    taskId=str(uuid4()),
+                    stage="finished",
+                    percent=1.0,
+                    status=s.Status.done,
+                    result={
+                        "auditStatus": audit_status,
+                        "auditScore": 72,
+                        "auditTaskId": str(audit_id),
+                    },
+                )
+            ),
+        )
+        monkeypatch.setattr(
+            TaskRepository,
+            "get_latest_by_contract",
+            AsyncMock(
+                return_value=SimpleNamespace(id=audit_id, celery_task_id="audit-celery")
+            ),
+        )
+        monkeypatch.setattr(
+            TaskRepository,
+            "create",
+            AsyncMock(
+                return_value=SimpleNamespace(
+                    id=uuid4(), stage="queued", progress=0.0, status=s.Status.running
+                )
+            ),
+        )
+        await _service(session, dispatcher=dispatcher, storage=FakeStorage()).generate(
+            contract_id
+        )
+        payload = cast(dict[str, Any], dispatcher.calls[0][1][1])
+        assert ("healthScore" in payload) is expected
+        if expected:
+            assert payload["healthScore"] == {
+                "overall": 72,
+                "dimensions": health["dimensions"],
+            }
+            assert "api_key" not in payload["healthScore"]
+
+    asyncio.run(exercise())
+
+
 async def _exercise_generate_payload(monkeypatch: pytest.MonkeyPatch) -> None:
     contract_id = uuid4()
+    monkeypatch.setattr(
+        ResultService,
+        "parse_status",
+        AsyncMock(
+            return_value=s.TaskProgress(
+                taskId=str(uuid4()),
+                stage="finished",
+                percent=1,
+                status=s.Status.done,
+                result={"auditStatus": "FAILED", "auditMessage": "离线模型未完成审核"},
+            )
+        ),
+    )
     session = cast(AsyncSession, AsyncMock())
     dispatcher = FakeDispatcher()
     storage = FakeStorage()
@@ -206,6 +312,8 @@ async def _exercise_generate_payload(monkeypatch: pytest.MonkeyPatch) -> None:
     assert payload["conflicts"] == [{"id": "conflict-1"}]
     assert payload["elements"] == [{"key": "partyA"}]
     assert "generatedAt" in payload
+    assert payload["auditStatus"] == "FAILED"
+    assert payload["auditNotice"] == "离线模型未完成审核"
     cast(AsyncMock, session.commit).assert_awaited()
 
 
@@ -392,6 +500,9 @@ def test_get_existing_report_presign_failure_offline(
 
 async def _exercise_presign_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     contract_id = uuid4()
+    monkeypatch.setattr(
+        TaskRepository, "get_latest_by_contract", AsyncMock(return_value=None)
+    )
     session = cast(AsyncSession, AsyncMock())
     report = _report_record(contract_id)
     monkeypatch.setattr(

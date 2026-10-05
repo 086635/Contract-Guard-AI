@@ -489,6 +489,13 @@ class ParsePipeline:
             outcome.status = "FAILED"
             self._stage(outcome, "failed", "FAILED", detail=str(exc))
         except Exception as exc:  # noqa: BLE001 - 兜底：任何异常都转 FAILED 信封，绝不抛给 broker
+            import traceback
+
+            log_event(
+                _LOG, "parse.exception", level="ERROR", trace_id=trace_id,
+                contract_id=contract_id, error_type=type(exc).__name__,
+                traceback=traceback.format_exc(),
+            )
             degraded.append(f"解析异常（{type(exc).__name__}）：{exc!r}")
             outcome.status = "FAILED"
             self._stage(outcome, "failed", "FAILED", detail=repr(exc))
@@ -700,9 +707,9 @@ class ParsePipeline:
             self._mark_seal_missing(degraded)
             return
         if kind is RouteKind.IMAGE:
-            import cv2  # 读图为 BGR（与 3-3 的引擎入口同约定）
+            from doc_processor.ocr.engine import LocalOcrEngine
 
-            image = cv2.imread(str(source), cv2.IMREAD_COLOR)
+            image = LocalOcrEngine._read_image(source)
             if image is not None:
                 self._collect_seals_image(
                     image,

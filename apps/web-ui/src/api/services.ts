@@ -31,6 +31,8 @@ const apiBase = (import.meta.env.VITE_API_BASE_URL || "/api/v1").replace(/\/$/, 
 //   · 错误体统一用 `ApiError` 校验（兼容期只上报形状漂移，保留 detail 回退）。
 // ============================================================================
 export const OPERATION_SCHEMAS = {
+  getKnowledgeSources: schemas.KnowledgeSourcesResponse,
+  searchKnowledge: schemas.KnowledgeSearchResponse,
   login: schemas.TokenResponse,
   refresh: schemas.TokenResponse,
   logout: schemas.LogoutResponse,
@@ -45,6 +47,7 @@ export const OPERATION_SCHEMAS = {
   commitContract: schemas.CommitResultResponse,
   presignUpload: schemas.PresignResponse,
   uploadContract: schemas.ContractUploadResponse,
+  retryContractParse: schemas.ContractUploadResponse,
   getContractPreview: schemas.PreviewResponse,
   retryContractPreview: schemas.ContractUploadResponse,
   getTask: schemas.TaskProgressResponse,
@@ -54,6 +57,7 @@ export const OPERATION_SCHEMAS = {
   listRules: schemas.SettingsRulesResponse,
   getRule: schemas.SettingsRuleResponse,
   updateRule: schemas.SettingsRuleResponse,
+  createRule: schemas.SettingsRuleResponse,
   listStandardClauses: schemas.StandardClauseListResponse,
   createStandardClause: schemas.StandardClauseResponse,
   updateStandardClause: schemas.StandardClauseResponse,
@@ -115,6 +119,7 @@ export const authApi = {
 };
 
 export const contractApi = {
+  async retryParse(contractId: string): Promise<TaskProgress> { return unwrap(await httpClient.post<Envelope<TaskProgress>>(`/contracts/${contractId}/parse/retry`, {}, { _operationId: "retryContractParse" })); },
   async list(params: { page?: number; pageSize?: number; status?: Schemas["ContractStatus"]; contractType?: Schemas["ContractType"] } = {}): Promise<ContractListData> {
     const response = await httpClient.get<Envelope<ContractListData>>("/contracts", { _operationId: "listContracts", params: { page: params.page, page_size: params.pageSize, status: params.status, contract_type: params.contractType } });
     return unwrap(response);
@@ -355,6 +360,7 @@ export const reportApi = {
 };
 
 export const settingsApi = {
+  async create(body: SystemAuditConfiguration): Promise<SystemAuditConfiguration> { return unwrap(await httpClient.post<Envelope<SystemAuditConfiguration>>("/settings/rules", body, { _operationId: "createRule" })); },
   async list(contractType?: Schemas["ContractType"]): Promise<SystemAuditConfiguration[]> { return unwrap(await httpClient.get<Envelope<SystemAuditConfiguration[]>>("/settings/rules", { _operationId: "listRules", params: { contract_type: contractType } })); },
   async get(configId: string): Promise<SystemAuditConfiguration> { return unwrap(await httpClient.get<Envelope<SystemAuditConfiguration>>(`/settings/rules/${configId}`, { _operationId: "getRule" })); },
   async update(configId: string, body: SystemAuditConfiguration): Promise<SystemAuditConfiguration> { return unwrap(await httpClient.put<Envelope<SystemAuditConfiguration>>(`/settings/rules/${configId}`, body, { _operationId: "updateRule" })); },
@@ -387,6 +393,17 @@ export const standardClauseApi = {
 };
 
 export const feedbackApi = {
+  async export(): Promise<Schemas["FeedbackExportData"]> { return unwrap(await httpClient.post<Envelope<Schemas["FeedbackExportData"]>>("/feedback/export", {}, { _operationId: "exportFeedback" })); },
+  async listAll(): Promise<Schemas["FeedbackListData"]> {
+    const first = await feedbackApi.list({ page: 1, pageSize: 100 });
+    const items = [...first.items];
+    for (let page = 2; items.length < first.total; page += 1) {
+      const next = await feedbackApi.list({ page, pageSize: 100 });
+      items.push(...next.items);
+      if (!next.items.length) break;
+    }
+    return { ...first, items };
+  },
   async list(
     params: {
       contractId?: string;

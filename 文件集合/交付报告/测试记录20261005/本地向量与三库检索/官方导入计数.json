@@ -1,0 +1,12 @@
+{
+  "sourceDocuments": 3,
+  "chunks": 1330,
+  "lawChunks": 1260,
+  "standardChunks": 70,
+  "lawIndexed": 1260,
+  "clauses": {
+    "created": 0,
+    "existing": 70,
+    "indexed": 70
+  }
+}

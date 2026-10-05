@@ -4,6 +4,7 @@ import Button from "@/components/ui/Button";
 import Icon from "@/components/ui/Icon";
 import SectionHeader from "@/components/ui/SectionHeader";
 import { feedbackApi } from "@/api/services";
+import { useAuthStore } from "@/stores/authStore";
 import type { components } from "@/api/generated/types";
 
 type Schemas = components["schemas"];
@@ -29,14 +30,14 @@ const TARGET_LABEL: Record<Schemas["TargetType"], string> = {
   ELEMENT: "要素",
 };
 
-const csvCell = (value: unknown): string => `"${String(value ?? "").replace(/"/g, '""')}"`;
-
 const formatTime = (value: string): string => {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString("zh-CN");
 };
 
 export default function Feedback() {
+  const canExport = useAuthStore((state) => state.hasRole("ADMIN"));
+  const [exporting, setExporting] = useState(false);
   const [data, setData] = useState<Schemas["FeedbackListData"] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -49,7 +50,7 @@ export default function Feedback() {
     setLoading(true);
     setError(null);
     try {
-      const result = await feedbackApi.list({ page: 1, pageSize: 100 });
+      const result = await feedbackApi.listAll();
       if (!activeRef.current) return;
       setData(result);
     } catch (reason) {
@@ -89,30 +90,19 @@ export default function Feedback() {
   const incorporatedRate = items.length ? Math.round((incorporatedCount / items.length) * 100) : 0;
   const pendingCount = items.filter((item) => !item.isIncorporated).length;
 
-  const exportCsv = () => {
-    if (!items.length) return;
-    const header = ["反馈ID", "合同ID", "目标类型", "目标ID", "判定", "用户修正", "审核人", "是否采纳", "创建时间"];
-    const rows = items.map((item) => [
-      item.id,
-      item.contractId,
-      TARGET_LABEL[item.targetType],
-      item.targetId,
-      VERDICT_LABEL[item.verdict],
-      item.userCorrection ?? "",
-      item.reviewer ?? "",
-      item.isIncorporated ? "是" : "否",
-      item.createdAt,
-    ]);
-    const csv = "\uFEFF" + [header, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n");
-    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `feedback-export-${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(url);
-    setMessage(`已导出 ${items.length} 条反馈记录。`);
+  const exportCsv = async () => {
+    if (!items.length || exporting || !canExport) return;
+    setExporting(true);
+    try {
+      const data = await feedbackApi.export();
+      if (!activeRef.current) return;
+      window.open(data.downloadUrl, "_blank", "noopener,noreferrer");
+      setMessage(`已生成 ${data.recordCount} 条反馈记录的下载文件。`);
+    } catch (reason) {
+      if (activeRef.current) setMessage(reason instanceof Error ? reason.message : "导出失败，请重试。");
+    } finally {
+      if (activeRef.current) setExporting(false);
+    }
   };
 
   return (
@@ -121,7 +111,7 @@ export default function Feedback() {
         eyebrow="HUMAN-IN-THE-LOOP · FEEDBACK"
         title="反馈中心"
         description="每一次人工确认，都会让下一次审核更准确。"
-        actions={<Button variant="secondary" icon={<Icon name="download" size={16} />} onClick={exportCsv} disabled={!items.length || loading}>导出标注集</Button>}
+        actions={<Button variant="secondary" icon={<Icon name="download" size={16} />} onClick={() => void exportCsv()} disabled={!canExport || !items.length || loading || exporting} title={canExport ? "导出完整标注集" : "完整标注集导出需要管理员权限"}>{exporting ? "正在生成…" : "导出标注集"}</Button>}
       />
       {message && <div className="settings-message">{message}<button onClick={() => setMessage(null)} aria-label="关闭提示"><Icon name="x" size={14} /></button></div>}
       <div className="feedback-stats">
@@ -149,7 +139,7 @@ export default function Feedback() {
           filteredItems.map((item: FeedbackItem) => (
             <div className="feedback-row" key={item.id}>
               <div className="feedback-symbol"><Icon name="activity" size={18} /></div>
-              <div><b>{TARGET_LABEL[item.targetType]} · {item.targetId}</b><span>{item.contractId} · {formatTime(item.createdAt)}</span></div>
+              <div><b>{item.targetType === "ELEMENT" && item.targetId.startsWith("clause-") ? "条款" : TARGET_LABEL[item.targetType]} · {item.targetId}</b><span>{item.contractId} · {formatTime(item.createdAt)}</span>{item.userCorrection && <p>{item.userCorrection}</p>}</div>
               <Badge tone={VERDICT_TONE[item.verdict]} dot>{VERDICT_LABEL[item.verdict]}</Badge>
               <span className="feedback-reviewer">{item.reviewer ?? "未署名"}</span>
               <Badge tone={item.isIncorporated ? "success" : "medium"} dot>{item.isIncorporated ? "已采纳" : "待处理"}</Badge>

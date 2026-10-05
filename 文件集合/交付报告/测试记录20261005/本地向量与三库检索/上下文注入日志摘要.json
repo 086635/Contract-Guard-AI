@@ -1,0 +1,306 @@
+{
+  "traceId": "e88342d9bc204ff48dad7e1fe2d545a7",
+  "context_injections": [
+    {
+      "ts": "2026-10-05T12:51:00.586Z",
+      "standard_docs": 3,
+      "law_docs": 2,
+      "context_tokens": 1212,
+      "truncated": false
+    },
+    {
+      "ts": "2026-10-05T12:51:07.628Z",
+      "standard_docs": 3,
+      "law_docs": 2,
+      "context_tokens": 1287,
+      "truncated": false
+    },
+    {
+      "ts": "2026-10-05T12:51:15.593Z",
+      "standard_docs": 3,
+      "law_docs": 2,
+      "context_tokens": 1229,
+      "truncated": false
+    },
+    {
+      "ts": "2026-10-05T12:51:23.697Z",
+      "standard_docs": 3,
+      "law_docs": 2,
+      "context_tokens": 1311,
+      "truncated": false
+    },
+    {
+      "ts": "2026-10-05T12:51:30.335Z",
+      "standard_docs": 3,
+      "law_docs": 2,
+      "context_tokens": 1406,
+      "truncated": false
+    },
+    {
+      "ts": "2026-10-05T12:51:37.641Z",
+      "standard_docs": 3,
+      "law_docs": 2,
+      "context_tokens": 1314,
+      "truncated": false
+    },
+    {
+      "ts": "2026-10-05T12:51:46.449Z",
+      "standard_docs": 3,
+      "law_docs": 2,
+      "context_tokens": 1216,
+      "truncated": false
+    },
+    {
+      "ts": "2026-10-05T12:51:52.887Z",
+      "standard_docs": 3,
+      "law_docs": 2,
+      "context_tokens": 1506,
+      "truncated": false
+    },
+    {
+      "ts": "2026-10-05T12:52:00.348Z",
+      "standard_docs": 3,
+      "law_docs": 2,
+      "context_tokens": 1536,
+      "truncated": false
+    },
+    {
+      "ts": "2026-10-05T12:52:12.890Z",
+      "standard_docs": 3,
+      "law_docs": 2,
+      "context_tokens": 1434,
+      "truncated": false
+    },
+    {
+      "ts": "2026-10-05T12:52:18.435Z",
+      "standard_docs": 3,
+      "law_docs": 2,
+      "context_tokens": 1315,
+      "truncated": false
+    },
+    {
+      "ts": "2026-10-05T12:52:24.173Z",
+      "standard_docs": 3,
+      "law_docs": 2,
+      "context_tokens": 1444,
+      "truncated": false
+    },
+    {
+      "ts": "2026-10-05T12:52:30.704Z",
+      "standard_docs": 3,
+      "law_docs": 2,
+      "context_tokens": 1342,
+      "truncated": false
+    },
+    {
+      "ts": "2026-10-05T12:52:40.874Z",
+      "standard_docs": 3,
+      "law_docs": 2,
+      "context_tokens": 1393,
+      "truncated": false
+    },
+    {
+      "ts": "2026-10-05T12:52:49.930Z",
+      "standard_docs": 3,
+      "law_docs": 2,
+      "context_tokens": 1552,
+      "truncated": false
+    },
+    {
+      "ts": "2026-10-05T12:53:02.481Z",
+      "standard_docs": 3,
+      "law_docs": 2,
+      "context_tokens": 1256,
+      "truncated": false
+    },
+    {
+      "ts": "2026-10-05T12:53:08.663Z",
+      "standard_docs": 3,
+      "law_docs": 2,
+      "context_tokens": 1309,
+      "truncated": false
+    },
+    {
+      "ts": "2026-10-05T12:53:21.462Z",
+      "standard_docs": 3,
+      "law_docs": 2,
+      "context_tokens": 1809,
+      "truncated": false
+    },
+    {
+      "ts": "2026-10-05T12:53:26.927Z",
+      "standard_docs": 3,
+      "law_docs": 2,
+      "context_tokens": 1385,
+      "truncated": false
+    },
+    {
+      "ts": "2026-10-05T12:53:39.818Z",
+      "standard_docs": 3,
+      "law_docs": 2,
+      "context_tokens": 1461,
+      "truncated": false
+    },
+    {
+      "ts": "2026-10-05T12:53:46.873Z",
+      "standard_docs": 3,
+      "law_docs": 2,
+      "context_tokens": 1701,
+      "truncated": false
+    },
+    {
+      "ts": "2026-10-05T12:53:53.256Z",
+      "standard_docs": 3,
+      "law_docs": 2,
+      "context_tokens": 1576,
+      "truncated": false
+    },
+    {
+      "ts": "2026-10-05T12:54:04.539Z",
+      "standard_docs": 3,
+      "law_docs": 2,
+      "context_tokens": 1452,
+      "truncated": false
+    },
+    {
+      "ts": "2026-10-05T12:54:11.041Z",
+      "standard_docs": 3,
+      "law_docs": 2,
+      "context_tokens": 1340,
+      "truncated": false
+    },
+    {
+      "ts": "2026-10-05T12:54:21.074Z",
+      "standard_docs": 3,
+      "law_docs": 2,
+      "context_tokens": 1479,
+      "truncated": false
+    },
+    {
+      "ts": "2026-10-05T12:54:31.201Z",
+      "standard_docs": 3,
+      "law_docs": 2,
+      "context_tokens": 1346,
+      "truncated": false
+    },
+    {
+      "ts": "2026-10-05T12:54:37.408Z",
+      "standard_docs": 3,
+      "law_docs": 2,
+      "context_tokens": 1498,
+      "truncated": false
+    },
+    {
+      "ts": "2026-10-05T12:54:45.164Z",
+      "standard_docs": 3,
+      "law_docs": 2,
+      "context_tokens": 1634,
+      "truncated": false
+    },
+    {
+      "ts": "2026-10-05T12:54:55.328Z",
+      "standard_docs": 3,
+      "law_docs": 2,
+      "context_tokens": 1445,
+      "truncated": false
+    },
+    {
+      "ts": "2026-10-05T12:55:01.761Z",
+      "standard_docs": 3,
+      "law_docs": 2,
+      "context_tokens": 1535,
+      "truncated": false
+    },
+    {
+      "ts": "2026-10-05T12:55:07.695Z",
+      "standard_docs": 3,
+      "law_docs": 2,
+      "context_tokens": 1597,
+      "truncated": false
+    },
+    {
+      "ts": "2026-10-05T12:55:13.831Z",
+      "standard_docs": 3,
+      "law_docs": 2,
+      "context_tokens": 1511,
+      "truncated": false
+    },
+    {
+      "ts": "2026-10-05T12:55:20.763Z",
+      "standard_docs": 3,
+      "law_docs": 2,
+      "context_tokens": 1330,
+      "truncated": false
+    },
+    {
+      "ts": "2026-10-05T12:55:27.237Z",
+      "standard_docs": 3,
+      "law_docs": 2,
+      "context_tokens": 1566,
+      "truncated": false
+    },
+    {
+      "ts": "2026-10-05T12:55:34.536Z",
+      "standard_docs": 3,
+      "law_docs": 2,
+      "context_tokens": 1633,
+      "truncated": false
+    },
+    {
+      "ts": "2026-10-05T12:55:44.845Z",
+      "standard_docs": 3,
+      "law_docs": 2,
+      "context_tokens": 1453,
+      "truncated": false
+    },
+    {
+      "ts": "2026-10-05T12:55:51.240Z",
+      "standard_docs": 3,
+      "law_docs": 2,
+      "context_tokens": 1506,
+      "truncated": false
+    },
+    {
+      "ts": "2026-10-05T12:55:58.452Z",
+      "standard_docs": 3,
+      "law_docs": 2,
+      "context_tokens": 1388,
+      "truncated": false
+    },
+    {
+      "ts": "2026-10-05T12:56:09.640Z",
+      "standard_docs": 3,
+      "law_docs": 2,
+      "context_tokens": 1444,
+      "truncated": false
+    },
+    {
+      "ts": "2026-10-05T12:56:18.045Z",
+      "standard_docs": 3,
+      "law_docs": 2,
+      "context_tokens": 1175,
+      "truncated": false
+    },
+    {
+      "ts": "2026-10-05T12:56:24.268Z",
+      "standard_docs": 3,
+      "law_docs": 2,
+      "context_tokens": 1334,
+      "truncated": false
+    },
+    {
+      "ts": "2026-10-05T12:56:31.437Z",
+      "standard_docs": 3,
+      "law_docs": 2,
+      "context_tokens": 1188,
+      "truncated": false
+    },
+    {
+      "ts": "2026-10-05T12:56:38.404Z",
+      "standard_docs": 3,
+      "law_docs": 2,
+      "context_tokens": 1212,
+      "truncated": false
+    }
+  ]
+}

@@ -32,6 +32,7 @@ from rag_contracts.query import (
     TokenUsage,
 )
 from rag_core.config import RagSettings, get_settings
+from rag_core.context_builder import ContextBuilder
 from rag_core.factory import build_service_from_settings
 from rag_core.service import RAGService
 
@@ -220,7 +221,7 @@ class RagTool:
 
         for attempt_index in range(total_attempts):
             try:
-                response = self._service.retrieve(request)
+                response = self._retrieve_sources(request)
             except Exception as exc:  # noqa: BLE001 - 工具契约要求永不抛异常
                 last_reason = FallbackReason.STORE_UNAVAILABLE
                 warnings.append(f"RAG 调用失败：{type(exc).__name__}: {str(exc)[:200]}")
@@ -279,6 +280,103 @@ class RagTool:
             warnings=warnings,
             fallback_reason=last_reason,
             token_usage=accumulated_usage,
+        )
+
+    def _retrieve_sources(self, request: RAGQueryRequest) -> RAGQueryResponse:
+        """通用法条不受合同类型过滤；分组召回复用原服务与上下文预算。"""
+        sources = request.filters.source_types
+        if request.filters.contract_type is None or (
+            sources is not None and SourceType.LAW_ARTICLE not in sources
+        ):
+            return self._service.retrieve(request)
+        other_sources = [
+            source
+            for source in (sources or list(SourceType))
+            if source != SourceType.LAW_ARTICLE
+        ]
+        law_request = request.model_copy(
+            update={
+                "filters": request.filters.model_copy(
+                    update={
+                        "source_types": [SourceType.LAW_ARTICLE],
+                        "contract_type": None,
+                    }
+                ),
+            }
+        )
+        if not other_sources:
+            return self._service.retrieve(law_request)
+        other_request = request.model_copy(
+            update={
+                "filters": request.filters.model_copy(
+                    update={"source_types": other_sources}
+                ),
+            }
+        )
+        responses = [
+            self._service.retrieve(other_request),
+            self._service.retrieve(law_request),
+        ]
+        groups = [response.retrieved_docs for response in responses]
+        # 保留各来源原排序，交替保留依据，避免法条或范本独占上下文。
+        docs = []
+        seen = set()
+        for offset in range(max(map(len, groups), default=0)):
+            for group in groups:
+                if offset < len(group) and group[offset].chunk_id not in seen:
+                    docs.append(group[offset])
+                    seen.add(group[offset].chunk_id)
+        docs = docs[: request.top_k]
+        context = ContextBuilder().build(docs, request.max_context_tokens)
+        docs = docs[: context.injected_chunks]
+        usage = TokenUsage()
+        warnings = []
+        for label, response in zip(
+            ("同类标准条款", "通用法条"), responses, strict=True
+        ):
+            _accumulate_usage(usage, response.token_usage)
+            warnings.extend(response.warnings)
+            if not response.retrieved_docs:
+                warnings.append(f"{label}未召回可核对依据，请人工复核")
+        degraded = any(
+            response.degraded or not response.retrieved_docs for response in responses
+        )
+        fallback = next(
+            (
+                response.fallback_reason
+                for response in responses
+                if response.fallback_reason != FallbackReason.NONE
+            ),
+            FallbackReason.NONE,
+        )
+        log_event(
+            _LOG,
+            "rag_tool.context",
+            trace_id=request.trace_id,
+            standard_docs=sum(
+                doc.source_type == SourceType.STANDARD_CLAUSE for doc in docs
+            ),
+            law_docs=sum(doc.source_type == SourceType.LAW_ARTICLE for doc in docs),
+            context_tokens=context.context_tokens,
+            truncated=context.truncated,
+        )
+        combined_usage = TokenUsage(estimated=usage.estimated)
+        combined_usage.add(
+            embedding_tokens=usage.embedding_tokens,
+            rerank_tokens=usage.rerank_tokens,
+            prompt_tokens=context.context_tokens,
+        )
+        return RAGQueryResponse(
+            trace_id=request.trace_id,
+            query=request.query,
+            retrieved_docs=docs,
+            context_block=context.context_block,
+            context_tokens=context.context_tokens,
+            truncated=context.truncated,
+            degraded=degraded,
+            fallback_reason=fallback,
+            warnings=warnings,
+            token_usage=combined_usage,
         )
 
     @staticmethod

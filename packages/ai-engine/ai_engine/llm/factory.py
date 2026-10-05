@@ -8,9 +8,13 @@
 
 from __future__ import annotations
 
+import ssl
 import threading
 from typing import Any
+from urllib.parse import urlsplit
 
+import certifi
+import httpx
 from langchain_core.language_models.chat_models import BaseChatModel
 from pydantic import SecretStr
 
@@ -64,6 +68,33 @@ def build_chat_model(
         base_url = resolved.base_url or _PROVIDER_BASE_URLS.get(provider)
         from langchain_openai import ChatOpenAI
 
+        provider_options: dict[str, Any] = {}
+        if provider in {"deepseek", "ollama"}:
+            # ChatOpenAI 会把 max_tokens 改名；兼容服务仍消费原字段。
+            extra_body: dict[str, Any] = {"max_tokens": resolved.max_tokens}
+            if provider == "deepseek" and resolved.json_mode == "json_mode":
+                extra_body["thinking"] = {"type": "disabled"}
+            provider_options["extra_body"] = extra_body
+        if provider == "deepseek":
+            # 显式信任根避免 Windows 系统证书链获取在线程池中长期阻塞。
+            # 仍验证服务器证书与主机名，并沿用部署的系统代理。
+            provider_options["http_socket_options"] = ()
+            tls_context = ssl.create_default_context(cafile=certifi.where())
+            provider_options["http_client"] = httpx.Client(
+                verify=tls_context, trust_env=True, timeout=resolved.timeout_s
+            )
+            provider_options["http_async_client"] = httpx.AsyncClient(
+                verify=tls_context, trust_env=True, timeout=resolved.timeout_s
+            )
+        if provider == "ollama" and urlsplit(base_url or "").hostname in {
+            "localhost",
+            "127.0.0.1",
+            "::1",
+        }:
+            # 本机推理直接回环连接，不受系统代理设置影响。
+            provider_options["http_client"] = httpx.Client(trust_env=False)
+            provider_options["http_async_client"] = httpx.AsyncClient(trust_env=False)
+
         model = ChatOpenAI(
             model=resolved.model,
             temperature=model_temperature,
@@ -78,6 +109,7 @@ def build_chat_model(
                 "cg_llm_json_mode": resolved.json_mode,
                 "cg_llm_allow_external_data": resolved.allow_external_data,
             },
+            **provider_options,
         )
     else:
         raise LlmConfigError(

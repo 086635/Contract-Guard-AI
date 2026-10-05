@@ -1,0 +1,201 @@
+{
+  "created_at": "2026-10-05T18:47:37.349203",
+  "source": "C:\\Users\\13695\\Documents\\ChatGPT\\A24-原仓库完整副本",
+  "destination": "C:\\Users\\13695\\Documents\\ChatGPT\\服务外包",
+  "files": [
+    {
+      "path": "apps/api-gateway/app/api/v1/tests/test_contract_query_real.py",
+      "before_sha256": "77bb032dd21db9f079f2f0741acb98e963b63f8497e8020eb63dd8dc8dc92eec",
+      "after_sha256": "a6cd9c204ab9b5c1ed0e731c3cc1c7620128ab0aa726a3ad9b80f192af14689f"
+    },
+    {
+      "path": "apps/api-gateway/app/api/v1/tests/test_report_real.py",
+      "before_sha256": "f177f9705d4143f8585e75f7fbf51bb1e02adee69698fa157b408dde52e937dc",
+      "after_sha256": "c20edc518b5c906eade2911f0d159eb5e1da0cf6393278ebb5bb16edb52d8514"
+    },
+    {
+      "path": "apps/api-gateway/app/services/contract_service.py",
+      "before_sha256": "1bf36a1ff798ae43e4d2b9f8a4c39c47f9c7a8d7612f7d8c837484cb3204da16",
+      "after_sha256": "25c2d42402e2992d325fe81f88a8014654cf0441819fb39fb80fba2817b525e4"
+    },
+    {
+      "path": "apps/api-gateway/app/services/projector.py",
+      "before_sha256": "b87e5eb237ce7a1ef2470570b6bfd51caa5952d2c41656d95f08222c7e0fed1a",
+      "after_sha256": "7e45b2a38a2820caf186a6b10c04bf54c8d952e737d786911010fbd1c0089650"
+    },
+    {
+      "path": "apps/api-gateway/app/services/report_service.py",
+      "before_sha256": "9515b84f26925e8df79a70fb662708d877b7c2da39d4ff588b10a8ee53fdb768",
+      "after_sha256": "c8ae462d484460ef311696dca0ea8c084098c6d72b3bb2825f4d8be5987b6057"
+    },
+    {
+      "path": "apps/api-gateway/app/services/result_service.py",
+      "before_sha256": "3168b61e1b26498c7ac2749efc4e06810116e20004adc29ad8d1f1f694d00353",
+      "after_sha256": "653a6d6a1d875dc9965a559039a18ed0f46029163ea61d313b832d663e7e0d54"
+    },
+    {
+      "path": "apps/api-gateway/tests/test_ingestion_audit.py",
+      "before_sha256": "d065b668a862b9480a98724d402daa940fd7af5c478ca0cf22c1d7348e3d8951",
+      "after_sha256": "47a649f3d5e287067edf94299e63b73591122da34c8de48858d3c9afe7ae48a2"
+    },
+    {
+      "path": "apps/api-gateway/tests/test_result_status_snapshot.py",
+      "before_sha256": "e8181c93651763017d8b7e5f5607f0d57b706e641032f8124838b034b7a2b0f3",
+      "after_sha256": "d5c98102450202cd39c0008cfd421f7f3fc9740d6edf1119f2eb9bb969af12ca"
+    },
+    {
+      "path": "apps/async-worker/tests/test_run_audit.py",
+      "before_sha256": "b4295f1ee81aee1d73472fbd5e91ac7801fb87200e5e077137dff5cfdd1aa1dc",
+      "after_sha256": "1bfc90f668b4e0c80b173cdcd8bde605cfca42a642c75ac63f8c8c7705c6cbad"
+    },
+    {
+      "path": "apps/async-worker/worker/tasks/run_audit.py",
+      "before_sha256": "4c67c84bff1b38c668d0ac485feecc4e7f812be1a67a09a3f791624afe18d046",
+      "after_sha256": "cd34242b57f16d0844a8ed15dc44506ccbf191a8ee0b9549e2877f5c6b2f1c22"
+    },
+    {
+      "path": "apps/web-ui/dist/.gitkeep",
+      "before_sha256": null,
+      "after_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "apps/web-ui/dist/assets/index-BqxzH2_S.js",
+      "before_sha256": null,
+      "after_sha256": "7bd296c83c1fb593c8b6b1bf52fb6c42425c5ca45c39c7037645ded7aa7b3d79"
+    },
+    {
+      "path": "apps/web-ui/dist/assets/index-CSpQTIlf.css",
+      "before_sha256": null,
+      "after_sha256": "e6ae8f1d6e2d72e58e5588a2b9678c0fcca91330f881d0e8b55c166b7356ee13"
+    },
+    {
+      "path": "apps/web-ui/dist/assets/pdf-BnPRJEQ6.js",
+      "before_sha256": null,
+      "after_sha256": "95caf357c819e3766dabfccd6dca160b603e673a386e5fe1c18a21fa0bb3a539"
+    },
+    {
+      "path": "apps/web-ui/dist/assets/pdf.worker.min-yatZIOMy.mjs",
+      "before_sha256": null,
+      "after_sha256": "1baa1844c89c80a5b2797c916e75ab29254be46d8e9cb53cb6364d7aad84be36"
+    },
+    {
+      "path": "apps/web-ui/dist/index.html",
+      "before_sha256": null,
+      "after_sha256": "632e0372aaf964dc3c60bcb8f10d8708112e1c1dacb8303a38ffa8def04b0500"
+    },
+    {
+      "path": "apps/web-ui/src/api/auditState.ts",
+      "before_sha256": null,
+      "after_sha256": "98582dcbe5ec35dfe257765f9d10229efab9e5a944c1ae9e2593a2b9948f5e09"
+    },
+    {
+      "path": "apps/web-ui/src/views/Audit.tsx",
+      "before_sha256": "628c637f928ed956a2ef68a3e62020f95286339a9b3dea266df64aab8b959e12",
+      "after_sha256": "239959e305ca11f6a4dc851b2be98f28fde017e65bab4d85066cf5b785e9bb78"
+    },
+    {
+      "path": "apps/web-ui/src/views/Report.tsx",
+      "before_sha256": "ecfaebaced87715782eae386778509268fa5d220d723f93fa9de87b367f5693d",
+      "after_sha256": "89d7cbbdca15407cd19e7be72b03b8e22b02c17efc8bf893b9baf2ff72984623"
+    },
+    {
+      "path": "apps/web-ui/src/views/__tests__/iteration.test.tsx",
+      "before_sha256": "5c0204f9343a3e08602709744f8bf43826cba962795f764b98f04e1f0724cee4",
+      "after_sha256": "3edc65c20771f135f72643f8f2b24f834a789536fccc18874d79d9c52e71d4ad"
+    },
+    {
+      "path": "packages/ai-engine/ai_engine/graphs/nodes.py",
+      "before_sha256": "a0600fcdc443be736373e40f7451b453b620e6e96e7510c542177cbeb9ab75ce",
+      "after_sha256": "ff9d805ddaa1e6791261e1e67bae18d54cbcbe2088fd08570f6bc6416609420f"
+    },
+    {
+      "path": "packages/ai-engine/ai_engine/llm/factory.py",
+      "before_sha256": "705f44c42b00ed13c8de41155fdc7b7d6827e6b7fb22c0fa64bd8543ec95edad",
+      "after_sha256": "0bb0beee9953f0eccfc92a126c1f3c22f1c4bc3315f3c684a07217d0c1dc110c"
+    },
+    {
+      "path": "packages/ai-engine/ai_engine/llm/structured.py",
+      "before_sha256": "78e02462bfe205a7e5d5d1b9ef5efd37a5457236a4f020e4c8cc57a50f750650",
+      "after_sha256": "719fa3b050abf70a0cce33fc5c6a0279de7f0f2e560aaf4c077c7336bca37688"
+    },
+    {
+      "path": "packages/ai-engine/ai_engine/prompts/templates/risk.prompt",
+      "before_sha256": "6afe402bf52176740dd5db5db2c26b82b3af91d5477ab7e7c4a4278b89f881ec",
+      "after_sha256": "cb9ce359e9512c7030d71a5145daf58f95ba4f2138b27df5b859a21756f9efb6"
+    },
+    {
+      "path": "packages/ai-engine/tests/test_conflict_compare_nodes.py",
+      "before_sha256": "49dab20f96ccc45793a5afc85cf7ece92c7d81926fe1e0b864967e8a06bb5ee0",
+      "after_sha256": "ed635289fa7760dbf076a2a39466f5b7f480d58ac5c32f5ce30b38adbbecfa53"
+    },
+    {
+      "path": "packages/ai-engine/tests/test_llm_factory.py",
+      "before_sha256": "729f3b06c34ac04f4cae64da256e97915b1b132629b80dfa7b2eab1dfeb63de9",
+      "after_sha256": "4fc600c4c8aee098218d7483adbaded56a506b116b5835a8f1294dd91c581028"
+    },
+    {
+      "path": "文件集合/codex/0.施工标准与定义归属.md",
+      "before_sha256": "ce4f82be0eee708dea228f82f098bca7669c8d19451b998910e49b67dab3e1c9",
+      "after_sha256": "d0d306fdd9b8cff3d6b3444f7fdef594667da9682e5a6e7ad86e4337baa98d6c"
+    },
+    {
+      "path": "文件集合/codex/2.C7矛盾与比对节点.md",
+      "before_sha256": "c6cf9bb2c15219d449ae578df513e6fbc54dcb6e91d9a4be2d955892009abb71",
+      "after_sha256": "4bb7ab62256163ec70d0fe140e7658ccc15456ade35353be461cced3cf4c45ae"
+    },
+    {
+      "path": "文件集合/codex/4-6智能审核模型接线20261005.md",
+      "before_sha256": null,
+      "after_sha256": "d3b3a0e3ce0054b205cbb63dcaf304e8a7f6918ae8670f3bead560cea4fa6095"
+    },
+    {
+      "path": "文件集合/codex/4.交付模块.md",
+      "before_sha256": "4683fa885836490f9ad070c6dfb9b24ef198a4b1f3fe02905303b638d0ad6712",
+      "after_sha256": "dcbcb5e520a6fa2bb1cae2713f81d995d492c65d0560669644359790b70a21bc"
+    },
+    {
+      "path": "文件集合/交付报告/智能审核启动完成报告20261005.md",
+      "before_sha256": null,
+      "after_sha256": "37b1b176fa7ef410ae673a349944b3909c44cac097b1fabd7071264a35f54956"
+    },
+    {
+      "path": "文件集合/交付报告/测试记录20261005/智能审核接线/Python全量测试.log",
+      "before_sha256": null,
+      "after_sha256": "c178d3dbc6b93e0ee04a79d6191979b8b899f0833eb510c8830fcf146f1c202b"
+    },
+    {
+      "path": "文件集合/交付报告/测试记录20261005/智能审核接线/前端构建.log",
+      "before_sha256": null,
+      "after_sha256": "3275da90946ed71c8a459614e5a3ebe99da7e7f780259fa67353c5f93e245d21"
+    },
+    {
+      "path": "文件集合/交付报告/测试记录20261005/智能审核接线/前端测试.log",
+      "before_sha256": null,
+      "after_sha256": "3c7cd163ba85e2868edd90ac273644450cc94e1b915416b51803ef19caef0075"
+    },
+    {
+      "path": "文件集合/交付报告/测试记录20261005/智能审核接线/改动文件静态检查.log",
+      "before_sha256": null,
+      "after_sha256": "a4443afdcfb6d7363adb285762515ccf7cf50473b1a05c20c1a50f6bed4d26b0"
+    },
+    {
+      "path": "文件集合/交付报告/测试记录20261005/智能审核接线/框架与本地算法核对.json",
+      "before_sha256": null,
+      "after_sha256": "59cd21e6d135661f2dcea0a23a5cbda5e1270709a05b616900e3a4d7acf55c4d"
+    },
+    {
+      "path": "文件集合/交付报告/测试记录20261005/智能审核接线/测试统计.json",
+      "before_sha256": null,
+      "after_sha256": "1a5bda98b75391bebb305a691c520da0c184fce9ebacab82c1c41a0712ca87a9"
+    },
+    {
+      "path": "文件集合/交付报告/测试记录20261005/智能审核接线/真实模型与审核验收.json",
+      "before_sha256": null,
+      "after_sha256": "75a2e3dd59152a4544d7208ebb596b52676c3d7514610c0eb59ed0e018cf072f"
+    }
+  ],
+  "source_changes_preserved": true,
+  "framework_preserved": true,
+  "local_algorithms_preserved": true,
+  "credential_in_deliverables": false
+}

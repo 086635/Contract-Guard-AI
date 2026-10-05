@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from pathlib import Path
 from typing import Any
@@ -21,7 +22,7 @@ import numpy as np
 import pytest
 
 from doc_processor.config import OcrSettings
-from doc_processor.errors import OcrEngineUnavailableError
+from doc_processor.errors import OcrEngineUnavailableError, RenderFailedError
 from doc_processor.ocr.engine import (
     LocalOcrEngine,
     build_ocr_engine,
@@ -34,6 +35,28 @@ _FIXTURES = Path(__file__).resolve().parent / "fixtures"
 # 一行文本的四点框（左上 / 右上 / 右下 / 左下），像素坐标：300x60
 _BOX = [[300.0, 600.0], [600.0, 600.0], [600.0, 660.0], [300.0, 660.0]]
 _IMAGE = np.full((1200, 900, 3), 255, dtype=np.uint8)
+
+
+def test_image_reader_supports_chinese_paths(tmp_path: Path) -> None:
+    import cv2
+
+    folder = tmp_path / "中文 图片目录"
+    folder.mkdir()
+    path = folder / "中文图片.png"
+    expected = np.full((2, 3, 3), [10, 20, 30], dtype=np.uint8)
+    ok, encoded = cv2.imencode(".png", expected)
+    assert ok
+    path.write_bytes(encoded.tobytes())
+    np.testing.assert_array_equal(LocalOcrEngine._read_image(path), expected)
+
+
+@pytest.mark.parametrize("contents", [None, b"", b"not an image"])
+def test_image_reader_keeps_unreadable_file_errors(tmp_path: Path, contents: bytes | None) -> None:
+    path = tmp_path / "不可读.png"
+    if contents is not None:
+        path.write_bytes(contents)
+    with pytest.raises(RenderFailedError):
+        LocalOcrEngine._read_image(path)
 
 
 class _StubEngine:
@@ -222,7 +245,7 @@ def test_out_of_page_box_filtered() -> None:
     assert texts == ["页内"]
 
 
-def test_timeout_marks_page_skipped(caplog: pytest.LogCaptureFixture) -> None:
+def test_timeout_marks_page_skipped(caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch) -> None:
     """超时 → 该页返回 `[]` 且记录 `ocr.page.timeout`（不抛异常）。"""
 
     class _SlowEngine:
@@ -230,6 +253,7 @@ def test_timeout_marks_page_skipped(caplog: pytest.LogCaptureFixture) -> None:
             time.sleep(1.5)
             return _payload_c([[_BOX, "太慢了", 0.99]])
 
+    monkeypatch.setattr(logging.getLogger("doc_processor.ocr.engine"), "propagate", True)
     engine = LocalOcrEngine(_settings(timeout_s=1))
     engine._impl = _SlowEngine()
     with caplog.at_level("INFO", logger="doc_processor.ocr.engine"):

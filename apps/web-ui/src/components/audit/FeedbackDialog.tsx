@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 import Button from "@/components/ui/Button";
 import Icon from "@/components/ui/Icon";
+import { useAuthStore } from "@/stores/authStore";
 import { feedbackApi } from "@/api/services";
 import type { components } from "@/api/generated/types";
 
 type Verdict = components["schemas"]["FeedbackVerdict"];
 
-export default function FeedbackDialog({ contractId, targetId, targetLabel, onClose, onSubmitted }: { contractId: string; targetId: string; targetLabel: string; onClose: () => void; onSubmitted: (message: string) => void }) {
+export default function FeedbackDialog({ contractId, targetId, targetLabel, targetType = "RISK", onClose, onSubmitted }: { contractId: string; targetId: string; targetLabel: string; targetType?: components["schemas"]["TargetType"]; onClose: () => void; onSubmitted: (message: string) => void }) {
+  const user = useAuthStore((state) => state.user);
   const [verdict, setVerdict] = useState<Verdict>("CORRECT");
   const [correction, setCorrection] = useState("");
   const [loading, setLoading] = useState(false);
@@ -15,7 +17,7 @@ export default function FeedbackDialog({ contractId, targetId, targetLabel, onCl
   const submit = async () => {
     setLoading(true); setError(null);
     try {
-      await feedbackApi.create({ contractId, targetId, targetType: "RISK", verdict, reviewer: "王钘宇", userCorrection: correction.trim() || null });
+      await feedbackApi.create({ contractId, targetId, targetType, verdict, reviewer: user?.displayName || user?.username || null, userCorrection: correction.trim() || null });
       onSubmitted("反馈已提交，将进入后续规则优化样本。"); onClose();
     } catch (reason) { setError(reason instanceof Error ? reason.message : "反馈提交失败，请稍后重试。"); }
     finally { setLoading(false); }

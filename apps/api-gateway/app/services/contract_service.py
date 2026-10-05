@@ -43,8 +43,10 @@ from app.generated.schemas import (
 )
 from app.services.context import ServiceContext
 from app.services.dispatch import TaskKind
+from app.services.ingestion import IngestionService
 from app.services.projector import ContractProjector
 from app.services.storage import UploadObjectError, validate_upload_object
+from app.services.task_service import TaskService
 from rag_contracts.enums import ContractType
 
 #: 单文件大小上限（唯一处；C56 §⑥ 沿用既有 50 MB 约定）。
@@ -169,6 +171,68 @@ class ContractService:
             result={"contractId": str(contract.id)},
         )
 
+    async def retry_parse(self, contract_id: UUID, user: UserRecord) -> TaskProgress:
+        """Reprocess the stored file; serialize concurrent retries on its contract row."""
+        owner_id, include_all = owner_scope(user)
+        contract = await self._contracts.get(
+            contract_id, owner_id=owner_id, include_all=include_all, for_update=True
+        )
+        if contract is None:
+            raise UploadObjectError(404, "contract not found")
+        if contract.status == ContractStatus.finalized:
+            raise UploadObjectError(409, "已定稿合同不能重新解析，请上传新的版本")
+        body = UploadBody(
+            fileName=contract.filename,
+            fileKey=contract.storage_path,
+            fileType=ContractProjector._file_type(contract.filename),
+            sizeBytes=contract.file_size,
+        )
+        task_kind, task_args = _dispatch_target(body, str(contract_id))
+        if settings.upload_av_mode == "clamav":
+            await IngestionService(self._context).link_scanned_parse(contract_id)
+        for pending_kind in dict.fromkeys((task_kind, TaskKind.PARSE_DOC)):
+            latest = await self._tasks.get_latest_by_contract(
+                contract_id, pending_kind.name
+            )
+            if latest is not None:
+                current = await TaskService(self._context).get(latest.id)
+                if current is not None and current.status == s.Status.running:
+                    await self._context.session.commit()
+                    return current
+        audit = await self._tasks.get_latest_by_contract(
+            contract_id, TaskKind.RUN_AUDIT.name
+        )
+        if audit is not None:
+            current_audit = await TaskService(self._context).get(audit.id)
+            if current_audit is not None and current_audit.status == s.Status.running:
+                raise UploadObjectError(409, "审核任务正在运行，请完成后再重新解析")
+        info = self._context.object_storage.stat_object(contract.storage_path)
+        validate_upload_object(
+            contract.storage_path,
+            info,
+            expected_size=contract.file_size,
+            max_bytes=MAX_UPLOAD_BYTES,
+        )
+        task = await self._tasks.create(contract_id, task_kind.name, None)
+        try:
+            celery_id = self._context.task_dispatcher.send(task_kind, args=task_args)
+        except Exception as exc:
+            await self._tasks.mark_failed(
+                task.id, error_code="DISPATCH_FAILED", error_message=type(exc).__name__
+            )
+            await self._context.session.commit()
+            raise
+        task = await self._tasks.attach_celery_task_id(task.id, celery_id)
+        await self._contracts.update_status(contract_id, ContractStatus.parsing)
+        await self._context.session.commit()
+        return TaskProgress(
+            taskId=str(task.id),
+            stage=task.stage,
+            percent=task.progress,
+            status=task.status,
+            result={"contractId": str(contract_id)},
+        )
+
     async def list(
         self,
         page: int,
@@ -211,6 +275,12 @@ class ContractService:
         )
         if detail is None:
             return None
+        if await IngestionService(self._context).finalize_audit(contract_id):
+            detail = await self._contracts.get(
+                contract_id, owner_id=owner_id, include_all=include_all
+            )
+            if detail is None:
+                return None
         elements = await self._elements.list_by_contract(contract_id)
         risks = await self._risks.list_by_contract(contract_id)
         conflicts = await self._risks.list_conflicts_by_contract(contract_id)

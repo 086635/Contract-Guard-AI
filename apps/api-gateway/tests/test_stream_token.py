@@ -305,7 +305,8 @@ async def _exercise_stream_http(dsn: str) -> None:
 
             app = FastAPI()
             app.include_router(tasks_router.router, prefix="/api/v1")
-            install_test_auth(app, session)
+            install_test_auth(app, session, persist_user=True)
+            await session.commit()
             app.dependency_overrides[get_service_context] = lambda: service_context(
                 session,
                 task_dispatcher=cast(Any, _DoneDispatcher()),

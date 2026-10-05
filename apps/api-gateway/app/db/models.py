@@ -419,6 +419,11 @@ class SettingsRule(Base):
     review_thresholds: Mapped[dict[str, float]] = mapped_column(
         JSON, default=_default_review_thresholds, nullable=False
     )
+    editor_state: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=_utc_now, onupdate=_utc_now, nullable=True
+    )
 
 
 class User(Base):

@@ -880,6 +880,13 @@ components:
         page: { type: integer, minimum: 1 }
         pageSize: { type: integer, minimum: 1, maximum: 100 }
         hasMore: { type: boolean }
+    FeedbackExportData:
+      type: object
+      description: 已生成的真实反馈 CSV 下载文件
+      required: [downloadUrl, recordCount]
+      properties:
+        downloadUrl: { type: string }
+        recordCount: { type: integer, minimum: 0 }
     TaskProgress:
       type: object
       description: 长耗时任务进度（§5.4）
@@ -1114,6 +1121,13 @@ components:
           required: [data]
           properties:
             data: { $ref: "#/components/schemas/FeedbackListData" }
+    FeedbackExportResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiEnvelopeBase"
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: "#/components/schemas/FeedbackExportData" }
     RewriteResponse:
       allOf:
         - $ref: "#/components/schemas/ApiEnvelopeBase"
@@ -1164,6 +1178,75 @@ components:
           required: [data]
           properties:
             data: { $ref: "#/components/schemas/CurrentUser" }
+
+    KnowledgeSource:
+      type: object
+      required: [doc_id, library, title, code, source_url, scope, published, effective_date, sha256, article_count]
+      properties:
+        doc_id: { type: string }
+        library: { type: string, enum: [standard, law] }
+        title: { type: string }
+        code: { type: string }
+        source_url: { type: string, format: uri }
+        scope: { type: string }
+        published: { type: string }
+        effective_date: { type: [string, "null"] }
+        sha256: { type: string }
+        article_count: { type: [integer, "null"], minimum: 0 }
+    KnowledgeSourcesData:
+      type: object
+      required: [sources, standardDocuments, lawDocuments, lawArticles, enabledClauses, embedding, generation, notice]
+      properties:
+        sources: { type: array, items: { $ref: "#/components/schemas/KnowledgeSource" } }
+        standardDocuments: { type: integer, minimum: 0 }
+        lawDocuments: { type: integer, minimum: 0 }
+        lawArticles: { type: integer, minimum: 0 }
+        enabledClauses: { type: integer, minimum: 0 }
+        notice: { type: string }
+        embedding:
+          type: object
+          required: [mode, model, dimension, status]
+          properties:
+            mode: { type: string }
+            model: { type: string }
+            dimension: { type: integer, minimum: 1 }
+            status: { type: string }
+        generation:
+          type: object
+          required: [provider, model]
+          properties:
+            provider: { type: string }
+            model: { type: string }
+    KnowledgeCitation:
+      allOf:
+        - $ref: "#/components/schemas/PreciseCitation"
+        - type: object
+          required: [sourceUrl, scope]
+          properties:
+            sourceUrl: { type: [string, "null"], format: uri }
+            scope: { type: string }
+    KnowledgeSearchData:
+      type: object
+      required: [status, items, warnings, contextTokens]
+      properties:
+        status: { type: string, enum: [OK, DEGRADED, EMPTY] }
+        items: { type: array, items: { $ref: "#/components/schemas/KnowledgeCitation" } }
+        warnings: { type: array, items: { type: string } }
+        contextTokens: { type: integer, minimum: 0 }
+    KnowledgeSourcesResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiEnvelopeBase"
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: "#/components/schemas/KnowledgeSourcesData" }
+    KnowledgeSearchResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiEnvelopeBase"
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: "#/components/schemas/KnowledgeSearchData" }
 
     StandardClauseListResponse:
       allOf:
@@ -1637,6 +1720,26 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "500": { $ref: "#/components/responses/Internal" }
 
+  /contracts/{contractId}/parse/retry:
+    post:
+      tags: [Contracts]
+      summary: 重新解析已存储的合同文件（ADMIN/REVIEWER，运行中复用任务）
+      operationId: retryContractParse
+      parameters:
+        - { name: contractId, in: path, required: true, schema: { type: string } }
+        - { name: X-Request-ID, in: header, required: true, schema: { type: string }, description: 幂等 UUID }
+      responses:
+        "202":
+          description: 解析任务已提交或仍在运行
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ContractUploadResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "500": { $ref: "#/components/responses/Internal" }
+
   /contracts/{contractId}/parse-status:
     get:
       tags: [Contracts]
@@ -1766,6 +1869,28 @@ paths:
         "500": { $ref: "#/components/responses/Internal" }
 
   /settings/rules:
+    post:
+      tags: [Config]
+      summary: 创建真实审查规则（ADMIN）
+      operationId: createRule
+      parameters:
+        - { name: X-Request-ID, in: header, required: true, schema: { type: string }, description: 幂等 UUID }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SystemAuditConfiguration" }
+      responses:
+        "201":
+          description: 创建成功
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SettingsRuleResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/BadRequest" }
+        "500": { $ref: "#/components/responses/Internal" }
     get:
       tags: [Config]
       summary: 读取系统规则配置（§8.3）
@@ -1818,6 +1943,22 @@ paths:
         "409": { $ref: "#/components/responses/Conflict" }
         "500": { $ref: "#/components/responses/Internal" }
 
+  /feedback/export:
+    post:
+      tags: [Feedback]
+      summary: 生成完整反馈标注 CSV 下载文件（管理员）
+      operationId: exportFeedback
+      parameters:
+        - { name: X-Request-ID, in: header, required: true, schema: { type: string }, description: 幂等 UUID }
+      responses:
+        "200":
+          description: 下载文件已生成
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FeedbackExportResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/Internal" }
   /feedback:
     get:
       tags: [Feedback]
@@ -1857,6 +1998,37 @@ paths:
               schema: { $ref: "#/components/schemas/FeedbackResponse" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "409": { $ref: "#/components/responses/FeedbackExists" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+  /knowledge/sources:
+    get:
+      tags: [Admin]
+      summary: 三库官方来源和真实语义服务状态（ADMIN）
+      operationId: getKnowledgeSources
+      responses:
+        "200":
+          description: 官方初始库来源、条款数量及模型运行状态
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/KnowledgeSourcesResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/Internal" }
+  /knowledge/search:
+    get:
+      tags: [Admin]
+      summary: 真实检索预览（ADMIN，只检索，不调用生成模型）
+      operationId: searchKnowledge
+      parameters:
+        - { name: query, in: query, required: true, schema: { type: string, minLength: 2, maxLength: 2000 } }
+        - { name: library, in: query, schema: { type: string, enum: [all, clauses, law], default: all } }
+        - { name: contractType, in: query, schema: { $ref: "#/components/schemas/ContractType" } }
+      responses:
+        "200":
+          description: 来源引用、相关度和实际降级提示
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/KnowledgeSearchResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
         "500": { $ref: "#/components/responses/Internal" }
 
   /tasks/{taskId}:
