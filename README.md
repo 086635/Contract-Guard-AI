@@ -1,6 +1,6 @@
 # Contract-Guard-AI · 企业合同智能审核与风险预警系统
 
-> 基于大模型的企业合同智能审核与风险预警系统（赛题【A24】· 网新恒天）
+> 基于大模型的企业合同智能审核与风险预警系统
 > 架构风格：**Polyglot Monorepo（多语言单仓）** —— 前端 `pnpm workspace` + 后端 / AI 引擎 `uv workspace`
 
 ---
